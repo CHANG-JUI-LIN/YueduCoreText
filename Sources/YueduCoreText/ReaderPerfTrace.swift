@@ -28,7 +28,7 @@ public enum ReaderPerfStage: String, CaseIterable, Sendable {
 
     /// The static interval name written to Points of Interest.
     ///
-    /// This value always contains the same text as ``rawValue``.
+    /// This value always contains the same text as `rawValue`.
     public var signpostName: StaticString {
         switch self {
         case .chapterLoad: "chapter.load"

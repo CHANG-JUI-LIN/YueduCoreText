@@ -41,7 +41,7 @@ Run:
 
 ```bash
 xcodebuild test \
-  -scheme YueduCoreText \
+  -scheme YueduCoreText-Package \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
   -parallel-testing-enabled NO \
   -only-testing:'YueduCoreTextTests/ReaderContentMetricsTests'
@@ -92,7 +92,7 @@ git commit -m "feat: add content metrics core API"
 
 - [ ] **Step 1: Write failing public-API tests**
 
-Create tests using `import YueduCoreText` that cover forward and reverse selections, clamping, start/end handle crossing, clearing invalid ranges, and UTF-16 substring extraction:
+Create tests using `import YueduCoreText` that cover forward and reverse selections, clamping, endpoint-token handle crossing, clearing invalid ranges, and UTF-16 substring extraction:
 
 ```swift
 let manager = TextSelectionManager()
@@ -111,7 +111,7 @@ Run:
 
 ```bash
 xcodebuild test \
-  -scheme YueduCoreText \
+  -scheme YueduCoreText-Package \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
   -parallel-testing-enabled NO \
   -only-testing:'YueduCoreTextTests/TextSelectionManagerTests'
@@ -121,9 +121,19 @@ Expected: build failure because `TextSelectionManager` is not defined.
 
 - [ ] **Step 3: Implement the minimal public selection API**
 
-Move the app-proven implementation into `Sources/YueduCoreText/TextSelectionManager.swift`. Make the type, initializer, read-only state, and mutation/query methods public:
+Move the app-proven implementation into `Sources/YueduCoreText/TextSelectionManager.swift`. Make the type, initializer, read-only state, and mutation/query methods public. Review after the initial API found that separate visual start/end mutations cannot preserve logical handle identity across repeated crossings, so the reviewed design uses a stable endpoint token from `endpoint(for:)` resolved at gesture start:
 
 ```swift
+public enum TextSelectionHandle: Equatable, Sendable {
+    case start
+    case end
+}
+
+public enum TextSelectionEndpoint: Equatable, Sendable {
+    case anchor
+    case focus
+}
+
 public final class TextSelectionManager {
     public private(set) var anchorIndex: Int?
     public private(set) var focusIndex: Int?
@@ -135,8 +145,12 @@ public final class TextSelectionManager {
     public func beginSelection(at index: Int, maxLength: Int)
     public func setSelection(range: NSRange, maxLength: Int)
     public func updateSelection(to index: Int, maxLength: Int)
-    public func updateSelectionStart(to index: Int, maxLength: Int)
-    public func updateSelectionEnd(to index: Int, maxLength: Int)
+    public func endpoint(for handle: TextSelectionHandle) -> TextSelectionEndpoint?
+    public func updateSelection(
+        _ endpoint: TextSelectionEndpoint,
+        to index: Int,
+        maxLength: Int
+    )
     public func clear()
     public func selectedText(in attributedString: NSAttributedString) -> String?
 }
@@ -181,7 +195,7 @@ Run:
 
 ```bash
 xcodebuild test \
-  -scheme YueduCoreText \
+  -scheme YueduCoreText-Package \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
   -parallel-testing-enabled NO \
   -only-testing:'YueduCoreTextTests/ReaderPerfTraceTests'
@@ -207,14 +221,17 @@ git commit -m "feat: add reader performance tracing API"
 ### Task 4: Dependency boundary and 0.2.0 documentation
 
 **Files:**
-- Modify: `Tests/YueduCoreTextTypographyTests/PackageBoundaryTests.swift`
+- Modify: `.github/workflows/ci.yml`
 - Create: `Tests/YueduCoreTextTests/CorePackageBoundaryTests.swift`
+- Create: `Tests/YueduCoreTextTests/ReleaseMetadataTests.swift`
 - Modify: `README.md`
 - Modify: `CONTRIBUTING.md`
 - Create: `CHANGELOG.md`
 - Create: `Sources/YueduCoreText/YueduCoreText.docc/YueduCoreText.md`
+- Modify: `Sources/YueduCoreText/ReaderPerfTrace.swift`
+- Modify: `docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md`
 
-- [ ] **Step 1: Write the core boundary test**
+- [ ] **Step 1: Write the core boundary and release metadata tests**
 
 Scan every Swift file under `Sources/YueduCoreText` and fail on:
 
@@ -234,18 +251,22 @@ Scan every Swift file under `Sources/YueduCoreText` and fail on:
 
 Also assert the source directory is non-empty and the public tests import without `@testable`.
 
-- [ ] **Step 2: Run all package tests**
+Add release metadata tests that parse every documented `xcodebuild` scheme token, require the README and changelog to describe all three 0.2.0 API areas, and verify the release plan records the reviewed endpoint-token design and all Task 4 files.
+
+- [ ] **Step 2: Run focused tests and verify release metadata RED**
 
 Run:
 
 ```bash
 xcodebuild test \
-  -scheme YueduCoreText \
+  -scheme YueduCoreText-Package \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
-  -parallel-testing-enabled NO
+  -parallel-testing-enabled NO \
+  -only-testing:'YueduCoreTextTests/CorePackageBoundaryTests' \
+  -only-testing:'YueduCoreTextTests/ReleaseMetadataTests'
 ```
 
-Expected: all typography and core tests pass.
+Expected: the boundary test may already pass, but release metadata tests fail on the legacy scheme and missing 0.2.0 documentation.
 
 - [ ] **Step 3: Document the 0.2.0 surface**
 
@@ -258,7 +279,11 @@ Update README integration examples to show both products, state that 0.2.0 adds 
 
 Add `CHANGELOG.md` with `0.2.0` and `0.1.0` entries and a DocC landing page linking the three public API areas.
 
-- [ ] **Step 4: Validate package metadata and formatting**
+- [ ] **Step 4: Re-run focused tests and verify GREEN**
+
+Run the Step 2 command. Expected: all boundary and release metadata tests pass.
+
+- [ ] **Step 5: Validate package metadata and formatting**
 
 Run:
 
@@ -269,14 +294,23 @@ git diff --check
 
 Expected: both products and both test targets appear; no whitespace errors.
 
-- [ ] **Step 5: Re-run the full release gate**
+- [ ] **Step 6: Re-run the full release gate**
 
-Run the Step 2 command. Expected: all tests pass with zero failures.
-
-- [ ] **Step 6: Commit**
+Run:
 
 ```bash
-git add README.md CONTRIBUTING.md CHANGELOG.md Sources/YueduCoreText/YueduCoreText.docc Tests
+xcodebuild test \
+  -scheme YueduCoreText-Package \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -parallel-testing-enabled NO
+```
+
+Expected: all tests pass with zero failures.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add .github/workflows/ci.yml README.md CONTRIBUTING.md CHANGELOG.md Sources/YueduCoreText/ReaderPerfTrace.swift Sources/YueduCoreText/YueduCoreText.docc Tests/YueduCoreTextTests/CorePackageBoundaryTests.swift Tests/YueduCoreTextTests/ReleaseMetadataTests.swift docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md
 git commit -m "docs: prepare YueduCoreText 0.2.0"
 ```
 
@@ -305,7 +339,7 @@ Expected: clean `release/0.2.0` branch with the planned commits only.
 
 ```bash
 xcodebuild test \
-  -scheme YueduCoreText \
+  -scheme YueduCoreText-Package \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
   -parallel-testing-enabled NO
 ```

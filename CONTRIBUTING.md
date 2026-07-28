@@ -12,22 +12,25 @@ Run the standalone test suite before opening a pull request:
 
 ```bash
 xcodebuild test \
-  -scheme YueduCoreText \
+  -scheme YueduCoreText-Package \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
   -parallel-testing-enabled NO
 ```
 
 Changes to vertical typography must preserve UTF-16 offsets. Performance
 changes need reproducible before/after measurements, including the Xcode
-version, build configuration, device, corpus, median, and p95. Do not include
-copyrighted books, application secrets, or private test documents in issues or
-fixtures.
+version, build configuration, device, corpus, median, and p95. Performance
+metadata must not contain personal data, a book or chapter title, book text, or
+a URL. Do not include copyrighted books, application secrets, or private test
+documents in issues or fixtures.
 
 ## Dependency boundary
 
-The typography target may import Apple frameworks only. Readium, SwiftSoup,
-WebKit, Firebase, app settings, networking, persistence, and app logging belong
-in consumer adapters. The boundary test rejects these dependencies.
+The `YueduCoreTextTypography` target may import Apple frameworks needed for
+native text layout. The `YueduCoreText` core target is limited to Foundation and
+`os`. Readium, SwiftSoup, UIKit, WebKit, Firebase, RealmSwift, app settings,
+networking, persistence, and app logging belong in consumer adapters. Boundary
+tests reject these dependencies from the core target.
 
 ## Contributions and releases
 
