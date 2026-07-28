@@ -1,5 +1,17 @@
 import Foundation
 
+/// A selection handle identified by its current visual position.
+public enum TextSelectionHandle: Equatable, Sendable {
+    case start
+    case end
+}
+
+/// A stable logical endpoint of a selection.
+public enum TextSelectionEndpoint: Equatable, Sendable {
+    case anchor
+    case focus
+}
+
 /// Manages a mutable, UTF-16-indexed text selection.
 ///
 /// `TextSelectionManager` is a mutable reference type and is intentionally not
@@ -73,24 +85,43 @@ public final class TextSelectionManager {
         focusIndex = clamp(index, maxLength: maxLength)
     }
 
-    public func updateSelectionStart(to index: Int, maxLength: Int) {
-        guard maxLength > 0 else {
-            clear()
-            return
+    /// Resolves a visual handle to the logical endpoint currently under it.
+    ///
+    /// Resolve the endpoint when a handle gesture begins, then reuse that
+    /// endpoint for every update in the same gesture. Resolve it again when a
+    /// new gesture begins because crossing can swap the visual handles.
+    public func endpoint(for handle: TextSelectionHandle) -> TextSelectionEndpoint? {
+        guard let anchor = anchorIndex, let focus = focusIndex else { return nil }
+        if anchor == focus {
+            return handle == .start ? .anchor : .focus
         }
-        guard index != NSNotFound else { return }
-        guard focusIndex != nil else { return }
-        anchorIndex = clamp(index, maxLength: maxLength)
+        if anchor < focus {
+            return handle == .start ? .anchor : .focus
+        }
+        return handle == .start ? .focus : .anchor
     }
 
-    public func updateSelectionEnd(to index: Int, maxLength: Int) {
+    /// Updates one stable logical endpoint of the selection.
+    ///
+    /// Pass the endpoint resolved by ``endpoint(for:)`` when the current
+    /// gesture began, even if the visual handles cross during that gesture.
+    public func updateSelection(
+        _ endpoint: TextSelectionEndpoint,
+        to index: Int,
+        maxLength: Int
+    ) {
         guard maxLength > 0 else {
             clear()
             return
         }
         guard index != NSNotFound else { return }
-        guard anchorIndex != nil else { return }
-        focusIndex = clamp(index, maxLength: maxLength)
+        guard anchorIndex != nil, focusIndex != nil else { return }
+        switch endpoint {
+        case .anchor:
+            anchorIndex = clamp(index, maxLength: maxLength)
+        case .focus:
+            focusIndex = clamp(index, maxLength: maxLength)
+        }
     }
 
     public func clear() {
