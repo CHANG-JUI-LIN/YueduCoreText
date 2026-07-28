@@ -101,28 +101,148 @@ struct TextSelectionManagerTests {
         #expect(!manager.hasSelection)
     }
 
-    @Test("Start handle crossing the end becomes a forward selection")
-    func startHandleCrossesEnd() {
+    @Test("Clears when setSelection receives NSNotFound")
+    func clearsWhenSetSelectionReceivesNotFound() {
+        let manager = TextSelectionManager()
+        manager.beginSelection(at: 1, maxLength: 3)
+
+        manager.setSelection(
+            range: NSRange(location: NSNotFound, length: 1),
+            maxLength: 3
+        )
+
+        #expect(manager.selectedRange == nil)
+    }
+
+    @Test("Clears when beginSelection receives NSNotFound")
+    func clearsWhenBeginSelectionReceivesNotFound() {
+        let manager = TextSelectionManager()
+        manager.beginSelection(at: 1, maxLength: 3)
+
+        manager.beginSelection(at: NSNotFound, maxLength: 3)
+
+        #expect(manager.selectedRange == nil)
+    }
+
+    @Test("Ignores NSNotFound selection updates")
+    func ignoresNotFoundSelectionUpdate() {
+        let manager = TextSelectionManager()
+        manager.beginSelection(at: 1, maxLength: 4)
+
+        manager.updateSelection(to: NSNotFound, maxLength: 4)
+
+        #expect(manager.anchorIndex == 1)
+        #expect(manager.focusIndex == 1)
+    }
+
+    @Test("Ignores NSNotFound start handle updates")
+    func ignoresNotFoundStartHandleUpdate() {
+        let manager = TextSelectionManager()
+        manager.setSelection(range: NSRange(location: 1, length: 2), maxLength: 4)
+
+        manager.updateSelectionStart(to: NSNotFound, maxLength: 4)
+
+        #expect(manager.anchorIndex == 1)
+        #expect(manager.focusIndex == 2)
+    }
+
+    @Test("Ignores NSNotFound end handle updates")
+    func ignoresNotFoundEndHandleUpdate() {
+        let manager = TextSelectionManager()
+        manager.setSelection(range: NSRange(location: 1, length: 2), maxLength: 4)
+
+        manager.updateSelectionEnd(to: NSNotFound, maxLength: 4)
+
+        #expect(manager.anchorIndex == 1)
+        #expect(manager.focusIndex == 2)
+    }
+
+    @Test(
+        "Clears when beginSelection receives a nonpositive content length",
+        arguments: [0, -1]
+    )
+    func clearsWhenBeginSelectionReceivesEmptyContent(maxLength: Int) {
+        let manager = TextSelectionManager()
+        manager.beginSelection(at: 1, maxLength: 3)
+
+        manager.beginSelection(at: 0, maxLength: maxLength)
+
+        #expect(manager.selectedRange == nil)
+    }
+
+    @Test(
+        "Clears when updateSelection receives a nonpositive content length",
+        arguments: [0, -1]
+    )
+    func clearsWhenUpdateSelectionReceivesEmptyContent(maxLength: Int) {
+        let manager = TextSelectionManager()
+        manager.beginSelection(at: 1, maxLength: 3)
+
+        manager.updateSelection(to: 0, maxLength: maxLength)
+
+        #expect(manager.selectedRange == nil)
+    }
+
+    @Test(
+        "Clears when start handle update receives a nonpositive content length",
+        arguments: [0, -1]
+    )
+    func clearsWhenStartHandleUpdateReceivesEmptyContent(maxLength: Int) {
+        let manager = TextSelectionManager()
+        manager.setSelection(range: NSRange(location: 1, length: 2), maxLength: 4)
+
+        manager.updateSelectionStart(to: 0, maxLength: maxLength)
+
+        #expect(manager.selectedRange == nil)
+    }
+
+    @Test(
+        "Clears when end handle update receives a nonpositive content length",
+        arguments: [0, -1]
+    )
+    func clearsWhenEndHandleUpdateReceivesEmptyContent(maxLength: Int) {
+        let manager = TextSelectionManager()
+        manager.setSelection(range: NSRange(location: 1, length: 2), maxLength: 4)
+
+        manager.updateSelectionEnd(to: 0, maxLength: maxLength)
+
+        #expect(manager.selectedRange == nil)
+    }
+
+    @Test("Start handle keeps its identity across consecutive crossings")
+    func startHandleKeepsIdentityAcrossCrossings() {
         let manager = TextSelectionManager()
         manager.setSelection(range: NSRange(location: 2, length: 3), maxLength: 10)
 
         manager.updateSelectionStart(to: 7, maxLength: 10)
 
-        #expect(manager.anchorIndex == 4)
-        #expect(manager.focusIndex == 7)
+        #expect(manager.anchorIndex == 7)
+        #expect(manager.focusIndex == 4)
         #expect(manager.selectedRange == NSRange(location: 4, length: 4))
+
+        manager.updateSelectionStart(to: 8, maxLength: 10)
+
+        #expect(manager.anchorIndex == 8)
+        #expect(manager.focusIndex == 4)
+        #expect(manager.selectedRange == NSRange(location: 4, length: 5))
     }
 
-    @Test("End handle crossing the start becomes a reverse selection")
-    func endHandleCrossesStart() {
+    @Test("End handle keeps its identity across consecutive crossings")
+    func endHandleKeepsIdentityAcrossCrossings() {
         let manager = TextSelectionManager()
-        manager.setSelection(range: NSRange(location: 2, length: 3), maxLength: 10)
+        manager.setSelection(range: NSRange(location: 4, length: 3), maxLength: 10)
 
-        manager.updateSelectionEnd(to: 0, maxLength: 10)
+        manager.updateSelectionEnd(to: 2, maxLength: 10)
 
-        #expect(manager.anchorIndex == 0)
+        #expect(manager.anchorIndex == 4)
         #expect(manager.focusIndex == 2)
-        #expect(manager.selectedRange == NSRange(location: 0, length: 3))
+        #expect(manager.selectedRange == NSRange(location: 2, length: 3))
+
+        manager.updateSelectionEnd(to: 1, maxLength: 10)
+
+        #expect(manager.anchorIndex == 4)
+        #expect(manager.focusIndex == 1)
+        #expect(manager.selectedRange == NSRange(location: 1, length: 4))
     }
 
     @Test("Clears all selection state")

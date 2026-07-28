@@ -35,13 +35,20 @@ public final class TextSelectionManager {
     public init() {}
 
     public func beginSelection(at index: Int, maxLength: Int) {
+        guard maxLength > 0, index != NSNotFound else {
+            clear()
+            return
+        }
         let clamped = clamp(index, maxLength: maxLength)
         anchorIndex = clamped
         focusIndex = clamped
     }
 
     public func setSelection(range: NSRange, maxLength: Int) {
-        guard maxLength > 0, range.length > 0 else {
+        guard maxLength > 0,
+              range.location != NSNotFound,
+              range.length > 0
+        else {
             clear()
             return
         }
@@ -57,24 +64,33 @@ public final class TextSelectionManager {
     }
 
     public func updateSelection(to index: Int, maxLength: Int) {
+        guard maxLength > 0 else {
+            clear()
+            return
+        }
+        guard index != NSNotFound else { return }
         guard anchorIndex != nil else { return }
         focusIndex = clamp(index, maxLength: maxLength)
     }
 
     public func updateSelectionStart(to index: Int, maxLength: Int) {
-        guard let bounds = selectionBounds else { return }
-        let newStart = clamp(index, maxLength: maxLength)
-        let end = bounds.end
-        anchorIndex = min(newStart, end)
-        focusIndex = max(newStart, end)
+        guard maxLength > 0 else {
+            clear()
+            return
+        }
+        guard index != NSNotFound else { return }
+        guard focusIndex != nil else { return }
+        anchorIndex = clamp(index, maxLength: maxLength)
     }
 
     public func updateSelectionEnd(to index: Int, maxLength: Int) {
-        guard let bounds = selectionBounds else { return }
-        let start = bounds.start
-        let newEnd = clamp(index, maxLength: maxLength)
-        anchorIndex = min(start, newEnd)
-        focusIndex = max(start, newEnd)
+        guard maxLength > 0 else {
+            clear()
+            return
+        }
+        guard index != NSNotFound else { return }
+        guard anchorIndex != nil else { return }
+        focusIndex = clamp(index, maxLength: maxLength)
     }
 
     public func clear() {
