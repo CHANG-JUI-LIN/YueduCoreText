@@ -40,7 +40,7 @@ public struct ReaderContentUnitMap: Equatable, Sendable {
         currentChapterCharacterCount: Int?
     ) -> ReaderContentMetrics? {
         guard spineIndex >= 0,
-              spineIndex + 1 < chapterOffsets.count,
+              spineIndex < chapterOffsets.count - 1,
               localCharacterOffset >= 0
         else {
             return nil
@@ -59,12 +59,14 @@ public struct ReaderContentUnitMap: Equatable, Sendable {
                 return nil
             }
             let clampedOffset = min(localCharacterOffset, currentChapterCharacterCount)
-            let fraction = Double(clampedOffset) / Double(currentChapterCharacterCount)
-            let scaled = fraction * Double(chapterUnitCount)
-            guard scaled.isFinite, scaled >= 0, scaled <= Double(Int.max) else {
-                return nil
+            if clampedOffset == currentChapterCharacterCount {
+                localUnitOffset = chapterUnitCount
+            } else {
+                let product = clampedOffset.multipliedFullWidth(by: chapterUnitCount)
+                localUnitOffset = currentChapterCharacterCount
+                    .dividingFullWidth(product)
+                    .quotient
             }
-            localUnitOffset = min(Int(scaled), chapterUnitCount)
         }
 
         let (currentUnitOffset, overflow) = chapterStart.addingReportingOverflow(localUnitOffset)

@@ -51,6 +51,19 @@ struct ReaderContentMetricsTests {
         )
     }
 
+    @Test("Rejects Int.max as a spine index without overflowing")
+    func rejectsMaximumSpineIndex() throws {
+        let unitMap = try #require(ReaderContentUnitMap(chapterUnitCounts: [100]))
+
+        #expect(
+            unitMap.metrics(
+                spineIndex: Int.max,
+                localCharacterOffset: 0,
+                currentChapterCharacterCount: nil
+            ) == nil
+        )
+    }
+
     @Test("Clamps a local character offset to the chapter end")
     func clampsLocalOffsetToChapterEnd() throws {
         let unitMap = try #require(ReaderContentUnitMap(chapterUnitCounts: [100, 200]))
@@ -65,6 +78,40 @@ struct ReaderContentMetricsTests {
 
         #expect(metrics.currentUnitOffset == 300)
         #expect(metrics.remainingUnitCount == 0)
+    }
+
+    @Test("Maps an Int.max-sized chapter end without overflowing")
+    func mapsMaximumUnitCountChapterEnd() throws {
+        let unitMap = try #require(ReaderContentUnitMap(chapterUnitCounts: [Int.max]))
+
+        let metrics = try #require(
+            unitMap.metrics(
+                spineIndex: 0,
+                localCharacterOffset: 1,
+                currentChapterCharacterCount: 1
+            )
+        )
+
+        #expect(metrics.currentUnitOffset == Int.max)
+        #expect(metrics.totalUnitCount == Int.max)
+        #expect(metrics.remainingUnitCount == 0)
+    }
+
+    @Test("Rounds a large non-terminal proportional offset down")
+    func roundsLargeProportionalOffsetDown() throws {
+        let unitCount = (1 << 53) + 3
+        let unitMap = try #require(ReaderContentUnitMap(chapterUnitCounts: [unitCount]))
+
+        let metrics = try #require(
+            unitMap.metrics(
+                spineIndex: 0,
+                localCharacterOffset: 1,
+                currentChapterCharacterCount: 2
+            )
+        )
+
+        #expect(metrics.currentUnitOffset == 4_503_599_627_370_497)
+        #expect(metrics.totalUnitCount == unitCount)
     }
 
     @Test(
