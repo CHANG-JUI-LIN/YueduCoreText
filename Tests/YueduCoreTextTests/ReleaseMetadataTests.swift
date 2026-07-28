@@ -83,13 +83,52 @@ struct ReleaseMetadataTests {
         let contents = try contentsOfFile(
             "docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md"
         )
+        let missingPaths = Task4GitAddGuard.missingRequiredPaths(
+            in: contents,
+            requiredPaths: requiredTask4GitAddPaths
+        )
 
-        #expect(contents.contains(".github/workflows/ci.yml"))
-        #expect(contents.contains("Tests/YueduCoreTextTests/ReleaseMetadataTests.swift"))
         #expect(
-            contents.contains(
-                "docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md"
-            )
+            missingPaths.isEmpty,
+            "Task 4 Step 6 git add is missing: \(missingPaths.sorted())"
+        )
+    }
+
+    @Test("Task 4 git add guard rejects a path present outside the command")
+    func task4GitAddGuardRejectsMissingCommandPath() {
+        let completeFixture = """
+        ### Task 4: Documentation
+
+        **Files:**
+        - Modify: `README.md`
+        - Create: `CHANGELOG.md`
+
+        - [ ] **Step 6: Commit**
+
+        ```bash
+        git add README.md CHANGELOG.md
+        git commit -m "docs: fixture"
+        ```
+
+        ### Task 5: Audit
+        """
+        let mutatedFixture = completeFixture.replacingOccurrences(
+            of: "git add README.md CHANGELOG.md",
+            with: "git add CHANGELOG.md"
+        )
+        let requiredPaths: Set<String> = ["README.md", "CHANGELOG.md"]
+
+        #expect(
+            Task4GitAddGuard.missingRequiredPaths(
+                in: completeFixture,
+                requiredPaths: requiredPaths
+            ).isEmpty
+        )
+        #expect(
+            Task4GitAddGuard.missingRequiredPaths(
+                in: mutatedFixture,
+                requiredPaths: requiredPaths
+            ) == Set(["README.md"])
         )
     }
 
@@ -136,5 +175,71 @@ struct ReleaseMetadataTests {
             }
             return String(contents[captureRange])
         }
+    }
+
+    private var requiredTask4GitAddPaths: Set<String> {
+        [
+            ".github/workflows/ci.yml",
+            "README.md",
+            "CONTRIBUTING.md",
+            "CHANGELOG.md",
+            "Sources/YueduCoreText/YueduCoreText.docc",
+            "Tests/YueduCoreTextTests/CorePackageBoundaryTests.swift",
+            "Tests/YueduCoreTextTests/ReleaseMetadataTests.swift",
+            "docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md",
+        ]
+    }
+}
+
+private enum Task4GitAddGuard {
+    static func missingRequiredPaths(
+        in plan: String,
+        requiredPaths: Set<String>
+    ) -> Set<String> {
+        guard let task4Section = section(
+            in: plan,
+            startingWith: "### Task 4:",
+            endingWith: "### Task 5:"
+        ),
+        let step6Section = section(
+            in: task4Section,
+            startingWith: "- [ ] **Step 6:",
+            endingWith: "- [ ] **Step 7:"
+        ),
+        let gitAddPaths = gitAddPaths(in: step6Section)
+        else {
+            return requiredPaths
+        }
+
+        return requiredPaths.subtracting(gitAddPaths)
+    }
+
+    private static func section(
+        in contents: String,
+        startingWith startMarker: String,
+        endingWith endMarker: String
+    ) -> String? {
+        guard let start = contents.range(of: startMarker) else { return nil }
+        let sectionStart = start.lowerBound
+        let remaining = contents[start.upperBound...]
+        let sectionEnd = remaining.range(of: endMarker)?.lowerBound ?? contents.endIndex
+        return String(contents[sectionStart..<sectionEnd])
+    }
+
+    private static func gitAddPaths(in stepSection: String) -> Set<String>? {
+        guard let fenceStart = stepSection.range(of: "```bash"),
+              let fenceEnd = stepSection[fenceStart.upperBound...].range(of: "```")
+        else {
+            return nil
+        }
+        let commandBlock = stepSection[fenceStart.upperBound..<fenceEnd.lowerBound]
+            .replacingOccurrences(of: "\\\n", with: " ")
+
+        for line in commandBlock.split(separator: "\n") {
+            let tokens = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard tokens.starts(with: ["git", "add"]) else { continue }
+            return Set(tokens.dropFirst(2))
+        }
+        return nil
     }
 }

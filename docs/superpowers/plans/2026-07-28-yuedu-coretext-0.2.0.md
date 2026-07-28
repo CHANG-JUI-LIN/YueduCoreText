@@ -228,12 +228,13 @@ git commit -m "feat: add reader performance tracing API"
 - Modify: `CONTRIBUTING.md`
 - Create: `CHANGELOG.md`
 - Create: `Sources/YueduCoreText/YueduCoreText.docc/YueduCoreText.md`
-- Modify: `Sources/YueduCoreText/ReaderPerfTrace.swift`
 - Modify: `docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md`
 
 - [ ] **Step 1: Write the core boundary and release metadata tests**
 
-Scan every Swift file under `Sources/YueduCoreText` and fail on:
+Recursively scan every Swift file under `Sources/YueduCoreText`. Parse Swift
+import declarations by module token, including attributed and declaration-kind
+imports, without treating comments or string literals as imports. Fail on:
 
 ```swift
 [
@@ -249,9 +250,14 @@ Scan every Swift file under `Sources/YueduCoreText` and fail on:
 ]
 ```
 
-Also assert the source directory is non-empty and the public tests import without `@testable`.
+Also assert the source directory is non-empty. Recursively enumerate public
+test Swift files, including nested directories, and reject `@testable` imports.
 
-Add release metadata tests that parse every documented `xcodebuild` scheme token, require the README and changelog to describe all three 0.2.0 API areas, and verify the release plan records the reviewed endpoint-token design and all Task 4 files.
+Add release metadata tests that parse every documented `xcodebuild` scheme
+token, require the README and changelog to describe all three 0.2.0 API areas,
+and verify the release plan records the reviewed endpoint-token design. Parse
+the Task 4 section and its Step 6 fenced `git add` command, and use a mutation
+fixture to prove a path elsewhere in Task 4 cannot satisfy the command guard.
 
 - [ ] **Step 2: Run focused tests and verify release metadata RED**
 
@@ -283,34 +289,26 @@ Add `CHANGELOG.md` with `0.2.0` and `0.1.0` entries and a DocC landing page link
 
 Run the Step 2 command. Expected: all boundary and release metadata tests pass.
 
-- [ ] **Step 5: Validate package metadata and formatting**
+- [ ] **Step 5: Validate package metadata, formatting, and the full release gate**
 
 Run:
 
 ```bash
 swift package describe
 git diff --check
-```
-
-Expected: both products and both test targets appear; no whitespace errors.
-
-- [ ] **Step 6: Re-run the full release gate**
-
-Run:
-
-```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
   -parallel-testing-enabled NO
 ```
 
-Expected: all tests pass with zero failures.
+Expected: both products and both test targets appear, there are no whitespace
+errors, and all tests pass with zero failures.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add .github/workflows/ci.yml README.md CONTRIBUTING.md CHANGELOG.md Sources/YueduCoreText/ReaderPerfTrace.swift Sources/YueduCoreText/YueduCoreText.docc Tests/YueduCoreTextTests/CorePackageBoundaryTests.swift Tests/YueduCoreTextTests/ReleaseMetadataTests.swift docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md
+git add .github/workflows/ci.yml README.md CONTRIBUTING.md CHANGELOG.md Sources/YueduCoreText/YueduCoreText.docc Tests/YueduCoreTextTests/CorePackageBoundaryTests.swift Tests/YueduCoreTextTests/ReleaseMetadataTests.swift docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md
 git commit -m "docs: prepare YueduCoreText 0.2.0"
 ```
 

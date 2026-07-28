@@ -4,18 +4,81 @@ import YueduCoreText
 
 @Suite("Core package dependency boundary")
 struct CorePackageBoundaryTests {
+    @Test("Import parser recognizes supported Swift import forms")
+    func importParserRecognizesSwiftImportForms() {
+        let fixtures: [(source: String, expectedModule: String)] = [
+            ("import UIKit", "UIKit"),
+            ("import\tUIKit", "UIKit"),
+            ("import class UIKit.UIView", "UIKit"),
+            ("@_implementationOnly import UIKit", "UIKit"),
+        ]
+
+        for fixture in fixtures {
+            #expect(
+                SwiftImportParser.modules(in: fixture.source)
+                    == Set([fixture.expectedModule])
+            )
+        }
+    }
+
+    @Test("Import parser ignores comments and string literals")
+    func importParserIgnoresCommentsAndStrings() {
+        let source = ##"""
+        // import UIKit
+        /* import WebKit */
+        let inline = "import Firebase"
+        let multiline = """
+        import RealmSwift
+        """
+        let raw = #"import Readium"#
+        import Foundation
+        """##
+
+        #expect(SwiftImportParser.modules(in: source) == Set(["Foundation"]))
+    }
+
+    @Test("Swift file enumeration includes nested test directories")
+    func swiftFileEnumerationIncludesNestedDirectories() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "YueduCoreTextBoundaryTests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let nestedDirectory = temporaryRoot
+            .appendingPathComponent("Nested/Fixtures", isDirectory: true)
+        let nestedSwiftFile = nestedDirectory.appendingPathComponent("NestedTest.swift")
+        let ignoredFile = temporaryRoot.appendingPathComponent("Ignored.txt")
+        try FileManager.default.createDirectory(
+            at: nestedDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try "import YueduCoreText".write(
+            to: nestedSwiftFile,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "not Swift".write(to: ignoredFile, atomically: true, encoding: .utf8)
+
+        let files = try swiftFiles(recursivelyUnder: temporaryRoot)
+
+        #expect(files == [nestedSwiftFile])
+    }
+
     @Test("Core sources stay independent from app and third-party layers")
     func sourceImportsAndSymbols() throws {
         let packageRoot = packageRoot()
         let sourceRoot = packageRoot
             .appendingPathComponent("Sources/YueduCoreText", isDirectory: true)
-        let forbiddenFragments = [
-            "import UIKit",
-            "import Readium",
-            "import SwiftSoup",
-            "import WebKit",
-            "import Firebase",
-            "import RealmSwift",
+        let forbiddenModules: Set<String> = [
+            "UIKit",
+            "Readium",
+            "SwiftSoup",
+            "WebKit",
+            "Firebase",
+            "RealmSwift",
+        ]
+        let forbiddenSymbols = [
             "AppLogger",
             "GlobalSettings",
             "BookSourceSession",
@@ -25,10 +88,16 @@ struct CorePackageBoundaryTests {
         #expect(!files.isEmpty)
         for file in files {
             let source = try String(contentsOf: file, encoding: .utf8)
-            for fragment in forbiddenFragments {
+            let importedForbiddenModules = SwiftImportParser.modules(in: source)
+                .intersection(forbiddenModules)
+            #expect(
+                importedForbiddenModules.isEmpty,
+                "Forbidden modules \(importedForbiddenModules.sorted()) found in \(file.path)"
+            )
+            for symbol in forbiddenSymbols {
                 #expect(
-                    !source.contains(fragment),
-                    "Forbidden dependency '\(fragment)' found in \(file.path)"
+                    !source.contains(symbol),
+                    "Forbidden symbol '\(symbol)' found in \(file.path)"
                 )
             }
         }
@@ -39,10 +108,7 @@ struct CorePackageBoundaryTests {
         let testRoot = packageRoot()
             .appendingPathComponent("Tests/YueduCoreTextTests", isDirectory: true)
         let forbiddenImportPattern = #"@testable\s+import\s+YueduCoreText\b"#
-        let files = try FileManager.default.contentsOfDirectory(
-            at: testRoot,
-            includingPropertiesForKeys: [.isRegularFileKey]
-        ).filter { $0.pathExtension == "swift" }
+        let files = try swiftFiles(recursivelyUnder: testRoot)
 
         #expect(!files.isEmpty)
         for file in files {
@@ -82,5 +148,147 @@ struct CorePackageBoundaryTests {
             }
             return file
         }
+    }
+}
+
+private enum SwiftImportParser {
+    static func modules(in source: String) -> Set<String> {
+        let sanitizedSource = maskingCommentsAndStrings(in: source)
+        let pattern = #"(?m)^[ \t]*(?:@[_A-Za-z][_A-Za-z0-9]*(?:\([^\n]*\))?[ \t]+)*import[ \t]+(?:(?:typealias|struct|class|enum|protocol|let|var|func)[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+        let range = NSRange(sanitizedSource.startIndex..., in: sanitizedSource)
+
+        return Set(expression.matches(in: sanitizedSource, range: range).compactMap { match in
+            guard let moduleRange = Range(match.range(at: 1), in: sanitizedSource) else {
+                return nil
+            }
+            return String(sanitizedSource[moduleRange])
+        })
+    }
+
+    private static func maskingCommentsAndStrings(in source: String) -> String {
+        let characters = Array(source)
+        var result: [Character] = []
+        result.reserveCapacity(characters.count)
+        var index = 0
+        var inLineComment = false
+        var blockCommentDepth = 0
+        var stringState: (hashCount: Int, quoteCount: Int)?
+
+        func matches(_ token: [Character], at position: Int) -> Bool {
+            guard position + token.count <= characters.count else { return false }
+            return Array(characters[position..<(position + token.count)]) == token
+        }
+
+        func appendMask(count: Int) {
+            result.append(contentsOf: repeatElement(" ", count: count))
+        }
+
+        func stringStart(at position: Int) -> (
+            hashCount: Int,
+            quoteCount: Int,
+            length: Int
+        )? {
+            var quotePosition = position
+            while quotePosition < characters.count,
+                  characters[quotePosition] == "#"
+            {
+                quotePosition += 1
+            }
+            guard quotePosition < characters.count,
+                  characters[quotePosition] == "\""
+            else {
+                return nil
+            }
+            let quoteCount = matches(["\"", "\"", "\""], at: quotePosition) ? 3 : 1
+            return (
+                hashCount: quotePosition - position,
+                quoteCount: quoteCount,
+                length: quotePosition - position + quoteCount
+            )
+        }
+
+        while index < characters.count {
+            let character = characters[index]
+
+            if inLineComment {
+                if character == "\n" {
+                    inLineComment = false
+                    result.append(character)
+                } else {
+                    result.append(" ")
+                }
+                index += 1
+                continue
+            }
+
+            if blockCommentDepth > 0 {
+                if matches(["/", "*"], at: index) {
+                    blockCommentDepth += 1
+                    appendMask(count: 2)
+                    index += 2
+                } else if matches(["*", "/"], at: index) {
+                    blockCommentDepth -= 1
+                    appendMask(count: 2)
+                    index += 2
+                } else {
+                    result.append(character == "\n" ? "\n" : " ")
+                    index += 1
+                }
+                continue
+            }
+
+            if let currentStringState = stringState {
+                let quoteToken = Array(
+                    repeating: Character("\""),
+                    count: currentStringState.quoteCount
+                )
+                let hashToken = Array(
+                    repeating: Character("#"),
+                    count: currentStringState.hashCount
+                )
+                let closesString = matches(quoteToken, at: index)
+                    && matches(hashToken, at: index + currentStringState.quoteCount)
+                if closesString {
+                    let closingLength = currentStringState.quoteCount
+                        + currentStringState.hashCount
+                    appendMask(count: closingLength)
+                    index += closingLength
+                    stringState = nil
+                } else if currentStringState.hashCount == 0,
+                          currentStringState.quoteCount == 1,
+                          character == "\\",
+                          index + 1 < characters.count
+                {
+                    appendMask(count: 2)
+                    index += 2
+                } else {
+                    result.append(character == "\n" ? "\n" : " ")
+                    index += 1
+                }
+                continue
+            }
+
+            if matches(["/", "/"], at: index) {
+                inLineComment = true
+                appendMask(count: 2)
+                index += 2
+            } else if matches(["/", "*"], at: index) {
+                blockCommentDepth = 1
+                appendMask(count: 2)
+                index += 2
+            } else if let start = stringStart(at: index) {
+                stringState = (start.hashCount, start.quoteCount)
+                appendMask(count: start.length)
+                index += start.length
+            } else {
+                result.append(character)
+                index += 1
+            }
+        }
+
+        return String(result)
     }
 }
