@@ -8,13 +8,24 @@ let package = Package(
     ],
     products: [
         .library(
+            name: "YueduCoreText",
+            targets: ["YueduCoreText"]
+        ),
+        .library(
             name: "YueduCoreTextTypography",
             targets: ["YueduCoreTextTypography"]
         ),
     ],
     targets: [
         .target(
+            name: "YueduCoreText"
+        ),
+        .target(
             name: "YueduCoreTextTypography"
+        ),
+        .testTarget(
+            name: "YueduCoreTextTests",
+            dependencies: ["YueduCoreText"]
         ),
         .testTarget(
             name: "YueduCoreTextTypographyTests",
