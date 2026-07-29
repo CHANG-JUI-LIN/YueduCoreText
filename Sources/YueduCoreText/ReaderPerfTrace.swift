@@ -183,7 +183,7 @@ public enum ReaderPerfTrace {
 
     /// Measures an asynchronous operation and returns its result.
     @discardableResult
-    public static func spanAsync<T>(
+    public static func spanAsync<T: Sendable>(
         _ stage: ReaderPerfStage,
         metadata: @autoclosure () -> ReaderPerfMetadata = ReaderPerfMetadata(),
         isolation: isolated (any Actor)? = #isolation,
