@@ -13,7 +13,7 @@ Run the standalone test suite before opening a pull request:
 ```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO
 ```
 

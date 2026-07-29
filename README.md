@@ -84,7 +84,7 @@ Run the package tests on an iOS Simulator:
 ```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO
 ```
 

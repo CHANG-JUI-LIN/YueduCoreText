@@ -42,7 +42,7 @@ Run:
 ```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO \
   -only-testing:'YueduCoreTextTests/ReaderContentMetricsTests'
 ```
@@ -112,7 +112,7 @@ Run:
 ```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO \
   -only-testing:'YueduCoreTextTests/TextSelectionManagerTests'
 ```
@@ -196,7 +196,7 @@ Run:
 ```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO \
   -only-testing:'YueduCoreTextTests/ReaderPerfTraceTests'
 ```
@@ -266,7 +266,7 @@ Run:
 ```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO \
   -only-testing:'YueduCoreTextTests/CorePackageBoundaryTests' \
   -only-testing:'YueduCoreTextTests/ReleaseMetadataTests'
@@ -298,7 +298,7 @@ swift package describe
 git diff --check
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO
 ```
 
@@ -338,7 +338,7 @@ Expected: clean `release/0.2.0` branch with the planned commits only.
 ```bash
 xcodebuild test \
   -scheme YueduCoreText-Package \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   -parallel-testing-enabled NO
 ```
 

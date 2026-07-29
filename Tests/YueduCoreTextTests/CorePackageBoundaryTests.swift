@@ -11,6 +11,13 @@ struct CorePackageBoundaryTests {
             ("import\tUIKit", "UIKit"),
             ("import class UIKit.UIView", "UIKit"),
             ("@_implementationOnly import UIKit", "UIKit"),
+            ("private import UIKit", "UIKit"),
+            ("public import UIKit", "UIKit"),
+            ("package import UIKit", "UIKit"),
+            ("internal import UIKit", "UIKit"),
+            ("fileprivate import UIKit", "UIKit"),
+            ("import\nUIKit", "UIKit"),
+            ("import /* comment\n */ UIKit", "UIKit"),
         ]
 
         for fixture in fixtures {
@@ -35,6 +42,61 @@ struct CorePackageBoundaryTests {
         """##
 
         #expect(SwiftImportParser.modules(in: source) == Set(["Foundation"]))
+    }
+
+    @Test("Forbidden module policy rejects exact and family dependencies")
+    func forbiddenModulePolicyRejectsExactAndFamilyDependencies() {
+        let importedModules: Set<String> = [
+            "Foundation",
+            "UIKit",
+            "SwiftSoup",
+            "WebKit",
+            "RealmSwift",
+            "ReadiumShared",
+            "ReadiumStreamer",
+            "FirebaseCore",
+            "FirebaseAnalytics",
+        ]
+
+        #expect(
+            ForbiddenCoreModulePolicy.forbiddenModules(in: importedModules)
+                == Set([
+                    "UIKit",
+                    "SwiftSoup",
+                    "WebKit",
+                    "RealmSwift",
+                    "ReadiumShared",
+                    "ReadiumStreamer",
+                    "FirebaseCore",
+                    "FirebaseAnalytics",
+                ])
+        )
+    }
+
+    @Test("Testable import parser recognizes comments between declaration tokens")
+    func testableImportParserRecognizesInterleavedComments() {
+        let source = """
+        @testable /* rationale
+        for package tests */ import YueduCoreText
+        """
+
+        #expect(SwiftImportParser.containsTestableYueduCoreTextImport(in: source))
+    }
+
+    @Test("Testable import parser ignores comments and string literals")
+    func testableImportParserIgnoresCommentsAndStrings() {
+        let source = ##"""
+        // @testable import YueduCoreText
+        /* @testable import YueduCoreText */
+        let inline = "@testable import YueduCoreText"
+        let multiline = """
+        @testable import YueduCoreText
+        """
+        let raw = #"@testable import YueduCoreText"#
+        import YueduCoreText
+        """##
+
+        #expect(!SwiftImportParser.containsTestableYueduCoreTextImport(in: source))
     }
 
     @Test("Swift file enumeration includes nested test directories")
@@ -70,14 +132,6 @@ struct CorePackageBoundaryTests {
         let packageRoot = packageRoot()
         let sourceRoot = packageRoot
             .appendingPathComponent("Sources/YueduCoreText", isDirectory: true)
-        let forbiddenModules: Set<String> = [
-            "UIKit",
-            "Readium",
-            "SwiftSoup",
-            "WebKit",
-            "Firebase",
-            "RealmSwift",
-        ]
         let forbiddenSymbols = [
             "AppLogger",
             "GlobalSettings",
@@ -88,8 +142,9 @@ struct CorePackageBoundaryTests {
         #expect(!files.isEmpty)
         for file in files {
             let source = try String(contentsOf: file, encoding: .utf8)
-            let importedForbiddenModules = SwiftImportParser.modules(in: source)
-                .intersection(forbiddenModules)
+            let importedForbiddenModules = ForbiddenCoreModulePolicy.forbiddenModules(
+                in: SwiftImportParser.modules(in: source)
+            )
             #expect(
                 importedForbiddenModules.isEmpty,
                 "Forbidden modules \(importedForbiddenModules.sorted()) found in \(file.path)"
@@ -107,17 +162,13 @@ struct CorePackageBoundaryTests {
     func publicTestsDoNotUseTestableImport() throws {
         let testRoot = packageRoot()
             .appendingPathComponent("Tests/YueduCoreTextTests", isDirectory: true)
-        let forbiddenImportPattern = #"@testable\s+import\s+YueduCoreText\b"#
         let files = try swiftFiles(recursivelyUnder: testRoot)
 
         #expect(!files.isEmpty)
         for file in files {
             let source = try String(contentsOf: file, encoding: .utf8)
             #expect(
-                source.range(
-                    of: forbiddenImportPattern,
-                    options: .regularExpression
-                ) == nil,
+                !SwiftImportParser.containsTestableYueduCoreTextImport(in: source),
                 "Public API test uses a testable import in \(file.lastPathComponent)"
             )
         }
@@ -154,7 +205,7 @@ struct CorePackageBoundaryTests {
 private enum SwiftImportParser {
     static func modules(in source: String) -> Set<String> {
         let sanitizedSource = maskingCommentsAndStrings(in: source)
-        let pattern = #"(?m)^[ \t]*(?:@[_A-Za-z][_A-Za-z0-9]*(?:\([^\n]*\))?[ \t]+)*import[ \t]+(?:(?:typealias|struct|class|enum|protocol|let|var|func)[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)"#
+        let pattern = #"(?m)^[ \t]*(?:(?:@[_A-Za-z][_A-Za-z0-9]*(?:\([^\n]*\))?|public|package|internal|fileprivate|private)\s+)*import\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?([A-Za-z_][A-Za-z0-9_]*)"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else {
             return []
         }
@@ -166,6 +217,15 @@ private enum SwiftImportParser {
             }
             return String(sanitizedSource[moduleRange])
         })
+    }
+
+    static func containsTestableYueduCoreTextImport(in source: String) -> Bool {
+        let sanitizedSource = maskingCommentsAndStrings(in: source)
+        let pattern = #"(?m)^[ \t]*@testable\s+import\s+YueduCoreText\b"#
+        return sanitizedSource.range(
+            of: pattern,
+            options: .regularExpression
+        ) != nil
     }
 
     private static func maskingCommentsAndStrings(in source: String) -> String {
@@ -290,5 +350,25 @@ private enum SwiftImportParser {
         }
 
         return String(result)
+    }
+}
+
+private enum ForbiddenCoreModulePolicy {
+    private static let exactModules: Set<String> = [
+        "UIKit",
+        "SwiftSoup",
+        "WebKit",
+        "RealmSwift",
+    ]
+    private static let moduleFamilyPrefixes = [
+        "Readium",
+        "Firebase",
+    ]
+
+    static func forbiddenModules(in modules: Set<String>) -> Set<String> {
+        Set(modules.filter { module in
+            exactModules.contains(module)
+                || moduleFamilyPrefixes.contains { module.hasPrefix($0) }
+        })
     }
 }

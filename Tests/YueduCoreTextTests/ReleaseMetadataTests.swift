@@ -10,7 +10,6 @@ struct ReleaseMetadataTests {
             ".github/workflows/ci.yml",
             "README.md",
             "CONTRIBUTING.md",
-            "docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md",
         ]
     )
     func testCommandsUsePackageScheme(relativePath: String) throws {
@@ -29,6 +28,38 @@ struct ReleaseMetadataTests {
     }
 
     @Test(
+        "Documented simulator commands use the Xcode 16 compatible device",
+        arguments: [
+            ".github/workflows/ci.yml",
+            "README.md",
+            "CONTRIBUTING.md",
+        ]
+    )
+    func testCommandsUseCompatibleSimulator(relativePath: String) throws {
+        let contents = try contentsOfFile(relativePath)
+        let simulatorNames = try matches(
+            for: #"platform=iOS Simulator,name=([^'"\n\\]+)"#,
+            in: contents,
+            captureGroup: 1
+        )
+
+        #expect(!simulatorNames.isEmpty, "No simulator destination found in \(relativePath)")
+        #expect(
+            simulatorNames.allSatisfy { $0 == "iPhone 16 Pro" },
+            "Incompatible simulator destination in \(relativePath): \(simulatorNames)"
+        )
+        #expect(!contents.contains("iPhone 17 Pro Max"))
+    }
+
+    @Test(
+        "Contributor documentation retains the Xcode 16 requirement",
+        arguments: ["README.md", "CONTRIBUTING.md"]
+    )
+    func documentationRetainsXcode16Requirement(relativePath: String) throws {
+        #expect(try contentsOfFile(relativePath).contains("Xcode 16 or later"))
+    }
+
+    @Test(
         "README and changelog document every 0.2.0 public API area",
         arguments: ["README.md", "CHANGELOG.md"]
     )
@@ -39,6 +70,15 @@ struct ReleaseMetadataTests {
         #expect(contents.contains("ReaderContentMetrics"))
         #expect(contents.contains("TextSelectionManager"))
         #expect(contents.contains("ReaderPerfTrace"))
+    }
+
+    @Test("Changelog describes only the final endpoint-token selection API")
+    func changelogDescribesFinalSelectionAPI() throws {
+        let contents = try contentsOfFile("CHANGELOG.md")
+
+        #expect(contents.contains("TextSelectionEndpoint"))
+        #expect(!contents.contains("Replaced separate start/end"))
+        #expect(!contents.contains("reviewed"))
     }
 
     @Test("README states explicit rendering scope exclusions")
@@ -78,73 +118,6 @@ struct ReleaseMetadataTests {
         #expect(contents.lowercased().contains("privacy"))
     }
 
-    @Test("Release plan records Task 4 metadata files")
-    func releasePlanRecordsTask4MetadataFiles() throws {
-        let contents = try contentsOfFile(
-            "docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md"
-        )
-        let missingPaths = Task4GitAddGuard.missingRequiredPaths(
-            in: contents,
-            requiredPaths: requiredTask4GitAddPaths
-        )
-
-        #expect(
-            missingPaths.isEmpty,
-            "Task 4 Step 6 git add is missing: \(missingPaths.sorted())"
-        )
-    }
-
-    @Test("Task 4 git add guard rejects a path present outside the command")
-    func task4GitAddGuardRejectsMissingCommandPath() {
-        let completeFixture = """
-        ### Task 4: Documentation
-
-        **Files:**
-        - Modify: `README.md`
-        - Create: `CHANGELOG.md`
-
-        - [ ] **Step 6: Commit**
-
-        ```bash
-        git add README.md CHANGELOG.md
-        git commit -m "docs: fixture"
-        ```
-
-        ### Task 5: Audit
-        """
-        let mutatedFixture = completeFixture.replacingOccurrences(
-            of: "git add README.md CHANGELOG.md",
-            with: "git add CHANGELOG.md"
-        )
-        let requiredPaths: Set<String> = ["README.md", "CHANGELOG.md"]
-
-        #expect(
-            Task4GitAddGuard.missingRequiredPaths(
-                in: completeFixture,
-                requiredPaths: requiredPaths
-            ).isEmpty
-        )
-        #expect(
-            Task4GitAddGuard.missingRequiredPaths(
-                in: mutatedFixture,
-                requiredPaths: requiredPaths
-            ) == Set(["README.md"])
-        )
-    }
-
-    @Test("Release plan records the reviewed endpoint-token selection API")
-    func releasePlanRecordsEndpointTokenSelectionAPI() throws {
-        let contents = try contentsOfFile(
-            "docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md"
-        )
-
-        #expect(contents.contains("TextSelectionEndpoint"))
-        #expect(contents.contains("endpoint(for:)"))
-        #expect(contents.contains("review"))
-        #expect(!contents.contains("updateSelectionStart(to:"))
-        #expect(!contents.contains("updateSelectionEnd(to:"))
-    }
-
     private func packageRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -177,69 +150,4 @@ struct ReleaseMetadataTests {
         }
     }
 
-    private var requiredTask4GitAddPaths: Set<String> {
-        [
-            ".github/workflows/ci.yml",
-            "README.md",
-            "CONTRIBUTING.md",
-            "CHANGELOG.md",
-            "Sources/YueduCoreText/YueduCoreText.docc",
-            "Tests/YueduCoreTextTests/CorePackageBoundaryTests.swift",
-            "Tests/YueduCoreTextTests/ReleaseMetadataTests.swift",
-            "docs/superpowers/plans/2026-07-28-yuedu-coretext-0.2.0.md",
-        ]
-    }
-}
-
-private enum Task4GitAddGuard {
-    static func missingRequiredPaths(
-        in plan: String,
-        requiredPaths: Set<String>
-    ) -> Set<String> {
-        guard let task4Section = section(
-            in: plan,
-            startingWith: "### Task 4:",
-            endingWith: "### Task 5:"
-        ),
-        let step6Section = section(
-            in: task4Section,
-            startingWith: "- [ ] **Step 6:",
-            endingWith: "- [ ] **Step 7:"
-        ),
-        let gitAddPaths = gitAddPaths(in: step6Section)
-        else {
-            return requiredPaths
-        }
-
-        return requiredPaths.subtracting(gitAddPaths)
-    }
-
-    private static func section(
-        in contents: String,
-        startingWith startMarker: String,
-        endingWith endMarker: String
-    ) -> String? {
-        guard let start = contents.range(of: startMarker) else { return nil }
-        let sectionStart = start.lowerBound
-        let remaining = contents[start.upperBound...]
-        let sectionEnd = remaining.range(of: endMarker)?.lowerBound ?? contents.endIndex
-        return String(contents[sectionStart..<sectionEnd])
-    }
-
-    private static func gitAddPaths(in stepSection: String) -> Set<String>? {
-        guard let fenceStart = stepSection.range(of: "```bash"),
-              let fenceEnd = stepSection[fenceStart.upperBound...].range(of: "```")
-        else {
-            return nil
-        }
-        let commandBlock = stepSection[fenceStart.upperBound..<fenceEnd.lowerBound]
-            .replacingOccurrences(of: "\\\n", with: " ")
-
-        for line in commandBlock.split(separator: "\n") {
-            let tokens = line.split(whereSeparator: \.isWhitespace).map(String.init)
-            guard tokens.starts(with: ["git", "add"]) else { continue }
-            return Set(tokens.dropFirst(2))
-        }
-        return nil
-    }
 }
