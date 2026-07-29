@@ -16,6 +16,6 @@ jobs:
       - name: Test on iOS Simulator
         run: |
           xcodebuild test \
-            -scheme YueduCoreText \
+            -scheme YueduCoreText-Package \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
             -parallel-testing-enabled NO
