@@ -2,6 +2,14 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- Bound adjacent CJK punctuation compression to the shaped glyphs' actual ink
+  gap, preventing combinations such as `……】` from overlapping across system,
+  EPUB, and fallback fonts.
+
 ## [0.2.0] - 2026-07-28
 
 ### Added

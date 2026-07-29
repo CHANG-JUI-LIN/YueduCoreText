@@ -1,3 +1,4 @@
+import CoreText
 import UIKit
 
 /// CJK typography post-processor.
@@ -105,15 +106,32 @@ public enum CJKTypographyProcessor {
             let fontSize = fontSizeAt(utf16Idx, in: smart)
             let halfEm = fontSize * 0.5
 
+            let requestedCompression: CGFloat
             if currIsClosing && nextIsOpening {
-                // Closing + Opening: compress two half-width spaces (1em total)
-                addKern(-halfEm * 2, at: utf16Idx, in: mutable)
+                // Closing + Opening: compress at most two half-width spaces (1em total).
+                requestedCompression = halfEm * 2
             } else if currIsClosing && nextIsClosing {
-                // Closing + Closing: compress the trailing space of the first closing mark (0.5em)
-                addKern(-halfEm, at: utf16Idx, in: mutable)
+                // Closing + Closing: compress at most the first mark's trailing half-space.
+                requestedCompression = halfEm
             } else if currIsOpening && nextIsOpening {
-                // Opening + Opening: push the following opening mark left by compressing its leading space (0.5em)
-                addKern(-halfEm, at: utf16Idx, in: mutable)
+                // Opening + Opening: compress at most the following mark's leading half-space.
+                requestedCompression = halfEm
+            } else {
+                requestedCompression = 0
+            }
+
+            if requestedCompression > 0 {
+                let nextUTF16Idx = utf16Offsets[i + 1]
+                let safeCompression = safePunctuationCompression(
+                    requested: requestedCompression,
+                    currentUTF16Offset: utf16Idx,
+                    nextUTF16Offset: nextUTF16Idx,
+                    nextUTF16Length: next.utf16.count,
+                    in: smart
+                )
+                if safeCompression > 0 {
+                    addKern(-safeCompression, at: utf16Idx, in: mutable)
+                }
             }
 
             // NOTE: No automatic CJK↔Latin/number spacing ("pangu" spacing) is inserted.
@@ -329,6 +347,78 @@ public enum CJKTypographyProcessor {
         guard attrStr.length > 0, utf16Offset < attrStr.length else { return 17 }
         let font = attrStr.attribute(.font, at: utf16Offset, effectiveRange: nil) as? UIFont
         return font?.pointSize ?? 17
+    }
+
+    /// Bounds punctuation compression by the shaped glyphs' actual ink gap.
+    ///
+    /// A fixed `0.5em` assumes every punctuation glyph has exactly half an em of removable side
+    /// bearing. That is false for ellipses and varies with EPUB fonts and CoreText fallback fonts;
+    /// applying the full amount can overlap combinations such as `……】`. Shape the pair through
+    /// CoreText, measure the fonts and glyphs it really selected, and never remove more than the
+    /// visible gap can safely absorb.
+    private static func safePunctuationCompression(
+        requested: CGFloat,
+        currentUTF16Offset: Int,
+        nextUTF16Offset: Int,
+        nextUTF16Length: Int,
+        in attrStr: NSAttributedString
+    ) -> CGFloat {
+        let pairRange = NSRange(
+            location: currentUTF16Offset,
+            length: nextUTF16Offset + nextUTF16Length - currentUTF16Offset
+        )
+        guard pairRange.location >= 0,
+              pairRange.length > 1,
+              NSMaxRange(pairRange) <= attrStr.length
+        else { return 0 }
+
+        let pair = attrStr.attributedSubstring(from: pairRange)
+        let line = CTLineCreateWithAttributedString(pair)
+        let inkRects = glyphInkRectsByStringIndex(in: line)
+        let nextLocalOffset = nextUTF16Offset - currentUTF16Offset
+        guard let currentInk = inkRects[0],
+              let nextInk = inkRects[nextLocalOffset]
+        else { return 0 }
+
+        let naturalInkGap = nextInk.minX - currentInk.maxX
+        let fontSize = fontSizeAt(currentUTF16Offset, in: attrStr)
+        let minimumVisibleGap = max(0.5, fontSize * 0.05)
+        let safelyRemovableGap = max(0, naturalInkGap - minimumVisibleGap)
+        return min(requested, safelyRemovableGap)
+    }
+
+    private static func glyphInkRectsByStringIndex(in line: CTLine) -> [Int: CGRect] {
+        var result: [Int: CGRect] = [:]
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+            let count = CTRunGetGlyphCount(run)
+            guard count > 0 else { continue }
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let fontValue = attributes[kCTFontAttributeName] else { continue }
+            let font = fontValue as! CTFont
+
+            var glyphs = [CGGlyph](repeating: 0, count: count)
+            var positions = [CGPoint](repeating: .zero, count: count)
+            var stringIndices = [CFIndex](repeating: 0, count: count)
+            CTRunGetGlyphs(run, CFRangeMake(0, 0), &glyphs)
+            CTRunGetPositions(run, CFRangeMake(0, 0), &positions)
+            CTRunGetStringIndices(run, CFRangeMake(0, 0), &stringIndices)
+
+            for glyphIndex in 0..<count {
+                var glyph = glyphs[glyphIndex]
+                let bounds = CTFontGetBoundingRectsForGlyphs(
+                    font,
+                    .horizontal,
+                    &glyph,
+                    nil,
+                    1
+                )
+                result[stringIndices[glyphIndex]] = bounds.offsetBy(
+                    dx: positions[glyphIndex].x,
+                    dy: positions[glyphIndex].y
+                )
+            }
+        }
+        return result
     }
 
     /// Accumulates kern at utf16Offset (adds to existing kern to avoid overwriting existing typography)
