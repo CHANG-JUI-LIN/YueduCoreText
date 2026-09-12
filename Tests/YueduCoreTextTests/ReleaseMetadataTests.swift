@@ -2,13 +2,15 @@ import Foundation
 import Testing
 import YueduCoreText
 
-@Suite("YueduCoreText 0.2.0 release metadata")
+@Suite("YueduCoreText release metadata")
 struct ReleaseMetadataTests {
     @Test(
         "Documented test commands use the generated package scheme",
         arguments: [
             ".github/workflows/ci.yml",
             "README.md",
+            "README.zh-Hant.md",
+            "README.zh-Hans.md",
             "CONTRIBUTING.md",
         ]
     )
@@ -22,33 +24,29 @@ struct ReleaseMetadataTests {
 
         #expect(!schemeTokens.isEmpty, "No xcodebuild scheme found in \(relativePath)")
         #expect(
-            schemeTokens.allSatisfy { $0 == "YueduCoreText-Package" },
+            schemeTokens.allSatisfy { ["YueduCoreText-Package", "YueduCoreTextConsumer"].contains($0) },
             "Unexpected xcodebuild scheme in \(relativePath): \(schemeTokens)"
         )
     }
 
     @Test(
-        "Documented simulator commands use the Xcode 16 compatible device",
+        "Documented test commands target iOS Simulator without parallel test clones",
         arguments: [
             ".github/workflows/ci.yml",
             "README.md",
+            "README.zh-Hant.md",
+            "README.zh-Hans.md",
             "CONTRIBUTING.md",
         ]
     )
     func testCommandsUseCompatibleSimulator(relativePath: String) throws {
         let contents = try contentsOfFile(relativePath)
-        let simulatorNames = try matches(
-            for: #"platform=iOS Simulator,name=([^'"\n\\]+)"#,
-            in: contents,
-            captureGroup: 1
-        )
-
-        #expect(!simulatorNames.isEmpty, "No simulator destination found in \(relativePath)")
-        #expect(
-            simulatorNames.allSatisfy { $0 == "iPhone 16 Pro" },
-            "Incompatible simulator destination in \(relativePath): \(simulatorNames)"
-        )
-        #expect(!contents.contains("iPhone 17 Pro Max"))
+        // A caller-selected installed UDID is valid, as is CI's named device.
+        // Validate the platform and execution contract rather than one device name.
+        #expect(contents.contains("platform=iOS Simulator,"))
+        #expect(contents.contains("-destination"))
+        #expect(contents.contains("-parallel-testing-enabled NO"))
+        #expect(!contents.contains("platform=macOS"))
     }
 
     @Test(
@@ -56,20 +54,39 @@ struct ReleaseMetadataTests {
         arguments: ["README.md", "CONTRIBUTING.md"]
     )
     func documentationRetainsXcode16Requirement(relativePath: String) throws {
-        #expect(try contentsOfFile(relativePath).contains("Xcode 16 or later"))
+        let contents = try contentsOfFile(relativePath)
+        #expect(contents.range(of: #"Xcode 16(?:\+| or later)"#,
+                               options: .regularExpression) != nil)
     }
 
     @Test(
-        "README and changelog document every 0.2.0 public API area",
+        "README and changelog retain the existing public utility API areas",
         arguments: ["README.md", "CHANGELOG.md"]
     )
     func releaseDocumentsDescribePublicAPIAreas(relativePath: String) throws {
         let contents = try contentsOfFile(relativePath)
 
-        #expect(contents.contains("0.2.0"))
         #expect(contents.contains("ReaderContentMetrics"))
         #expect(contents.contains("TextSelectionManager"))
         #expect(contents.contains("ReaderPerfTrace"))
+    }
+
+    @Test("All README translations use the compiled standalone rendering examples",
+          arguments: ["README.md", "README.zh-Hant.md", "README.zh-Hans.md"])
+    func readmeExamplesMatchCompiledConsumer(relativePath: String) throws {
+        let contents = try contentsOfFile(relativePath)
+        let swiftBlocks = try matches(for: #"(?s)```swift\n(.*?)\n```"#,
+                                      in: contents, captureGroup: 1)
+        let examples = swiftBlocks.filter { $0.contains("@MainActor") }
+        #expect(examples.count == 2)
+        let source = try contentsOfFile("Examples/StandaloneConsumer/Sources/Consumer/Example.swift")
+        for example in examples { #expect(source.contains(example)) }
+        let consumer = try contentsOfFile("Examples/StandaloneConsumer/Package.swift")
+        #expect(consumer.contains("YueduCoreTextConsumer"))
+        #expect(!source.contains("@testable"))
+        for file in ["README.md", "README.zh-Hant.md", "README.zh-Hans.md"] {
+            #expect(contents.contains("](\(file))"))
+        }
     }
 
     @Test("Changelog describes only the final endpoint-token selection API")
@@ -88,7 +105,11 @@ struct ReleaseMetadataTests {
         #expect(contents.contains("pagination"))
         #expect(contents.contains("html"))
         #expect(contents.contains("uikit"))
-        #expect(contents.contains("out of scope"))
+        #expect(contents.contains("unsupported"))
+        #expect(contents.contains("tables"))
+        #expect(contents.contains("flex/grid"))
+        #expect(contents.contains("vertical html document layout"))
+        #expect(contents.contains("epub zip/opf/spine management"))
     }
 
     @Test("Contribution guidance records core dependencies and trace privacy")

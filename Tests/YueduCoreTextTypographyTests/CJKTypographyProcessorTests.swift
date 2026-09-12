@@ -70,8 +70,42 @@ struct CJKTypographyProcessorTests {
         )
 
         #expect(kern < 0)
-        #expect(kern > -font.pointSize)
+        // Closing + opening may remove a full em when the actual glyph gap
+        // allows it. System fallback fonts vary across iOS runtimes, so verify
+        // the visible result rather than assuming compression is strictly < 1em.
+        #expect(kern >= -font.pointSize)
+        #expect(output.string == input.string)
         #expect(output.length == input.length)
+        let after = try firstPairInkGap(in: output)
+        #expect(after >= max(0.5, font.pointSize * 0.05))
+    }
+
+    @Test("closing and opening marks can safely compress one full em")
+    func fullEmCompressionPreservesExistingSpacingAndVisibleGap() throws {
+        let font = try #require(UIFont(name: "PingFangSC-Regular", size: 20))
+        // Give this pair ample removable space independently of the runtime's
+        // fallback font. This exercises the valid inclusive 1em boundary.
+        let existingKern = font.pointSize * 2
+        let input = NSMutableAttributedString(string: "】【", attributes: [.font: font])
+        input.addAttribute(.kern, value: existingKern, range: NSRange(location: 0, length: 1))
+        let before = try firstPairInkGap(in: input)
+        #expect(before > font.pointSize + 1, "natural gap with added spacing=\(before)")
+
+        let output = CJKTypographyProcessor.apply(to: input)
+        let kern = try #require(output.attribute(.kern, at: 0, effectiveRange: nil) as? CGFloat)
+        #expect(kern - existingKern == -font.pointSize, "kern=\(kern), existing=\(existingKern)")
+        #expect(output.string == input.string)
+        #expect(output.length == input.length)
+        let after = try firstPairInkGap(in: output)
+        #expect(after < before, "before=\(before), after=\(after), kern=\(kern)")
+        #expect(after >= max(0.5, font.pointSize * 0.05))
+    }
+
+    private func firstPairInkGap(in text: NSAttributedString) throws -> CGFloat {
+        let rects = glyphInkRectsByStringIndex(in: CTLineCreateWithAttributedString(text))
+        let current = try #require(rects[0])
+        let next = try #require(rects[1])
+        return next.minX - current.maxX
     }
 
     private func glyphInkRectsByStringIndex(in line: CTLine) -> [Int: CGRect] {

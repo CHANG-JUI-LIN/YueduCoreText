@@ -5,17 +5,52 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      YUEDU_TEST_DESTINATION: platform=iOS Simulator,name=iPhone 16 Pro,arch=arm64
     steps:
       - uses: actions/checkout@v4
-      - name: Describe package
-        run: swift package describe
+      - name: Describe toolchain and package
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun simctl list devices available
+          swift package describe
       - name: Test on iOS Simulator
         run: |
           xcodebuild test \
             -scheme YueduCoreText-Package \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-            -parallel-testing-enabled NO
+            -destination "$YUEDU_TEST_DESTINATION" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/Package.xcresult"
+      - name: Test standalone public API consumer
+        working-directory: Examples/StandaloneConsumer
+        run: |
+          xcodebuild test \
+            -scheme YueduCoreTextConsumer \
+            -destination "$YUEDU_TEST_DESTINATION" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/Consumer.xcresult"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: |
+            ${{ runner.temp }}/Package.xcresult
+            ${{ runner.temp }}/Consumer.xcresult
+          if-no-files-found: warn
+          retention-days: 7

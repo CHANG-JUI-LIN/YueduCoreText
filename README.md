@@ -189,7 +189,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
 
 The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.3.0 dependency.
 
-Release validation on Xcode 27 beta / iOS Simulator 27 passed 128 package tests and 5 standalone consumer tests. **Xcode 16.4 CI is not green:** the existing Typography test `punctuationStillCompressesWhenSafe` fails with `kern == -20` where it expects `> -20`. The same failure occurred in 0.2.1. See [0.3.0 CI](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions/runs/34691996249) and the [baseline](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions/runs/30687257480). No real-device performance claim is made.
+Release validation on Xcode 27 beta / iOS Simulator 27 passed 128 package tests and 5 standalone consumer tests. The [published 0.3.0 CI](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions/runs/34691996249) inherited a Typography assertion that rejected a valid full-em compression (`kern == -20`). On `main`, this test now checks actual glyph separation and the inclusive one-em limit, with an explicit full-em regression case. CI runs both the package tests and the standalone consumer, and retains `.xcresult` artifacts. See [current CI runs](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions) for the latest outcome. No real-device performance claim is made.
 
 For a bug report, [open an issue](https://github.com/CHANG-JUI-LIN/YueduCoreText/issues) with a minimal HTML/CSS sample, configuration, package/Xcode/iOS versions, expected result and screenshot. Supply only resources you have permission to share.
 

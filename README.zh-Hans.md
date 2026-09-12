@@ -189,7 +189,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
 
 示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.3.0 获取。
 
-发布验证在 Xcode 27 beta／iOS Simulator 27 通过 128 项包测试与 5 项独立 consumer 测试。**Xcode 16.4 CI 尚未全部通过：**既有 Typography 测试 `punctuationStillCompressesWhenSafe` 得到 `kern == -20`，但 assertion 预期 `> -20`。0.2.1 也有相同失败，详见 [0.3.0 CI](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions/runs/34691996249) 与[基线](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions/runs/30687257480)。本文档不宣称真机性能。
+发布验证在 Xcode 27 beta／iOS Simulator 27 通过 128 项包测试与 5 项独立 consumer 测试。[已发布的 0.3.0 CI](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions/runs/34691996249) 沿用了会排除合法完整 1 em 压缩量（`kern == -20`）的 Typography assertion。目前 `main` 改为检查实际字形间距与包含端点的 1 em 上限，并新增完整 1 em 的回归用例。CI 同时运行包与独立 consumer 测试，并保留 `.xcresult` 产物；最新结果请见 [CI 运行记录](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions)。本文档不宣称真机性能。
 
 报告问题时，请[创建 issue](https://github.com/CHANG-JUI-LIN/YueduCoreText/issues)，提供最小 HTML／CSS、配置、包／Xcode／iOS 版本、预期结果与截图。只附上你有权分享的资源。
 
