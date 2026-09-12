@@ -6,4 +6,5 @@ The original MPL-2.0 source license is retained; see LICENSE. Existing file comm
 are preserved. Synthetic test fixtures contain no redistributed books or system fonts.
 SwiftSoup 2.13.7 is a declared MIT-licensed dependency; its license remains in the dependency.
 
-No new release or tag was created by this extraction. The new engine API is unpublished.
+The standalone engine is available starting with release 0.3.0.
+See CHANGELOG.md for release history.

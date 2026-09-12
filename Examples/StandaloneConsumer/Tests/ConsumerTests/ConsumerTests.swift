@@ -9,11 +9,23 @@ struct ConsumerTests {
         let result = try await renderExample()
         #expect(result.text == "Hello 世界 🌕")
         #expect(result.image.width == 320)
+        #expect(result.image.height == 480)
         #expect(result.links.count > 0)
         #expect(result.links.allSatisfy { $0.href == "#intro" })
         let bytes = try #require(result.image.dataProvider?.data)
         let pixels = try #require(CFDataGetBytePtr(bytes))
-        #expect((0..<CFDataGetLength(bytes)).contains { pixels[$0] < 200 })
+        // The authored border must be at the top of the exported image.
+        func bluePixelCount(rows: Range<Int>) -> Int {
+            rows.reduce(0) { total, y in
+                total + (0..<result.image.width).filter { x in
+                    let offset = y * result.image.bytesPerRow + x * 4
+                    return pixels[offset] < 40 && pixels[offset + 1] < 40
+                        && pixels[offset + 2] > 200 && pixels[offset + 3] > 200
+                }.count
+            }
+        }
+        #expect(bluePixelCount(rows: 0..<60) > 300)
+        #expect(bluePixelCount(rows: 420..<480) == 0)
     }
 
     @Test func paginationContinuousResourcesAndUTF16Geometry() async throws {
@@ -50,6 +62,20 @@ struct ConsumerTests {
         #expect(continuous.contentHeight > 140)
         #expect(continuous.contentSize == CGSize(width: 220, height: continuous.contentHeight))
         #expect(continuous.displayList.items.contains { if case .image(let item) = $0 { return item.image != nil && item.rect.width == 20 }; return false })
+        let exampleFlow = try makeContinuousExample(image: image)
+        #expect(exampleFlow.sourceText == "Hello 世界")
+        #expect(exampleFlow.contentSize.width == 320)
+        #expect(exampleFlow.displayList.items.contains {
+            if case .image(let item) = $0 { return item.rect.width == 120 && item.image != nil }
+            return false
+        })
+        let viewportBitmap = try #require(CGContext(data: nil, width: 320, height: 480,
+            bitsPerComponent: 8, bytesPerRow: 320 * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        viewportBitmap.translateBy(x: 0, y: 480)
+        viewportBitmap.scaleBy(x: 1, y: -1)
+        drawFirstViewport(of: exampleFlow, in: viewportBitmap)
+        #expect(viewportBitmap.makeImage() != nil)
         let bitmap = try #require(CGContext(data: nil, width: 220,
             height: Int(ceil(continuous.contentHeight)), bitsPerComponent: 8, bytesPerRow: 220 * 4,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))

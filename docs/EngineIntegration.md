@@ -3,44 +3,18 @@
 Version 0.3.0 contains the extracted engine. Version 0.2.1 does not contain
 HTMLLayoutDocument. Consumers can resolve the 0.3.0 tag directly from GitHub.
 
-## Reproducible local integration
+## Standalone consumers
 
-Place the original checkouts beside each other:
+Start with the README in [English](../README.md), [繁體中文](../README.zh-Hant.md)
+or [简体中文](../README.zh-Hans.md). Each contains the same compiled pagination,
+bitmap, image and continuous-viewport examples, plus installation and testing commands.
+Only YueduCoreText and its declared dependencies are required; the Reader repository
+and the optional workspace described below are not needed by other apps.
 
-```
-parent/
-  Yuedu-reader/
-  YueduCoreText/
-```
-
-Open `Yuedu-reader/Yuedu-Engine.xcworkspace`. Its relative package reference overrides
-that project's existing remote package identity. Do not add a second same-named package
-to the App target, and do not edit Xcode's SourcePackages/checkouts.
-
-Set `YUEDU_TEST_DESTINATION` to an installed iOS Simulator (use `xcrun simctl list devices available`).
-For example, `platform=iOS Simulator,id=<installed-device-uuid>`.
-
-From Yuedu-reader:
-
-```sh
-xcodebuild -workspace Yuedu-Engine.xcworkspace -scheme Yuedu-Reader \
-  -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO \
-  -only-testing:'yuedu appTests/BrowserLayoutPageEngineTests' test
-```
-
-From YueduCoreText:
-
-```sh
-xcodebuild -scheme YueduCoreText-Package -destination "$YUEDU_TEST_DESTINATION" \
-  -parallel-testing-enabled NO test
-cd Examples/StandaloneConsumer
-xcodebuild -scheme YueduCoreTextConsumer -destination "$YUEDU_TEST_DESTINATION" \
-  -parallel-testing-enabled NO test
-```
-
-The consumer package depends only on the package two directories above it. It can be
-run from a clean directory containing this repository's Package.swift, Sources, Tests,
-Examples and LICENSE, without the Reader repository. No Reader scheme participates.
+`Examples/StandaloneConsumer` is a separate library/test package that imports only
+public APIs. Its local path dependency supports development in this repository.
+To use the published release in your own consumer, declare the GitHub URL with
+`.upToNextMinor(from: "0.3.0")` and link the `YueduCoreText` product.
 
 ## Execution contract
 
@@ -84,3 +58,42 @@ Reader's normal Yuedu-Reader.xcodeproj resolves that published dependency; the s
 workspace is optional for engine development. Normal remote verification must use the
 project without the local override and must inspect the resolved version and revision.
 Do not edit Package.resolved by hand or modify SourcePackages/checkouts.
+
+## Optional: developing Yuedu Reader and the engine together
+
+Place the original checkouts beside each other:
+
+```
+parent/
+  Yuedu-reader/
+  YueduCoreText/
+```
+
+Open `Yuedu-reader/Yuedu-Engine.xcworkspace`. Its relative package reference overrides
+that project's existing remote package identity. Do not add a second same-named package
+to the App target, and do not edit Xcode's SourcePackages/checkouts.
+
+Set `YUEDU_TEST_DESTINATION` to an installed iOS Simulator (use `xcrun simctl list devices available`).
+For example, `platform=iOS Simulator,id=<installed-device-uuid>`.
+
+From Yuedu-reader:
+
+```sh
+xcodebuild -workspace Yuedu-Engine.xcworkspace -scheme Yuedu-Reader \
+  -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO \
+  -only-testing:'yuedu appTests/BrowserLayoutPageEngineTests' test
+```
+
+From YueduCoreText:
+
+```sh
+xcodebuild -scheme YueduCoreText-Package -destination "$YUEDU_TEST_DESTINATION" \
+  -parallel-testing-enabled NO test
+cd Examples/StandaloneConsumer
+xcodebuild -scheme YueduCoreTextConsumer -destination "$YUEDU_TEST_DESTINATION" \
+  -parallel-testing-enabled NO test
+```
+
+The consumer package depends only on the package two directories above it. It can be
+run from a clean directory containing this repository's Package.swift, Sources, Tests,
+Examples and LICENSE, without the Reader repository. No Reader scheme participates.
