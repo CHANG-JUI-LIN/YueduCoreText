@@ -8,7 +8,7 @@
 
 适合需要自行控制绘制和交互的原生文档或阅读界面。你的 App 提供资源、承载界面；包负责解析、计算样式、排版、分页与绘制。
 
-[0.3.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.3.0) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
+[0.4.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.4.0) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
 
 ## 环境要求与安装
 
@@ -16,14 +16,14 @@
 - HTML/CSS 引擎从 **0.3.0** 开始提供。0.2.1 及更早版本只有原有工具 API。
 - 主产品依赖 `YueduCoreTextTypography` 与 **SwiftSoup 2.13.7**。
 
-在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.3.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.3.0**。
+在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.4.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.4.0**。
 
 如果使用 Swift Package，将以下内容加入 `Package.dependencies`：
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.3.0")
+    .upToNextMinor(from: "0.4.0")
 )
 ```
 
@@ -33,7 +33,7 @@
 .product(name: "YueduCoreText", package: "YueduCoreText")
 ```
 
-0.x 的 minor 版本可能调整 public API；上述约束会保持在 0.3.x。只需要文字排印工具时，可改选 `YueduCoreTextTypography` 产品。
+0.x 的 minor 版本可能调整 public API；上述约束会保持在 0.4.x。只需要文字排印工具时，可改选 `YueduCoreTextTypography` 产品。
 
 ## 绘制第一页
 
@@ -143,17 +143,17 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 
 ## 支持范围
 
-| 项目 | 0.3.x 已提供 |
+| 项目 | 0.4.0 |
 |---|---|
-| 排版 | 横排 block／inline flow、已支持的 px／em／% 尺寸、margin／padding、white-space 与 text-indent |
+| 排版 | 横排与基础 vertical-rl block／inline flow、已支持的 px／em／% 尺寸、margin／padding、white-space 与 text-indent |
 | 分页 | 增量分页 session、分页图片适配与连续文档排版 |
-| 富内容 | 已支持的左右 float／clear、横排 ruby 子集、位图及包装位图的 SVG |
+| 富内容 | 已支持的左右 float／clear、横排／vertical-rl 共用 ruby 子集、位图及包装位图的 SVG |
 | 绘制 | 文字、图片、背景、边框与已支持的行内装饰 |
 | 交互与语义 | 来源范围、锚点、链接／noteref、选区几何、已支持的脚注内容、媒体占位画面与作者标记的发音描述 |
 
-以上是已实现的子集，不代表完整 CSS 兼容性。**目前不支持 table、flex/grid、定位排版、竖排 HTML 文档、通用矢量 SVG、MathML 与脚本。** Float／ruby 可接受的结构也有限制。高层文档 API 会检查能力并报告不支持的输入，不会暗中切换到 Reader 的其他后端。
+以上是已实现的子集，不代表完整 CSS 兼容性。**目前不支持 table、flex/grid、定位排版、高级竖排 HTML 文档、通用矢量 SVG、MathML 与脚本。** Float／ruby 可接受的结构也有限制。高层文档 API 会检查能力并报告不支持的输入，不会暗中切换到 Reader 的其他后端。
 
-EPUB ZIP／OPF／spine 管理、网络加载、阅读控件、手势、笔记存储与媒体／TTS 播放由你的 App 负责。Typography 的竖排文字工具**不表示**引擎支持竖排 HTML。这个包不宣称完整 EPUB／CSS 兼容或与 DTCoreText 功能对等。
+EPUB ZIP／OPF／spine 管理、网络加载、阅读控件、手势、笔记存储与媒体／TTS 播放由你的 App 负责。**0.4.0** 加入基础 `vertical-rl` 文字排版与共用 ruby。请参考[参与编译的竖排示例](Examples/StandaloneConsumer/Sources/Consumer/VerticalExample.swift)与[支持范围及坐标契约](docs/VerticalLayout.md)。这个包不宣称完整 EPUB／CSS 兼容或与 DTCoreText 功能对等。
 
 ## 配置、错误与生命周期
 
@@ -187,9 +187,9 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.3.0 获取。
+示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.4.0 获取。
 
-发布验证在 Xcode 27 beta／iOS Simulator 27 通过 128 项包测试与 5 项独立 consumer 测试。[已发布的 0.3.0 CI](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions/runs/34691996249) 沿用了会排除合法完整 1 em 压缩量（`kern == -20`）的 Typography assertion。目前 `main` 改为检查实际字形间距与包含端点的 1 em 上限，并新增完整 1 em 的回归用例。CI 同时运行包与独立 consumer 测试，并保留 `.xcresult` 产物；最新结果请见 [CI 运行记录](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions)。本文档不宣称真机性能。
+CI 在 iOS Simulator 运行包与只使用 public API 的独立 consumer 测试，并保留 `.xcresult` 产物；已验证的版本、工具链与结果请见 [CI 运行记录](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions)。本文档不宣称真机性能。
 
 报告问题时，请[创建 issue](https://github.com/CHANG-JUI-LIN/YueduCoreText/issues)，提供最小 HTML／CSS、配置、包／Xcode／iOS 版本、预期结果与截图。只附上你有权分享的资源。
 

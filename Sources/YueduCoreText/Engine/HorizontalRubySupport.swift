@@ -41,12 +41,11 @@ struct HorizontalRubyValidation {
     let isSupported: Bool
 }
 
-/// The single source of truth for Phase 4D's deliberately small horizontal
-/// Ruby subset. Both layout admission and the capability scanner consume this
+/// Shared structural admission for horizontal and vertical-rl ruby. Both layout admission and the capability scanner consume this
 /// predicate so parsing support cannot drift from geometry support.
 enum HorizontalRubySupport {
     private static let structuralTags: Set<String> = [
-        "ruby", "rt", "rp", "rb", "rtc", "br", "img", "svg",
+        "ruby", "rt", "rp", "rtc", "br", "img", "svg",
     ]
 
     static func validate(
@@ -61,9 +60,6 @@ enum HorizontalRubySupport {
         guard hasRubyMarkup else {
             return HorizontalRubyValidation(structures: [], isSupported: true)
         }
-        guard writingMode == .horizontal else {
-            return HorizontalRubyValidation(structures: [], isSupported: false)
-        }
 
         var structures: [HorizontalRubyStructure] = []
         var valid = true
@@ -76,45 +72,33 @@ enum HorizontalRubySupport {
     }
 
     static func structure(for node: ComputedStyleNode) -> HorizontalRubyStructure? {
-        guard node.tag == "ruby",
-              node.style.display == .inline,
-              node.style.rubyAlign == .center,
-              node.style.rubyPosition == .over,
-              node.style.rubyMerge == .separate else {
-            return nil
-        }
+        guard let pairs = structures(for: node), pairs.count == 1 else { return nil }
+        return pairs.first
+    }
 
-        let directRT = node.children.compactMap(\.elementNode).filter { $0.tag == "rt" }
-        guard directRT.count == 1,
-              let rt = directRT.first,
-              rt.style.display == .inline,
-              !rt.style.isFloated else {
-            return nil
-        }
-        guard !containsTag(node, names: ["ruby", "rb", "rtc"], excludingRoot: true) else {
-            return nil
-        }
-        guard let rtIndex = node.children.firstIndex(where: { $0.elementNode === rt }) else {
-            return nil
-        }
-
-        let before = Array(node.children[..<rtIndex]).filter { $0.elementNode?.tag != "rp" }
-        let after = node.children[node.children.index(after: rtIndex)...]
-        guard after.allSatisfy({ child in
-            if let element = child.elementNode { return element.tag == "rp" }
-            if case .text(let text) = child {
-                return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// Group and paired ruby use the same atomic unit in either writing mode.
+    /// Each direct rt consumes the preceding base; rb is an optional wrapper.
+    static func structures(for node: ComputedStyleNode) -> [HorizontalRubyStructure]? {
+        guard node.tag == "ruby", node.style.display == .inline,
+              node.style.rubyAlign == .center, node.style.rubyPosition == .over,
+              node.style.rubyMerge == .separate,
+              !containsTag(node, names: ["ruby", "rtc"], excludingRoot: true) else { return nil }
+        var pending: [StyleTreeChild] = []
+        var pairs: [HorizontalRubyStructure] = []
+        for child in node.children {
+            if child.elementNode?.tag == "rp" { continue }
+            if let rt = child.elementNode, rt.tag == "rt" {
+                guard rt.style.display == .inline, !rt.style.isFloated,
+                      containsVisibleBase(pending), supportedInlineBase(pending),
+                      containsVisibleBase(rt.children), supportedInlineBase(rt.children) else { return nil }
+                pairs.append(HorizontalRubyStructure(ruby: node, baseChildren: pending, annotation: rt))
+                pending.removeAll()
+            } else {
+                pending.append(child)
             }
-            return false
-        }),
-        containsVisibleBase(before),
-        supportedInlineBase(before),
-        containsVisibleBase(rt.children),
-        supportedInlineBase(rt.children) else {
-            return nil
         }
-
-        return HorizontalRubyStructure(ruby: node, baseChildren: before, annotation: rt)
+        guard !pairs.isEmpty, !containsVisibleBase(pending) else { return nil }
+        return pairs
     }
 
     private static func walk(
@@ -125,11 +109,11 @@ enum HorizontalRubySupport {
     ) {
         guard valid else { return }
         if node.tag == "ruby" {
-            guard !insideRuby, let accepted = structure(for: node) else {
+            guard !insideRuby, let accepted = Self.structures(for: node) else {
                 valid = false
                 return
             }
-            structures.append(accepted)
+            structures.append(contentsOf: accepted)
             return
         }
         if ["rt", "rp", "rb", "rtc"].contains(node.tag) {

@@ -118,7 +118,10 @@ final class BrowserLayoutDocument {
         let semanticMedia = metrics.time("semanticMedia") {
             BrowserLayoutSemanticContent.prepareMedia(in: frontendResult.rootNode, renderWidth: config.renderWidth)
         }
-        let rootNode = semanticMedia.root
+        if config.writingMode == .verticalRTL, !VerticalTextSupport.accepts(semanticMedia.root) {
+            throw HTMLLayoutError.unsupported([.verticalWritingMode])
+        }
+        let rootNode = LogicalFlow.styleTree(semanticMedia.root, mode: config.writingMode)
         let linkAnchors = frontendResult.linkAnchors
         let rubyValidation = HorizontalRubySupport.validate(
             rootNode,
@@ -128,8 +131,7 @@ final class BrowserLayoutDocument {
             throw BrowserLayoutError.unsupportedRubySubset
         }
         let textIndentUsage = HorizontalTextIndentSupport.usage(in: rootNode)
-        if textIndentUsage == .unsupported
-            || (textIndentUsage == .supportedNonZero && config.writingMode != .horizontal) {
+        if textIndentUsage == .unsupported {
             throw BrowserLayoutError.unsupportedTextIndentSubset
         }
 
@@ -147,10 +149,10 @@ final class BrowserLayoutDocument {
         metrics.time("layout") {
             _ = BlockLayout.layOut(
                 root: rootBox,
-                containerWidth: contentWidth,
-                inlineContainingSize: config.renderWidth,
+                containerWidth: config.writingMode == .horizontal ? contentWidth : contentHeight,
                 rootFontSize: config.rootFontSize,
-                writingMode: config.writingMode,
+                writingMode: .horizontal,
+                textWritingMode: config.writingMode,
                 sourceText: sourceText.text,
                 fontResolver: config.fontResolver,
                 fragmentHeight: fragmentHeight
@@ -346,7 +348,9 @@ final class BrowserLayoutDocument {
             metrics: &metrics,
             fragmentHeight: max(
                 1,
-                containerSize.height - config.contentInsets.top - config.contentInsets.bottom
+                config.writingMode == .horizontal
+                    ? containerSize.height - config.contentInsets.top - config.contentInsets.bottom
+                    : containerSize.width - config.contentInsets.left - config.contentInsets.right
             )
         )
         peakFootprint = max(peakFootprint, MemoryStats.currentFootprint())
@@ -356,11 +360,13 @@ final class BrowserLayoutDocument {
             pages = metrics.time("fragment") {
                 PageFragmentation.fragment(
                     box: pipeline.rootBox,
-                    pageSize: containerSize,
-                    contentInsets: config.contentInsets
+                    pageSize: LogicalFlow.size(containerSize, mode: config.writingMode),
+                    contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode)
                 )
             }
         }
+        pages = pages.map { LogicalFlow.page($0, mode: config.writingMode,
+            documentBlockExtent: LogicalFlow.documentExtent(pipeline.rootBox)) }
         // Authored html/body background (paint-only): resolved through the
         // same imageLoader as <img>; injected as a FULL-CANVAS fragment at the
         // FRONT of EVERY page (cover/center semantics resolved below). The

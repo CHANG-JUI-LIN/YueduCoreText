@@ -2,9 +2,9 @@ import CoreGraphics
 import Foundation
 
 /// Writing mode enum — the single source of truth for axis mapping across the
-/// browser layout engine. Phase 3A: all core layout algorithms (block layout,
-/// inline layout, page walker, margin collapsing, atomic boxes, fragmentation)
-/// operate on LOGICAL coordinates and never assume horizontal flow directly.
+/// browser layout engine. Production flow stores canonical inline/block axes;
+/// LogicalFlow adapts physical CSS and completed fragments at the boundaries.
+/// CGRect slots inside the walker are canonical, not physical vertical frames.
 ///
 /// Reuses `ReaderWritingMode` (the app-wide typealias `ReaderWritingMode` in
 /// CoreTextCommon) so the browser engine and the legacy renderer share ONE

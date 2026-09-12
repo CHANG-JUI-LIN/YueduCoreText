@@ -111,7 +111,7 @@ enum InlineLayout {
                     value: delegate as Any, range: NSRange(location: isStart ? 0 : 1, length: 1))
                 attributed.append(edge)
             } else if let unit = run.ruby {
-                let ruby = RubyInlineLayout.measure(unit: unit, fontResolver: fontResolver, attributedSource: run.attributedSource)
+                let ruby = RubyInlineLayout.measure(unit: unit, fontResolver: fontResolver, attributedSource: run.attributedSource, writingMode: context.writingMode)
                 measuredRuby[index] = ruby
                 let box = RubyRunDelegateBox(ruby)
                 rubyDelegateBoxes.append(box)
@@ -163,6 +163,11 @@ enum InlineLayout {
                 }
             }
             attributedCursor += shapedLength(of: run)
+        }
+
+        if context.writingMode == .verticalRTL {
+            attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
+                                    value: true, range: NSRange(location: 0, length: attributed.length))
         }
 
         let cssHeight = lineHeight ?? runs.first?.style.lineHeight

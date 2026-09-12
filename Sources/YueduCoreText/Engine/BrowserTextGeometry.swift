@@ -18,6 +18,10 @@ public enum BrowserTextGeometry {
             let origin = physicalOrigin(line, shapedRange: shapedRange)
             let a = CTLineGetOffsetForStringIndex(line, start, nil) - origin
             let b = CTLineGetOffsetForStringIndex(line, end, nil) - origin
+            if text.writingMode == .verticalRTL {
+                return CGRect(x: text.rect.minX, y: text.rect.minY + min(a, b),
+                              width: text.rect.width, height: max(1, abs(b - a)))
+            }
             return CGRect(x: text.rect.minX + min(a, b), y: text.rect.minY,
                           width: max(1, abs(b - a)), height: text.rect.height)
         }
@@ -35,7 +39,7 @@ public enum BrowserTextGeometry {
         guard case .linear(let shapedRange) = text.sourceMapping,
               let line = text.ctLine else { return text.sourceRange }
         let origin = physicalOrigin(line, shapedRange: shapedRange)
-        let shaped = CTLineGetStringIndexForPosition(line, CGPoint(x: point.x - text.rect.minX + origin, y: 0))
+        let shaped = CTLineGetStringIndexForPosition(line, CGPoint(x: (text.writingMode == .horizontal ? point.x - text.rect.minX : point.y - text.rect.minY) + origin, y: 0))
         guard shaped != kCFNotFound else { return nil }
         let offset = min(NSMaxRange(text.sourceRange) - 1,
                          max(text.sourceRange.location, text.sourceRange.location + shaped - shapedRange.location))
@@ -59,6 +63,10 @@ public enum BrowserTextGeometry {
                   case .linear(let shapedRange) = text.sourceMapping,
                   let line = text.ctLine else { continue }
             let index = shapedRange.location + offset - text.sourceRange.location
+            if text.writingMode == .verticalRTL {
+                return CGPoint(x: isEnd ? text.rect.minX : text.rect.maxX,
+                    y: text.rect.minY + CTLineGetOffsetForStringIndex(line, index, nil) - physicalOrigin(line, shapedRange: shapedRange))
+            }
             return CGPoint(x: text.rect.minX + CTLineGetOffsetForStringIndex(line, index, nil) - physicalOrigin(line, shapedRange: shapedRange),
                            y: isEnd ? text.rect.maxY : text.rect.minY)
         }

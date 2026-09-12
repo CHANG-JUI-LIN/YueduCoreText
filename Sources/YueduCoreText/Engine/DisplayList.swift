@@ -17,6 +17,8 @@ public struct DisplayTextItem {
     public let linkTarget: String?
     public let writingMode: ReaderWritingMode
     public let rect: PageLocalRect
+    /// Physical baseline y in horizontal mode; physical baseline x in vertical-rl.
+    /// Kept under its original name for source compatibility.
     public let baselineY: CGFloat
     public let font: UIFont
     public let color: UIColor
@@ -37,7 +39,7 @@ public struct DisplayTextItem {
         guard let ctLine else { return result }
         let shapedRange: NSRange
         switch sourceMapping {
-        case .linear(let range): shapedRange = range
+        case .linear(let range), .annotation(let range): shapedRange = range
         case .wholeRange:
             let range = CTLineGetStringRange(ctLine)
             shapedRange = NSRange(location: range.location, length: range.length)

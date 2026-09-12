@@ -60,12 +60,13 @@ public struct BrowserScrollDocument {
         contentInsets: UIEdgeInsets,
         writingMode: ReaderWritingMode = .horizontal
     ) -> BrowserScrollDocument {
-        let canvasWidth = contentWidth + contentInsets.left + contentInsets.right
+        let logicalInsets = LogicalFlow.insets(contentInsets, mode: writingMode)
+        let inlineExtent = writingMode == .horizontal ? contentWidth : pipeline.contentSize.height
+        let canvasWidth = inlineExtent + logicalInsets.left + logicalInsets.right
         var walker = PageWalker(
             box: pipeline.rootBox,
             pageSize: CGSize(width: canvasWidth, height: 1),
-            writingMode: writingMode,
-            contentInsets: contentInsets,
+            contentInsets: logicalInsets,
             isContinuous: true
         )
         var fragments: [Fragment] = []
@@ -90,12 +91,16 @@ public struct BrowserScrollDocument {
             case .image(let i): return max(acc, i.rect.maxY)
             }
         }
+        let extent = contentBottom + logicalInsets.bottom
+        let physicalPage = LogicalFlow.page(PageFragments(index: 0,
+            pageRect: PageLocalRect(rawValue: CGRect(x: 0, y: 0, width: canvasWidth, height: extent)),
+            fragments: fragments), mode: writingMode, documentBlockExtent: extent)
         return BrowserScrollDocument(
-            displayList: list,
-            contentHeight: contentBottom + contentInsets.bottom,
+            displayList: writingMode == .horizontal ? list : DisplayListBuilder.build(for: physicalPage, sourceText: pipeline.sourceText),
+            contentHeight: writingMode == .horizontal ? extent : canvasWidth,
             sourceText: pipeline.sourceText,
             anchorOffsets: pipeline.anchorOffsets,
-            linkAnchors: pipeline.linkAnchors, contentWidth: canvasWidth
+            linkAnchors: pipeline.linkAnchors, contentWidth: writingMode == .horizontal ? canvasWidth : extent
         )
     }
 
@@ -120,7 +125,7 @@ public struct BrowserScrollDocument {
                     rect: PageLocalRect(rawValue: t.rect.rawValue.offsetBy(
                         dx: -documentRect.minX, dy: -documentRect.minY
                     )),
-                    baselineY: t.baselineY - documentRect.minY,
+                    baselineY: t.baselineY - (t.writingMode == .horizontal ? documentRect.minY : documentRect.minX),
                     font: t.font, color: t.color, text: t.text, ctLine: t.ctLine,
                     sourceMapping: t.sourceMapping,
                     renderedTextOverride: t.renderedTextOverride
@@ -160,6 +165,20 @@ public struct BrowserScrollDocument {
         LinkInteractionRegionSet.build(
             from: displayList, spineIndex: spineIndex, anchors: linkAnchors
         )
+    }
+
+    /// Physical document-space point for restoring a source position in either
+    /// writing mode. Vertical hosts move along x from the document's right edge.
+    /// Existing documentY/charOffset(atDocumentY:) remain horizontal-host helpers.
+    public func documentPoint(forCharOffset offset: Int) -> CGPoint? {
+        for item in displayList.items {
+            guard case .text(let text) = item,
+                  NSLocationInRange(offset, text.sourceRange) else { continue }
+            return text.writingMode == .horizontal
+                ? CGPoint(x: text.rect.minX, y: text.rect.minY)
+                : CGPoint(x: text.rect.maxX, y: text.rect.minY)
+        }
+        return nil
     }
 
     /// Document-space y of the first item at or after `charOffset` — the scroll

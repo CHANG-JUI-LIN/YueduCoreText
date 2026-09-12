@@ -48,7 +48,8 @@ enum RubyInlineLayout {
     static func measure(
         unit: RubyInlineUnit,
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
-        attributedSource: NSAttributedString? = nil
+        attributedSource: NSAttributedString? = nil,
+        writingMode: ReaderWritingMode = .horizontal
     ) -> RubyBox {
         let base = shape(
             unit.base.map {
@@ -61,7 +62,7 @@ enum RubyInlineLayout {
                 )
             },
             fontResolver: fontResolver,
-            attributedSource: attributedSource
+            attributedSource: attributedSource, writingMode: writingMode
         )
         let annotation = shape(
             unit.annotation.pieces.map {
@@ -73,7 +74,7 @@ enum RubyInlineLayout {
                     linkTarget: $0.linkTarget ?? unit.linkTarget
                 )
             },
-            fontResolver: fontResolver
+            fontResolver: fontResolver, writingMode: writingMode
         )
         let advance = max(base.width, annotation.width)
         return RubyBox(
@@ -92,7 +93,8 @@ enum RubyInlineLayout {
     private static func shape(
         _ inputs: [InputPiece],
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
-        attributedSource: NSAttributedString? = nil
+        attributedSource: NSAttributedString? = nil,
+        writingMode: ReaderWritingMode = .horizontal
     ) -> RubyLine {
         let attributed = NSMutableAttributedString()
         var starts: [Int] = []
@@ -109,6 +111,10 @@ enum RubyInlineLayout {
                     attributes: InlineLayout.textAttributes(for: input.style, resolver: fontResolver)
                 ))
             }
+        }
+        if writingMode == .verticalRTL {
+            attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
+                                    value: true, range: NSRange(location: 0, length: attributed.length))
         }
         let line = CTLineCreateWithAttributedString(attributed)
         var ascent: CGFloat = 0

@@ -127,3 +127,43 @@ struct ConsumerTests {
         } catch HTMLLayoutError.resourceFailure(let source) { #expect(source == "missing.css") }
     }
 }
+
+extension ConsumerTests {
+    @Test func verticalPublicAPIAndRubyGeometry() async throws {
+        let result = try await makeVerticalExample()
+        #expect(result.text == "山路を登りながら考えた。かなカナ ABC 123 か\u{3099}𠮷🌕")
+        let first = try #require(result.pages.first)
+        #expect(first.pageRect.rawValue.size == CGSize(width: 224, height: 344))
+        let list = DisplayListBuilder.build(for: first, sourceText: result.text)
+        let annotation = try #require(list.items.compactMap { item -> DisplayTextItem? in
+            if case .text(let t) = item, t.text == "やまみち" { return t }; return nil
+        }.first)
+        #expect(annotation.writingMode == .verticalRTL)
+        #expect(annotation.font.pointSize == 12)
+        #expect(annotation.sourceRange == NSRange(location: 0, length: 2))
+        #expect(list.sourceRange(at: CGPoint(x: annotation.rect.rawValue.midX, y: annotation.rect.rawValue.midY), sourceText: result.text) == annotation.sourceRange)
+        let baseRects = list.selectionRects(for: NSRange(location: 0, length: 1))
+        #expect(baseRects.contains { $0.maxX <= annotation.rect.minX + 0.01 })
+        #expect(BrowserPageGeometry.rects(pages: result.pages, sourceText: result.text,
+            range: NSRange(location: 0, length: 1)).first?.rects == baseRects)
+        #expect(result.flow.contentHeight == 344)
+        #expect(result.flow.documentPoint(forCharOffset: 0) != nil)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let bitmap = UIGraphicsImageRenderer(size: first.pageRect.rawValue.size, format: format).image {
+            UIColor.white.setFill(); $0.fill(first.pageRect.rawValue); list.draw(in: $0.cgContext)
+        }
+        let cg = try #require(bitmap.cgImage)
+        let data = try #require(cg.dataProvider?.data)
+        let bytes = try #require(CFDataGetBytePtr(data))
+        #expect(stride(from: 0, to: CFDataGetLength(data), by: 4).filter {
+            bytes[$0] < 100 && bytes[$0 + 1] < 100 && bytes[$0 + 2] < 100
+        }.count > 100)
+        let vertical = BrowserLayoutConfig(writingMode: .verticalRTL)
+        for html in ["<p style='float:right;width:30px'>浮動</p>",
+                     "<p style='writing-mode:vertical-lr'>未支援</p>",
+                     "<p style='text-combine-upright:all'>12</p>"] {
+            do { _ = try HTMLLayoutDocument(html: html, configuration: vertical).makePageSession(); Issue.record("Unsupported vertical subset accepted") }
+            catch HTMLLayoutError.unsupported(let reasons) { #expect(reasons.contains(.verticalWritingMode)) }
+        }
+    }
+}

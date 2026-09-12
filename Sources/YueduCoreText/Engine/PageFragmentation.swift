@@ -9,6 +9,8 @@ public enum TextSourceMapping: Equatable {
     /// The rendered text has no source span of its own and maps to the entire
     /// owning range (horizontal Ruby annotation → Ruby base).
     case wholeRange
+    /// One styled annotation slice, still mapped atomically to the owning base.
+    case annotation(shapedRange: NSRange)
 }
 
 /// Page-local fragment: `rect` is PAGE CANVAS-local (viewport coordinates,
@@ -1002,7 +1004,7 @@ struct PageWalker {
                 font: piece.font,
                 color: piece.style.color ?? .black,
                 ctLine: ruby.annotation.line,
-                sourceMapping: .wholeRange,
+                sourceMapping: ruby.annotation.pieces.count == 1 ? .wholeRange : .annotation(shapedRange: piece.shapedRange),
                 renderedTextOverride: piece.text
             ))
         })

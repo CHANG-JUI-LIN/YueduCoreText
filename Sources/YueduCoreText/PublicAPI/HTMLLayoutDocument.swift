@@ -36,14 +36,11 @@ public final class HTMLLayoutDocument {
     /// Same capability parser/cascade as production; reports facts without choosing a fallback.
     public func capabilities() -> BrowserLayoutCapabilityResult {
         BrowserLayoutCapabilityScanner.scan(html: input.html,
-            cssTexts: CurrentCSSFrontendSupport.stylesheetsForCurrentCompatibility(input.stylesheets))
+            cssTexts: CurrentCSSFrontendSupport.stylesheetsForCurrentCompatibility(input.stylesheets), writingMode: configuration.writingMode)
     }
 
     private func validate() throws {
         if Task.isCancelled { throw HTMLLayoutError.cancelled }
-        guard configuration.writingMode == .horizontal else {
-            throw HTMLLayoutError.unsupported([.verticalWritingMode])
-        }
         if let failure = input.stylesheets.first(where: \.loadFailed) {
             throw HTMLLayoutError.resourceFailure(failure.identity.label)
         }
@@ -96,7 +93,7 @@ public final class BrowserContinuousLayout {
                                              contentInsets: config.contentInsets, writingMode: config.writingMode)
         let hasBackdrop = background.color != nil || background.image != nil
         let height = hasBackdrop ? max(config.renderHeight, flow.contentHeight) : flow.contentHeight
-        let canvas = CGRect(x: 0, y: 0, width: config.renderWidth + config.contentInsets.left + config.contentInsets.right, height: height)
+        let canvas = CGRect(x: 0, y: 0, width: flow.contentWidth, height: height)
         var items: [DisplayItem] = []
         if let color = background.color {
             items.append(.fill(DisplayFillItem(rect: PageLocalRect(rawValue: canvas), color: color,

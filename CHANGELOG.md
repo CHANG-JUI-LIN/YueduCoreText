@@ -2,6 +2,28 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.4.0] - 2026-09-12
+
+### Added
+
+- Basic normal-flow `vertical-rl` text layout through the existing logical-axis
+  pipeline, including native Core Text vertical glyph forms and pagination.
+- Shared horizontal/vertical ruby measurement, styling and source mapping.
+- Continuous vertical document geometry, including public
+  `BrowserScrollDocument.documentPoint(forCharOffset:)`, physical content size,
+  selection and hit testing for right-to-left hosts.
+- Compiled public-API vertical consumer and bitmap, ruby, geometry, reflow and
+  cancellation regressions. Unsupported vertical content remains explicit;
+  this release does not claim full CSS Writing Modes or EPUB compatibility.
+
+### Changed
+
+- English, Traditional Chinese and Simplified Chinese integration guides now
+  describe the released engine, resources, drawing and coordinate contracts.
+- CI validates both the package and independent consumer. Typography tests now
+  cover valid full-em punctuation compression using actual glyph geometry.
+- iOS 17, Swift tools 6.0, SwiftSoup 2.13.7 and existing utility products remain.
+
 ## [0.3.0] - 2026-09-12
 
 ### Added

@@ -140,6 +140,7 @@ struct ComputedStyle: Equatable {
     // Box model (specified)
     var width: CSSLength = .auto
     var height: CSSLength = .auto
+    var maxHeight: CSSLength? = nil
     var maxWidth: CSSLength? = nil      // nil = none
     var marginTop: CSSLength = .px(0)
     var marginRight: CSSLength = .px(0)
@@ -272,7 +273,7 @@ enum UserAgentStyle {
             style.display = .block
         case "span", "a", "em", "i", "strong", "b", "u", "s", "small", "code",
              "q", "cite", "mark", "time", "sub", "sup", "abbr", "label", "br",
-             "ruby", "rt", "rp":
+             "ruby", "rt", "rp", "rb":
             style.display = .inline
             if tag == "em" || tag == "i" { style.isItalic = true }
             if tag == "strong" || tag == "b" { style.fontWeight = 700 }

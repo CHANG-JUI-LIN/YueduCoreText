@@ -85,8 +85,8 @@ public struct BrowserLayoutConfig {
     public var textTransform: ((NSMutableAttributedString) -> Void)? = nil
     /// CSS font-family resolver (embedded @font-face families). nil → UIFont(name:).
     public var fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?
-    /// Document writing mode. Phase 3A defaults to horizontal; the engine
-    /// injects vertical-rl in Phase 3B after the capability scan accepts it.
+    /// Explicit document writing mode. Vertical-rl currently accepts normal-flow
+    /// text and the shared ruby subset; capability checks report exclusions.
     public var writingMode: ReaderWritingMode = .horizontal
     public init(
         renderWidth: CGFloat = 320,
@@ -533,6 +533,7 @@ enum ComputedStylePropertyApplier {
             style.rubyMerge = RubyMerge.parse(value)
         case "width": if let l = CSSLengthResolver.parse(value) { style.width = l }
         case "height": if let l = CSSLengthResolver.parse(value) { style.height = l }
+        case "max-height": style.maxHeight = CSSLengthResolver.parse(value)
         case "max-width": if let l = CSSLengthResolver.parse(value) { style.maxWidth = l }
         case "margin": applyMarginShorthand(value, to: &style)
         case "margin-top": if let l = CSSLengthResolver.parse(value) { style.marginTop = l }

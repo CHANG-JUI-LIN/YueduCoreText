@@ -60,6 +60,22 @@ public enum DisplayListDrawer {
     private static func drawFill(_ item: DisplayFillItem, in context: CGContext) {
         let rect = item.rect.rawValue
         guard !rect.isEmpty else { return }
+        if item.writingMode == .verticalRTL {
+            // Fragment-start/end corners and border edges are logical. Reuse
+            // the same decoration painter in its canonical axes.
+            context.saveGState()
+            context.translateBy(x: rect.maxX, y: rect.minY)
+            context.rotate(by: .pi / 2)
+            drawFill(DisplayFillItem(
+                rect: PageLocalRect(rawValue: CGRect(x: 0, y: 0, width: rect.height, height: rect.width)),
+                color: item.color, cornerRadius: item.cornerRadius,
+                borderTop: item.borderRight, borderBottom: item.borderLeft,
+                borderLeft: item.borderTop, borderRight: item.borderBottom,
+                nodeID: item.nodeID, writingMode: .horizontal,
+                fragmentPosition: item.fragmentPosition, isBackgroundPaint: item.isBackgroundPaint), in: context)
+            context.restoreGState()
+            return
+        }
         let radius = min(item.cornerRadius, rect.width / 2, rect.height / 2)
 
         let roundedCorners: UIRectCorner
@@ -283,7 +299,14 @@ public enum DisplayListDrawer {
     ) {
         guard !item.text.isEmpty else { return }
         context.saveGState()
-        context.translateBy(x: item.rect.minX, y: item.baselineY)
+        if item.writingMode == .verticalRTL {
+            // Core Text's vertical run matrices keep CJK upright after the
+            // inline axis turns downward. Do not rotate individual characters.
+            context.translateBy(x: item.baselineY, y: item.rect.minY)
+            context.rotate(by: .pi / 2)
+        } else {
+            context.translateBy(x: item.rect.minX, y: item.baselineY)
+        }
         context.scaleBy(x: 1, y: -1)
         context.textMatrix = .identity
         context.textPosition = .zero

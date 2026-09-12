@@ -83,7 +83,19 @@ public enum BrowserLayoutCapabilityScanner {
         }
     }
 
-    public static func scan(html: String, cssTexts: [String]) -> BrowserLayoutCapabilityResult {
+    public static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
+        func declaration(key: String, value: String) -> UnsupportedFeature? {
+            let k = key.lowercased(), v = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if writingMode == .verticalRTL {
+                if ["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].contains(k) {
+                    return v == "vertical-rl" || v == "inherit" ? nil : .verticalWritingMode
+                }
+                if k.contains("text-combine"), v != "none" { return .verticalWritingMode }
+                if k.contains("text-orientation"), v != "mixed" { return .verticalWritingMode }
+                if k == "min-height" || k == "min-width" { return .verticalWritingMode }
+            }
+            return layoutAffectingDeclaration(key: key, value: value)
+        }
         var reasons: [UnsupportedFeature] = []
         var unsupportedDeclarations: [UnsupportedDeclaration] = []
         var textIndentUsage: HorizontalTextIndentUsage = .none
@@ -135,7 +147,7 @@ public enum BrowserLayoutCapabilityScanner {
 
                     for property in rule.declarationOrder {
                         guard let value = rule.declarations[property] else { continue }
-                        if let feature = layoutAffectingDeclaration(key: property, value: value) {
+                        if let feature = declaration(key: property, value: value) {
                             reasons.append(feature)
                             if !matchedAnyUnsupported, let first = matchedElements.first {
                                 unsupportedDeclarations.append(UnsupportedDeclaration(
@@ -148,7 +160,7 @@ public enum BrowserLayoutCapabilityScanner {
                         }
                     }
                     for (property, value) in rule.importantDeclarations {
-                        if let feature = layoutAffectingDeclaration(key: property, value: value) {
+                        if let feature = declaration(key: property, value: value) {
                             reasons.append(feature)
                         }
                     }
@@ -160,12 +172,12 @@ public enum BrowserLayoutCapabilityScanner {
                 let inline = (try? element.attr("style")) ?? ""
                 let decl = CSSParser.parseDeclarationBlock(inline)
                 for (key, value) in decl.normal {
-                    if let reason = layoutAffectingDeclaration(key: key, value: value) {
+                    if let reason = declaration(key: key, value: value) {
                         reasons.append(reason)
                     }
                 }
                 for (key, value) in decl.important {
-                    if let reason = layoutAffectingDeclaration(key: key, value: value) {
+                    if let reason = declaration(key: key, value: value) {
                         reasons.append(reason)
                     }
                 }
@@ -184,9 +196,12 @@ public enum BrowserLayoutCapabilityScanner {
                 if hasRubyMarkup,
                    !HorizontalRubySupport.validate(
                        styleTree,
-                       writingMode: .horizontal
+                       writingMode: writingMode
                    ).isSupported {
                     reasons.append(.ruby)
+                }
+                if writingMode == .verticalRTL, !VerticalTextSupport.accepts(styleTree) {
+                    reasons.append(.verticalWritingMode)
                 }
                 validateFloats(in: styleTree, hasFloatedAncestor: false, reasons: &reasons)
                 textIndentUsage = HorizontalTextIndentSupport.usage(in: styleTree)

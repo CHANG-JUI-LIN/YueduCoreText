@@ -346,67 +346,69 @@ enum BoxTreeBuilder {
         anchors: inout [String: Int],
         anchorStack: inout [String]
     ) {
-        guard let structure = HorizontalRubySupport.structure(for: node) else {
+        guard let structures = HorizontalRubySupport.structures(for: node) else {
             assertionFailure("unsupported Ruby reached BoxTreeBuilder")
             return
         }
 
-        var baseRuns: [InlineRun] = []
-        var localAnchors = anchorStack
-        if let own = node.anchorID { localAnchors.append(own) }
-        collectRubyBase(
-            structure.baseChildren,
-            inheritedNode: node,
-            runs: &baseRuns,
-            sourceText: &sourceText,
-            anchors: &anchors,
-            anchorStack: &localAnchors
-        )
-        let pieces = baseRuns.map {
-            RubyInlinePiece(
-                text: $0.text,
-                style: $0.style,
-                sourceRange: $0.sourceRange,
-                nodeID: $0.nodeID,
-                linkTarget: $0.linkTarget
+        for structure in structures {
+            var baseRuns: [InlineRun] = []
+            var localAnchors = anchorStack
+            if let own = node.anchorID { localAnchors.append(own) }
+            collectRubyBase(
+                structure.baseChildren,
+                inheritedNode: node,
+                runs: &baseRuns,
+                sourceText: &sourceText,
+                anchors: &anchors,
+                anchorStack: &localAnchors
             )
-        }
-        guard let first = pieces.first, let last = pieces.last else {
-            assertionFailure("validated Ruby produced no base pieces")
-            return
-        }
-        anchorStack.removeAll()
+            let pieces = baseRuns.map {
+                RubyInlinePiece(
+                    text: $0.text,
+                    style: $0.style,
+                    sourceRange: $0.sourceRange,
+                    nodeID: $0.nodeID,
+                    linkTarget: $0.linkTarget
+                )
+            }
+            guard let first = pieces.first, let last = pieces.last else {
+                assertionFailure("validated Ruby produced no base pieces")
+                return
+            }
+            anchorStack.removeAll()
 
-        var annotationPieces: [RubyAnnotationPiece] = []
-        collectRubyAnnotation(
-            structure.annotation.children,
-            inheritedNode: structure.annotation,
-            pieces: &annotationPieces
-        )
-        annotationPieces = trimRubyAnnotationEdges(annotationPieces)
-        let range = NSRange(
-            location: first.sourceRange.location,
-            length: NSMaxRange(last.sourceRange) - first.sourceRange.location
-        )
-        let unit = RubyInlineUnit(
-            base: pieces,
-            annotation: RubyAnnotation(
-                pieces: annotationPieces
-            ),
-            sourceRange: range,
-            nodeID: node.nodeID,
-            linkTarget: node.linkTarget,
-            alignment: node.style.rubyAlign,
-            position: node.style.rubyPosition
-        )
-        runs.append(InlineRun(
-            text: "\u{FFFC}",
-            style: node.style,
-            sourceRange: range,
-            nodeID: node.nodeID,
-            linkTarget: node.linkTarget,
-            ruby: unit
-        ))
+            var annotationPieces: [RubyAnnotationPiece] = []
+            collectRubyAnnotation(
+                structure.annotation.children,
+                inheritedNode: structure.annotation,
+                pieces: &annotationPieces
+            )
+            annotationPieces = trimRubyAnnotationEdges(annotationPieces)
+            let range = NSRange(
+                location: first.sourceRange.location,
+                length: NSMaxRange(last.sourceRange) - first.sourceRange.location
+            )
+            let unit = RubyInlineUnit(
+                base: pieces,
+                annotation: RubyAnnotation(
+                    pieces: annotationPieces
+                ),
+                sourceRange: range,
+                nodeID: node.nodeID,
+                linkTarget: node.linkTarget,
+                alignment: node.style.rubyAlign,
+                position: node.style.rubyPosition
+            )
+            runs.append(InlineRun(
+                text: "\u{FFFC}",
+                style: node.style,
+                sourceRange: range,
+                nodeID: node.nodeID,
+                linkTarget: node.linkTarget,
+                ruby: unit
+            ))
+        }
     }
 
     private static func collectRubyBase(

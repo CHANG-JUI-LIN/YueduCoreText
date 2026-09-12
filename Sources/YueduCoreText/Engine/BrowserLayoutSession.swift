@@ -87,11 +87,13 @@ public final class BrowserLayoutSession {
     public func layoutNextPage() async throws -> PageFragments? {
         try checkCancellation()
         try ensureInitialized()
-        guard let page = walker?.layoutNextPage() else {
+        guard let logicalPage = walker?.layoutNextPage() else {
             isFinished = true
             walker = nil
             return nil
         }
+        let page = LogicalFlow.page(logicalPage, mode: config.writingMode,
+                                    documentBlockExtent: pipeline.map { LogicalFlow.documentExtent($0.rootBox) } ?? 0)
         BrowserLayoutDeviceDiagnostic.summary("\(BrowserLayoutDeviceDiagnostic.prefix) layoutNextPageCompleted spine=\(diagnosticSpine) gen=\(generation) page=\(page.index) fragments=\(page.fragments.count)")
         #if DEBUG
         // Image placement diagnostics (画册 regression): every image fragment's
@@ -336,7 +338,7 @@ public final class BrowserLayoutSession {
         #endif
         let result = try document.makeLayout(
             containerSize: canvasSize,
-            fragmentHeight: config.renderHeight
+            fragmentHeight: config.writingMode == .horizontal ? config.renderHeight : config.renderWidth
         )
         #if DEBUG
         BrowserLayoutDeviceDiagnostic.summary("🔬 BROWSER_DEVICE sessionEnsure makeLayoutDone spine=\(diagnosticSpine) boxes=\(result.boxCount) content=\(result.contentSize)")
@@ -353,8 +355,8 @@ public final class BrowserLayoutSession {
         pipeline = result
         walker = PageWalker(
             box: result.rootBox,
-            pageSize: canvasSize,
-            contentInsets: config.contentInsets
+            pageSize: LogicalFlow.size(canvasSize, mode: config.writingMode),
+            contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode)
         )
         #if DEBUG
         BrowserLayoutDeviceDiagnostic.summary("🔬 BROWSER_DEVICE sessionEnsure walkerCreated spine=\(diagnosticSpine) pageSize=\(canvasSize) rootLines=\(result.rootBox.lines.count) rootChildren=\(result.rootBox.children.count)")
