@@ -26,11 +26,12 @@ documents in issues or fixtures.
 
 ## Dependency boundary
 
-The `YueduCoreTextTypography` target may import Apple frameworks needed for
-native text layout. The `YueduCoreText` core target is limited to Foundation and
-`os`. Readium, SwiftSoup, UIKit, WebKit, Firebase, RealmSwift, app settings,
-networking, persistence, and app logging belong in consumer adapters. Boundary
-tests reject these dependencies from the core target.
+YueduCoreTextTypography remains independent of the main engine and third-party parsing.
+The YueduCoreText core target may use Foundation, `os`, UIKit/CoreText/CoreGraphics,
+Typography and the pinned SwiftSoup
+frontend. Readium, Firebase, WebKit, application settings/storage/networking and app logging
+remain forbidden. Internal algorithm tests may use @testable; the separate consumer and
+legacy public utility tests must use only the published public API surface.
 
 ## Contributions and releases
 

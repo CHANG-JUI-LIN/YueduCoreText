@@ -2,3 +2,6 @@
 .build/
 .swiftpm/
 DerivedData/
+
+# Library and example lockfiles are generated per consumer/workspace.
+Package.resolved

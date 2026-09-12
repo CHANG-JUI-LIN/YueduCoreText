@@ -61,8 +61,6 @@ struct CorePackageBoundaryTests {
         #expect(
             ForbiddenCoreModulePolicy.forbiddenModules(in: importedModules)
                 == Set([
-                    "UIKit",
-                    "SwiftSoup",
                     "WebKit",
                     "RealmSwift",
                     "ReadiumShared",
@@ -127,7 +125,7 @@ struct CorePackageBoundaryTests {
         #expect(files == [nestedSwiftFile])
     }
 
-    @Test("Core sources stay independent from app and third-party layers")
+    @Test("Engine sources stay independent from Reader, storage and network UI layers")
     func sourceImportsAndSymbols() throws {
         let packageRoot = packageRoot()
         let sourceRoot = packageRoot
@@ -136,6 +134,9 @@ struct CorePackageBoundaryTests {
             "AppLogger",
             "GlobalSettings",
             "BookSourceSession",
+            "PublicationSession",
+            "ReaderRenderSettings",
+            "ReaderStyleAssetStore",
         ]
         let files = try swiftFiles(recursivelyUnder: sourceRoot)
 
@@ -162,7 +163,9 @@ struct CorePackageBoundaryTests {
     func publicTestsDoNotUseTestableImport() throws {
         let testRoot = packageRoot()
             .appendingPathComponent("Tests/YueduCoreTextTests", isDirectory: true)
-        let files = try swiftFiles(recursivelyUnder: testRoot)
+        // Internal algorithm tests are explicitly allowed. The independent consumer is public-only.
+        let files = try swiftFiles(recursivelyUnder: testRoot).filter { !$0.path.contains("/Engine/") }
+            + swiftFiles(recursivelyUnder: packageRoot().appendingPathComponent("Examples/StandaloneConsumer"))
 
         #expect(!files.isEmpty)
         for file in files {
@@ -355,8 +358,6 @@ private enum SwiftImportParser {
 
 private enum ForbiddenCoreModulePolicy {
     private static let exactModules: Set<String> = [
-        "UIKit",
-        "SwiftSoup",
         "WebKit",
         "RealmSwift",
     ]

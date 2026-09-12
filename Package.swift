@@ -16,9 +16,13 @@ let package = Package(
             targets: ["YueduCoreTextTypography"]
         ),
     ],
+    dependencies: [
+        .package(url: "https://github.com/scinfu/SwiftSoup.git", exact: "2.13.7"),
+    ],
     targets: [
         .target(
-            name: "YueduCoreText"
+            name: "YueduCoreText",
+            dependencies: ["YueduCoreTextTypography", .product(name: "SwiftSoup", package: "SwiftSoup")]
         ),
         .target(
             name: "YueduCoreTextTypography"

@@ -10,8 +10,9 @@ Use ``ReaderContentUnitMap`` to convert a chapter-local UTF-16 position into
 with ``TextSelectionManager``, and wrap measured work with
 ``ReaderPerfTrace``.
 
-YueduCoreText intentionally leaves pagination, HTML parsing and rendering, and
-UIKit reader components to its consumers.
+The engine now includes HTML/CSS parsing, box layout, pagination, continuous flow and
+rendering through ``HTMLLayoutDocument``. Reader UI, EPUB container access, storage and
+playback remain consumer concerns. See the compiled StandaloneConsumer example in the repository.
 
 ### Concurrency
 
