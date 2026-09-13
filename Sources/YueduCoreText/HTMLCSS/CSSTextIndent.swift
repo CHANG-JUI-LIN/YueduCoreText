@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// The Phase 4E1 subset of CSS `text-indent`.
+/// Single-value CSS text indentation. CSS-wide values resolve in the cascade.
 ///
 /// Keep unsupported authored values in the computed style instead of silently
 /// dropping them: the layout capability scanner and the document admission
@@ -13,13 +13,11 @@ public enum CSSTextIndent: Equatable, Sendable {
 
     public static let initial = CSSTextIndent.length(.px(0))
 
-    /// Parses exactly one non-negative token from the Phase 4E1 subset:
-    /// unitless zero, px, em, rem, or percentage. CSS-wide keywords and
-    /// multi-token extensions (`hanging`, `each-line`) remain outside the gate.
+    /// Parses signed zero/px/pt/em/rem/percentage values; multi-token
+    /// extensions remain explicitly unsupported.
     public static func parse(_ raw: String) -> CSSTextIndent {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !value.isEmpty,
-              !value.hasPrefix("-"),
               value.split(whereSeparator: { $0.isWhitespace }).count == 1 else {
             return .unsupported
         }
@@ -35,6 +33,8 @@ public enum CSSTextIndent: Equatable, Sendable {
             parsed = numericLength(value, suffixCount: 3, make: CSSLength.rem)
         } else if value.hasSuffix("px") {
             parsed = numericLength(value, suffixCount: 2, make: CSSLength.px)
+        } else if value.hasSuffix("pt") {
+            parsed = numericLength(value, suffixCount: 2, make: CSSLength.pt)
         } else if value.hasSuffix("em") {
             parsed = numericLength(value, suffixCount: 2, make: CSSLength.em)
         } else if value.hasSuffix("%") {
@@ -43,10 +43,23 @@ public enum CSSTextIndent: Equatable, Sendable {
             parsed = nil
         }
 
-        guard let parsed, parsed.nonNegativeMagnitude != nil else {
+        guard let parsed else {
             return .unsupported
         }
         return .length(parsed)
+    }
+
+    /// Invalid declarations do not replace earlier valid declarations. Legal
+    /// extensions outside this engine's subset remain visible to admission.
+    static func declaration(_ raw: String) -> CSSTextIndent? {
+        let parsed = parse(raw)
+        if parsed != .unsupported { return parsed }
+        let v = raw.lowercased()
+        if v == "revert" || v == "revert-layer" || v.contains("hanging") || v.contains("each-line") || v.contains("calc(")
+            || v.range(of: #"^[+-]?[0-9.]+(ex|ch|vw|vh|cm|mm|in|pc)$"#, options: .regularExpression) != nil {
+            return .unsupported
+        }
+        return nil
     }
 
     public var hasPositiveSpecifiedValue: Bool {
@@ -68,7 +81,7 @@ public enum CSSTextIndent: Equatable, Sendable {
         make: (CGFloat) -> CSSLength
     ) -> CSSLength? {
         let numberToken = String(token.dropLast(suffixCount))
-        guard let value = numericValue(numberToken), value >= 0 else { return nil }
+        guard let value = numericValue(numberToken) else { return nil }
         return make(value)
     }
 }

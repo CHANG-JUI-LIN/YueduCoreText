@@ -74,7 +74,7 @@ public struct BrowserLayoutConfig {
     public var textColor: UIColor = .black
     public var backgroundColor: UIColor = .white
     public var contentInsets: UIEdgeInsets = .zero   // page margins from reader settings
-    public var lineHeight: CGFloat? = nil     // reader line-height override (applied after author CSS)
+    public var lineHeight: CGFloat? = nil     // reader default multiplier (author CSS takes precedence)
     public var lineSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var letterSpacing: CGFloat = 0
@@ -83,6 +83,8 @@ public struct BrowserLayoutConfig {
     public var defaultTextAlignment: NSTextAlignment = .natural
     /// Optional consumer text attributes, applied before shaping without changing UTF-16 content.
     public var textTransform: ((NSMutableAttributedString) -> Void)? = nil
+    /// Opt-in local diagnostic sink. Contains CSS/geometry metadata, never chapter text.
+    public var onDiagnostic: ((CSSFrontendDiagnostic) -> Void)? = nil
     /// CSS font-family resolver (embedded @font-face families). nil → UIFont(name:).
     public var fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?
     /// Explicit document writing mode. Vertical-rl currently accepts normal-flow
@@ -104,7 +106,8 @@ public struct BrowserLayoutConfig {
         defaultTextAlignment: NSTextAlignment = .natural,
         textTransform: ((NSMutableAttributedString) -> Void)? = nil,
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
-        writingMode: ReaderWritingMode = .horizontal
+        writingMode: ReaderWritingMode = .horizontal,
+        onDiagnostic: ((CSSFrontendDiagnostic) -> Void)? = nil
     ) {
         self.renderWidth = renderWidth
         self.renderHeight = renderHeight
@@ -122,6 +125,7 @@ public struct BrowserLayoutConfig {
         self.textTransform = textTransform
         self.fontResolver = fontResolver
         self.writingMode = writingMode
+        self.onDiagnostic = onDiagnostic
     }
 }
 
@@ -134,7 +138,8 @@ public struct BrowserLayoutConfig {
 final class ComputedStyleTreeBuilder {
 
     private let rules: [CSSRule]
-    private let rootFontSize: CGFloat
+    private let firstLetterRules: [CSSRule]
+    private var rootFontSize: CGFloat
     private let textColor: UIColor
     private let backgroundColor: UIColor
     private let configFontFamilies: [String]
@@ -142,7 +147,8 @@ final class ComputedStyleTreeBuilder {
     private let readerConfig: BrowserLayoutConfig
     private var nextNodeID = 1
 
-    init(rules: [CSSRule], config: BrowserLayoutConfig) {
+    init(rules: [CSSRule], config: BrowserLayoutConfig, firstLetterRules: [CSSRule] = []) {
+        self.firstLetterRules = firstLetterRules
         self.readerConfig = config
         self.rules = rules
         self.rootFontSize = config.rootFontSize
@@ -176,12 +182,16 @@ final class ComputedStyleTreeBuilder {
         defaultParent.configParagraphSpacing = max(0, readerConfig.paragraphSpacing)
         defaultParent.configLetterSpacing = readerConfig.letterSpacing
         defaultParent.configBold = readerConfig.isBold
+        if let html = body.parent(), html.tagName().lowercased() == "html" {
+            defaultParent = resolvedStyle(for: html, semanticElement: SwiftSoupHTMLSemanticAdapter.snapshot(html), parent: defaultParent, parentElement: html.parent())
+            rootFontSize = defaultParent.fontSize
+        }
         let bodySemantic = SwiftSoupHTMLSemanticAdapter.snapshot(body)
         let bodyStyle = resolvedStyle(
             for: body,
             semanticElement: bodySemantic,
             parent: defaultParent,
-            parentElement: nil
+            parentElement: body.parent()
         )
         let root = ComputedStyleNode(
             tag: "body", semanticElement: bodySemantic, style: bodyStyle,
@@ -233,10 +243,89 @@ final class ComputedStyleTreeBuilder {
                     anchorID: linkAnchorID(of: semanticElement)
                 )
                 nextNodeID += 1
+                if let report = readerConfig.onDiagnostic {
+                    report(CSSFrontendDiagnostic(stage:.style,stylesheet:nil,semanticPath:Self.diagnosticPath(child),property:nil,
+                        message:"layoutNode=\(childNode.nodeID)"))
+                }
                 result.append(.element(childNode))
             }
         }
-        return result
+        return applyingFirstLetter(to: result, element: element, style: parentStyle)
+    }
+
+    /// Materialize the pseudo-element before box construction. The source
+    /// characters remain ordinary text; the existing float/inline pipeline
+    /// owns layout, drawing and geometry for the initial just like other boxes.
+    private func applyingFirstLetter(to children: [StyleTreeChild], element: Element, style: ComputedStyle) -> [StyleTreeChild] {
+        guard style.display == .block else { return children }
+        let matched = firstLetterRules.filter { !$0.isDarkMedia && $0.selector.matches(element: element, parent: element.parent()) }
+            .sorted { $0.specificity == $1.specificity ? $0.order < $1.order : $0.specificity < $1.specificity }
+        guard !matched.isEmpty else { return children }
+        func text(_ children: [StyleTreeChild]) -> String {
+            var result = ""
+            for child in children {
+                switch child {
+                case .text(let value): result += value
+                case .element(let node):
+                    if node.style.display == .block || node.style.isFloated || ["img", "br", "ruby"].contains(node.tag) { return result }
+                    result += text(node.children)
+                }
+            }
+            return result
+        }
+        let content = text(children)
+        var count = 0
+        var hasLetter = false
+        for character in content {
+            let punctuation = character.unicodeScalars.allSatisfy { CharacterSet.punctuationCharacters.contains($0) }
+            if !hasLetter && character.isWhitespace { count += String(character).utf16.count; continue }
+            if hasLetter && !punctuation { break }
+            count += String(character).utf16.count
+            if !punctuation { hasLetter = true }
+        }
+        guard hasLetter else { return children }
+        func styled(_ original: ComputedStyle) -> ComputedStyle {
+            var value = original.inherited(from: original)
+            let ctx = ApplyContext(parent: original, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies)
+            for rule in matched { cascadeApply(rule.declarations, order: rule.declarationOrder, to: &value, ctx: ctx) }
+            for rule in matched { cascadeApply(rule.importantDeclarations, order: rule.declarationOrder, to: &value, ctx: ctx) }
+            value.finalizeLineHeight(rootFontSize: rootFontSize)
+            return value
+        }
+        func split(_ children: [StyleTreeChild], remaining: inout Int) -> ([StyleTreeChild], [StyleTreeChild]) {
+            var prefix: [StyleTreeChild] = []; var suffix: [StyleTreeChild] = []
+            for child in children {
+                guard remaining > 0 else { suffix.append(child); continue }
+                switch child {
+                case .text(let value):
+                    let ns = value as NSString; let length = min(remaining, ns.length)
+                    prefix.append(.text(ns.substring(to: length)))
+                    if length < ns.length { suffix.append(.text(ns.substring(from: length))) }
+                    remaining -= length
+                case .element(let node):
+                    let (a, b) = split(node.children, remaining: &remaining)
+                    var inlineStyle = styled(node.style)
+                    inlineStyle.cssFloat = .none; inlineStyle.display = .inline
+                    inlineStyle.marginTop = .px(0); inlineStyle.marginBottom = .px(0)
+                    inlineStyle.marginLeft = .px(0); inlineStyle.marginRight = .px(0)
+                    if !a.isEmpty {
+                        prefix.append(.element(ComputedStyleNode(tag: node.tag, semanticElement: node.semanticElement, style: inlineStyle, children: a, nodeID: node.nodeID, linkTarget: node.linkTarget, anchorID: node.anchorID)))
+                    }
+                    if !b.isEmpty {
+                        suffix.append(.element(ComputedStyleNode(tag: node.tag, semanticElement: node.semanticElement, style: node.style, children: b, nodeID: nextNodeID, linkTarget: node.linkTarget, anchorID: a.isEmpty ? node.anchorID : nil)))
+                        nextNodeID += 1
+                    }
+                }
+            }
+            return (prefix, suffix)
+        }
+        let (prefix, suffix) = split(children, remaining: &count)
+        var initialStyle = styled(style)
+        initialStyle.textIndent = .initial
+        initialStyle.display = initialStyle.isFloated ? .block : .inline
+        let initial = ComputedStyleNode(tag: "::first-letter", semanticElement: nil, style: initialStyle, children: prefix, nodeID: nextNodeID, linkTarget: nil, anchorID: nil)
+        nextNodeID += 1
+        return [.element(initial)] + suffix
     }
 
     private func linkAnchorID(of element: HTMLDOMElementSnapshot) -> String? {
@@ -333,10 +422,44 @@ final class ComputedStyleTreeBuilder {
         }
         cascadeApply(inlineDecl.important, order: inlineDecl.order, to: &style, ctx: ctx)
 
+        if let language = semanticElement.attribute("lang") ?? semanticElement.attribute("xml:lang") {
+            style.language = language.isEmpty ? nil : language
+        }
         if semanticElement.attribute("hidden") != nil { style.isHidden = true }
+        if case .length(let length) = style.textIndent {
+            switch length {
+            case .em, .rem, .pt:
+                if let pixels = CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: rootFontSize, percentBase: 0) {
+                    style.textIndent = .length(.px(pixels))
+                }
+            default: break
+            }
+        }
         style.finalizeLineHeight(rootFontSize: rootFontSize)
         style.finalizeBorderLengths(rootFontSize: rootFontSize)
+        if let report = readerConfig.onDiagnostic {
+            let path = Self.diagnosticPath(element)
+            for rule in matched {
+                report(CSSFrontendDiagnostic(stage:.selector,stylesheet:rule.sourceStylesheet,semanticPath:path,property:nil,
+                    message:"matched selector=\(rule.sourceSelector) order=\(rule.order) specificity=\(rule.specificity) normal=\(rule.declarations.sorted { $0.key < $1.key }) important=\(rule.importantDeclarations.sorted { $0.key < $1.key })"))
+            }
+            let declarations = matched.map { "order=\($0.order) specificity=\($0.specificity) normal=\($0.declarations.sorted { $0.key < $1.key }) important=\($0.importantDeclarations.sorted { $0.key < $1.key })" }.joined(separator:"; ")
+            report(CSSFrontendDiagnostic(stage:.style,stylesheet:nil,semanticPath:path,property:nil,
+                message:"\(declarations); inline=\(inlineDecl.merged.sorted { $0.key < $1.key }); computed font=\(style.fontFamilies) size=\(style.fontSize) lineHeight=\(String(describing:style.lineHeight)) indent=\(style.textIndent) align=\(style.textAlign.rawValue) hyphens=\(style.hyphens) lang=\(style.language ?? "unknown")"))
+        }
         return style
+    }
+
+    private static func diagnosticPath(_ element: Element) -> String {
+        var components: [String] = []
+        var cursor: Element? = element
+        while let current = cursor {
+            let siblings = current.parent()?.getChildNodes().compactMap { $0 as? Element } ?? []
+            let index = (siblings.firstIndex { $0 == current } ?? 0) + 1
+            components.insert("\(current.tagName())[\(index)]", at:0)
+            cursor = current.parent()
+        }
+        return components.joined(separator:"/")
     }
 
     static func applyPresentationalHints(
@@ -499,15 +622,36 @@ enum ComputedStylePropertyApplier {
         case "font-style":
             style.isItalic = value.contains("italic") || value.contains("oblique")
         case "text-align":
-            style.textAlign = cssAlignment(value)
+            if ["left", "right", "center", "justify", "start", "end"].contains(value) { style.textAlign = cssAlignment(value) }
+            else if value == "inherit" || value == "unset" { style.textAlign = ctx.parent.textAlign }
+            else if value == "initial" { style.textAlign = .natural }
+        case "hyphens", "-webkit-hyphens", "-epub-hyphens", "-moz-hyphens", "-ms-hyphens":
+            if ["none", "manual", "auto"].contains(value) { style.hyphens = value }
+            else if value == "inherit" || value == "unset" { style.hyphens = ctx.parent.hyphens }
+            else if value == "initial" { style.hyphens = "manual" }
+        case "overflow-wrap", "word-wrap":
+            if ["normal", "break-word", "anywhere"].contains(value) { style.overflowWrap = value }
+        case "word-break":
+            if ["normal", "break-all", "keep-all", "break-word"].contains(value) { style.wordBreak = value }
+        case "text-align-last":
+            if value == "auto" { style.textAlignLast = nil }
+            else if ["left", "right", "center", "justify", "start", "end"].contains(value) { style.textAlignLast = cssAlignment(value) }
         case "text-indent":
-            style.textIndent = CSSTextIndent.parse(value)
+            switch value {
+            case "inherit", "unset": style.textIndent = ctx.parent.textIndent
+            case "initial": style.textIndent = .initial
+            default: if let indent = CSSTextIndent.declaration(value) { style.textIndent = indent }
+            }
         case "line-height":
-            if value == "normal" {
+            if value == "inherit" || value == "unset" {
+                style.lineHeight = ctx.parent.lineHeight
+                style.lineHeightMultiplier = ctx.parent.lineHeightMultiplier
+                style.pendingLineHeightLength = nil
+            } else if value == "normal" || value == "initial" {
                 style.lineHeight = nil
                 style.lineHeightMultiplier = nil
                 style.pendingLineHeightLength = nil
-            } else if let unitless = Double(value), unitless.isFinite {
+            } else if let unitless = Double(value), unitless.isFinite, unitless >= 0 {
                 style.lineHeight = nil
                 style.lineHeightMultiplier = CGFloat(unitless)
                 style.pendingLineHeightLength = nil
@@ -533,6 +677,7 @@ enum ComputedStylePropertyApplier {
             style.rubyMerge = RubyMerge.parse(value)
         case "width": if let l = CSSLengthResolver.parse(value) { style.width = l }
         case "height": if let l = CSSLengthResolver.parse(value) { style.height = l }
+        case "min-height": style.minHeight = CSSLengthResolver.parse(value)
         case "max-height": style.maxHeight = CSSLengthResolver.parse(value)
         case "max-width": if let l = CSSLengthResolver.parse(value) { style.maxWidth = l }
         case "margin": applyMarginShorthand(value, to: &style)
@@ -800,7 +945,7 @@ enum ComputedStylePropertyApplier {
     fileprivate static func cssAlignment(_ raw: String) -> NSTextAlignment {
         switch raw {
         case "left": return .left
-        case "right": return .right
+        case "right", "end": return .right
         case "center": return .center
         case "justify": return .justified
         default: return .natural

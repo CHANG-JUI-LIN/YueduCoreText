@@ -38,9 +38,9 @@ enum HorizontalTextIndentSupport {
             case .unsupported:
                 foundUnsupported = true
                 return
-            case .length:
-                foundSupportedNonZero = foundSupportedNonZero
-                    || node.style.textIndent.hasPositiveSpecifiedValue
+            case .length(let length):
+                let value = CSSLengthResolver.resolve(length, emBase:node.style.fontSize, remBase:node.style.fontSize, percentBase:1) ?? 0
+                foundSupportedNonZero = foundSupportedNonZero || value != 0
             }
         }
 

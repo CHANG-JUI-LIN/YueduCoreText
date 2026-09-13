@@ -169,6 +169,17 @@ final class BrowserLayoutDocument {
             // already fitted atomically by BlockLayout above.
             throw BrowserLayoutError.unsupportedFloatFragmentation(nodeID: oversized.debugNodeID)
         }
+        if let report = config.onDiagnostic {
+            func trace(_ box: BlockBox) {
+                for (index, line) in box.lines.enumerated() {
+                    let fonts = line.runs.map { "\($0.font.fontName)@\($0.font.pointSize) ascent=\($0.font.ascender) descent=\($0.font.descender) source=\($0.sourceRange)" }.joined(separator:"; ")
+                    report(CSSFrontendDiagnostic(stage:.style,stylesheet:nil,semanticPath:"node[\(box.debugNodeID)]/line[\(index)]",property:nil,
+                        message:"box=\(box.frame) content=\(box.contentSize) margin=\(box.margins) padding=\(box.padding) x=\(line.contentX) baseline=\(line.baseline) height=\(line.height); \(fonts)"))
+                }
+                box.children.forEach(trace)
+            }
+            trace(rootBox)
+        }
         return BrowserLayoutPipelineResult(
             rootBox: rootBox,
             sourceText: sourceText.text,

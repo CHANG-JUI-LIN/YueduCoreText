@@ -143,6 +143,8 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 
 ## 支持范围
 
+0.4.0 之后、尚未发布的英文出版 CSS 修复记录于 [English publishing CSS](docs/EnglishTypography.md)。0.4.0 tag 不包含这些变更。
+
 | 项目 | 0.4.0 |
 |---|---|
 | 排版 | 横排与基础 vertical-rl block／inline flow、已支持的 px／em／% 尺寸、margin／padding、white-space 与 text-indent |

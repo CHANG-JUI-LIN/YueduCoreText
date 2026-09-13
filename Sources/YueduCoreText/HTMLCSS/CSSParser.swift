@@ -18,6 +18,8 @@ public struct CSSRule {
     /// dark; they never participate in the light cascade (previously the whole block leaked and
     /// its rules applied unconditionally).
     public let isDarkMedia: Bool
+    var sourceSelector: String = ""
+    var sourceStylesheet: StylesheetIdentity? = nil
 }
 
 public struct CSSSelector {
@@ -38,12 +40,12 @@ public struct CSSSelector {
         public let value: String
     }
 
-    /// How a component connects to the component on its left (its ancestor side). Only descendant
-    /// (` `) and child (`>`) are modeled; sibling combinators (`+`/`~`) make the whole selector
-    /// unsupported so the rule is dropped — see `CSSParser.parseSelector`.
+    /// How a component connects to the component on its left: ancestor, parent, or element sibling.
     public enum Combinator {
         case descendant
         case child
+        case adjacentSibling
+        case generalSibling
     }
 
     public struct Component {
@@ -52,6 +54,7 @@ public struct CSSSelector {
         public let classes: Set<String>
         public let attributes: [AttributeSelector]
         public let firstChild: Bool
+        public var firstOfType: Bool = false
         /// Combinator linking this component to the previous (left) one. Ignored for the first.
         public let combinator: Combinator
     }
@@ -78,6 +81,14 @@ public struct CSSSelector {
         case .child:
             guard let parent else { return false }
             return matchChain(index: index - 1, element: parent, parent: parent.parent())
+        case .adjacentSibling, .generalSibling:
+            var sibling = try? element.previousElementSibling()
+            while let current = sibling {
+                if matchChain(index: index - 1, element: current, parent: parent) { return true }
+                if case .adjacentSibling = component.combinator { return false }
+                sibling = try? current.previousElementSibling()
+            }
+            return false
         case .descendant:
             var ancestor = parent
             while let current = ancestor {
@@ -106,6 +117,11 @@ public struct CSSSelector {
         }
         if component.firstChild, !isFirstElementChild(element, parent: parent) {
             return false
+        }
+        if component.firstOfType, let parent {
+            let first = parent.getChildNodes().compactMap { $0 as? Element }
+                .first { $0.tagName() == element.tagName() }
+            if first != element { return false }
         }
         return true
     }
@@ -191,9 +207,13 @@ public enum CSSParser {
 
     /// Parses CSS and returns (regular rules, first-letter rules).
     public static func parseWithFirstLetter(css: String, orderOffset: Int = 0) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
+        parseWithFirstLetter(css: css, orderOffset: orderOffset, onUnsupported: nil)
+    }
+
+    static func parseWithFirstLetter(css: String, orderOffset: Int, onUnsupported: ((String, Int) -> Void)?) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
         let stripped = sanitize(css)
         let (baseCSS, darkCSS) = extractDarkMediaBlocks(from: stripped)
-        let light = parseRuleList(css: baseCSS, orderOffset: orderOffset, isDarkMedia: false)
+        let light = parseRuleList(css: baseCSS, orderOffset: orderOffset, isDarkMedia: false, onUnsupported: onUnsupported)
         // Dark :first-letter rules are dropped: the simplified first-letter feature resolves
         // only the light palette (no EPUB in the wild combines the two).
         let dark = parseRuleList(css: darkCSS, orderOffset: orderOffset, isDarkMedia: true)
@@ -282,7 +302,8 @@ public enum CSSParser {
     private static func parseRuleList(
         css: String,
         orderOffset: Int,
-        isDarkMedia: Bool
+        isDarkMedia: Bool,
+        onUnsupported: ((String, Int) -> Void)? = nil
     ) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
         guard let regex = try? NSRegularExpression(
             pattern: #"([^{}]+)\{([^{}]+)\}"#,
@@ -319,16 +340,20 @@ public enum CSSParser {
                     selectorBody = trimmed
                 }
 
-                guard !selectorBody.isEmpty, let selector = parseSelector(selectorBody) else { continue }
-                let rule = CSSRule(
+                guard !selectorBody.isEmpty, let selector = parseSelector(selectorBody) else {
+                    onUnsupported?(trimmed, orderOffset + index)
+                    continue
+                }
+                var rule = CSSRule(
                     selector: selector,
                     declarations: declarations.normal,
                     importantDeclarations: declarations.important,
                     declarationOrder: declarations.order,
-                    specificity: specificity(of: selector),
+                    specificity: specificity(of: selector) + (isFirstLetter ? 1 : 0),
                     order: orderOffset + index,
                     isDarkMedia: isDarkMedia
                 )
+                rule.sourceSelector = trimmed
                 if isFirstLetter {
                     firstLetter.append(rule)
                 } else {
@@ -414,6 +439,7 @@ public enum CSSParser {
             let value = importantRange.map {
                 String(rawValue[..<$0.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             } ?? rawValue
+            if key == "text-indent", !["inherit", "initial", "unset", "revert", "revert-layer"].contains(value.lowercased()), CSSTextIndent.declaration(value) == nil { continue }
             if !key.isEmpty && !value.isEmpty {
                 if importantRange != nil {
                     important[key] = value
@@ -434,11 +460,13 @@ public enum CSSParser {
         return DeclarationBlock(normal: normal, important: important, order: order)
     }
 
-    /// Splits a complex selector into components joined by descendant (whitespace) and child (`>`)
-    /// combinators. Bracket-aware so a combinator-like character inside an attribute value (e.g.
-    /// `[title='a > b']`) is not treated as a separator. Any unparseable component (sibling
-    /// combinators `+`/`~`, pseudo-classes, `*`) drops the whole rule — matching prior behavior.
+    /// Splits descendant, child, adjacent and general sibling components. Attribute values keep
+    /// their literal combinator characters. Unsupported pseudo-classes or malformed components
+    /// reject the whole selector; universal selectors are accepted.
     private static func parseSelector(_ raw: String) -> CSSSelector? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first, let last = trimmed.last,
+              !">+~".contains(first), !">+~".contains(last) else { return nil }
         var tokens: [(combinator: CSSSelector.Combinator, text: String)] = []
         var current = ""
         var pendingCombinator: CSSSelector.Combinator = .descendant
@@ -456,9 +484,9 @@ public enum CSSParser {
             if char == "]" { bracketDepth = max(0, bracketDepth - 1); current.append(char); continue }
             if bracketDepth > 0 { current.append(char); continue }
 
-            if char == ">" {
+            if char == ">" || char == "+" || char == "~" {
                 flush()
-                pendingCombinator = .child
+                pendingCombinator = char == ">" ? .child : (char == "+" ? .adjacentSibling : .generalSibling)
             } else if char.isWhitespace {
                 flush()
             } else {
@@ -480,6 +508,11 @@ public enum CSSParser {
         var token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return nil }
 
+        var firstOfType = false
+        if token.lowercased().hasSuffix(":first-of-type") {
+            firstOfType = true
+            token = String(token.dropLast(":first-of-type".count))
+        }
         var firstChild = false
         if token.lowercased().hasSuffix(":first-child") {
             firstChild = true
@@ -501,7 +534,9 @@ public enum CSSParser {
             token = regex.stringByReplacingMatches(in: token, range: fullRange, withTemplate: "")
         }
 
-        // Combinators / pseudo-elements in the remainder are unsupported.
+        let universal = token == "*" || token.isEmpty
+        if token == "*" { token = "" }
+        // Remaining unsupported pseudo-classes are rejected as a whole selector.
         if token.contains(">") || token.contains("+") || token.contains("~")
             || token.contains("*") || token.contains("[") || token.contains("]")
             || token.contains("(") || token.contains(":") {
@@ -539,9 +574,11 @@ public enum CSSParser {
         }
         flush()
 
-        guard tag != nil || id != nil || !classes.isEmpty || !attributes.isEmpty else { return nil }
+        guard universal || tag != nil || id != nil || !classes.isEmpty || !attributes.isEmpty else { return nil }
 
-        return CSSSelector.Component(tag: tag, id: id, classes: classes, attributes: attributes, firstChild: firstChild, combinator: combinator)
+        var component = CSSSelector.Component(tag: tag, id: id, classes: classes, attributes: attributes, firstChild: firstChild, combinator: combinator)
+        component.firstOfType = firstOfType
+        return component
     }
 
     /// Parses the inside of one `[ … ]` block, e.g. `epub|type~='pagebreak'`.
@@ -607,7 +644,7 @@ public enum CSSParser {
             + (component.id == nil ? 0 : 100)
             + component.classes.count * 10
             + component.attributes.count * 10
-            + (component.firstChild ? 10 : 0)
+            + (component.firstChild ? 10 : 0) + (component.firstOfType ? 10 : 0)
             + (component.tag == nil ? 0 : 1)
         }
     }

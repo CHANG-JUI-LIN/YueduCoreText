@@ -35,8 +35,7 @@ public final class HTMLLayoutDocument {
 
     /// Same capability parser/cascade as production; reports facts without choosing a fallback.
     public func capabilities() -> BrowserLayoutCapabilityResult {
-        BrowserLayoutCapabilityScanner.scan(html: input.html,
-            cssTexts: CurrentCSSFrontendSupport.stylesheetsForCurrentCompatibility(input.stylesheets), writingMode: configuration.writingMode)
+        BrowserLayoutCapabilityScanner.scan(input: input, writingMode: configuration.writingMode)
     }
 
     private func validate() throws {

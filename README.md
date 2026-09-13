@@ -143,6 +143,8 @@ Page display lists use top-left, y-down **page coordinates**. Continuous display
 
 ## Supported scope
 
+Unreleased working-tree typography corrections are documented in [English publishing CSS](docs/EnglishTypography.md). They are not part of the 0.4.0 tag.
+
 | Area | 0.4.0 |
 |---|---|
 | Layout | Horizontal and basic vertical-rl block/inline flow, supported px/em/% dimensions, margins/padding, white-space and text-indent |

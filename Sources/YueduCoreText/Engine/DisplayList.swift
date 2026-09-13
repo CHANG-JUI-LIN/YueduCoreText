@@ -33,7 +33,20 @@ public struct DisplayTextItem {
     /// Recover the exact attributes used by shaping instead of discarding
     /// kern, synthetic bold, and regex styles when constructing the draw list.
     public var attributedText: NSAttributedString {
-        let result = NSMutableAttributedString(string: text, attributes: [
+        var presentation = text.replacingOccurrences(of: "\u{00AD}", with: "\u{2060}")
+        if case .linear(let range) = sourceMapping, let ctLine {
+            let hasHyphen = (CTLineGetGlyphRuns(ctLine) as! [CTRun]).contains { run in
+                let attributes = CTRunGetAttributes(run) as! [NSAttributedString.Key: Any]
+                let r = CTRunGetStringRange(run)
+                return attributes[TextBreakingAttributes.visibleHyphen] as? Bool == true
+                    && NSIntersectionRange(range, NSRange(location:r.location,length:r.length)).length > 0
+            }
+            if hasHyphen {
+                if range.length > sourceRange.length { presentation += "-" }
+                else if presentation.hasSuffix("\u{2060}") { presentation.removeLast(); presentation += "-" }
+            }
+        }
+        let result = NSMutableAttributedString(string: presentation, attributes: [
             .font: font, .foregroundColor: color,
         ])
         guard let ctLine else { return result }

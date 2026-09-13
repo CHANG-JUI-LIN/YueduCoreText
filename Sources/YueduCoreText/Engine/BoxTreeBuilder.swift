@@ -1,3 +1,4 @@
+import CoreText
 import Foundation
 import UIKit
 
@@ -151,7 +152,16 @@ enum BoxTreeBuilder {
             }
         }
 
-        let box = BlockBox(style: node.style, boxType: .block, children: kids)
+        var boxStyle = node.style
+        if node.tag == "::first-letter", boxStyle.isFloated, boxStyle.width == .auto {
+            let attributed = NSMutableAttributedString()
+            for run in pendingInline {
+                attributed.append(NSAttributedString(string: run.text, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))
+            }
+            let line = CTLineCreateWithAttributedString(attributed)
+            boxStyle.width = .px(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        }
+        let box = BlockBox(style: boxStyle, boxType: .block, children: kids)
         Self.attachDebugIdentity(box, node: node)
         let trailingVisibleRuns = visibleRuns(pendingInline)
         if !trailingVisibleRuns.isEmpty {

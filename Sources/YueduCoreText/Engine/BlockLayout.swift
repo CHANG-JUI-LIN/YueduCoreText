@@ -282,7 +282,7 @@ enum BlockLayout {
                         percentBase: inlineFormattingSize
                     ) ?? 0
                     firstLineConstraint = InlineFirstLineConstraint(
-                        textIndent: max(0, usedTextIndent)
+                        textIndent: usedTextIndent
                     )
                 case .unsupported:
                     assertionFailure("unsupported text-indent reached BlockLayout")
@@ -300,7 +300,8 @@ enum BlockLayout {
                 fontResolver: fontResolver,
                 floatContext: relevantFloatContext,
                 blockOffsetY: blockOffsetY,
-                firstLineConstraint: firstLineConstraint
+                firstLineConstraint: firstLineConstraint,
+                paragraphStyle: box.style
             )
             box.lines = InlineLayout.layoutLines(
                 runs: box.inlineRuns,
@@ -344,6 +345,12 @@ enum BlockLayout {
         box.contentSize.height = max(0, totalHeight)
         if case .px(let fixed) = box.style.height {
             box.contentSize.height = fixed
+        }
+        if let minimum = box.style.minHeight, case .percent = minimum {
+            // An indefinite block-height percentage computes to zero here.
+        } else if let minimum = box.style.minHeight,
+                  let used = CSSLengthResolver.resolve(minimum, emBase: box.style.fontSize, remBase: rootFontSize, percentBase: 0) {
+            box.contentSize.height = max(box.contentSize.height, used)
         }
         box.frame = ParentLocalRect(rawValue: CGRect(
             x: box.frame.rawValue.minX,

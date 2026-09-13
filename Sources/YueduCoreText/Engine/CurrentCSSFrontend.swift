@@ -20,13 +20,21 @@ final class CurrentCSSFrontend: CSSFrontend {
         }
 
         let fullCSS = metrics.time("cssCollect") {
-            CurrentCSSFrontendSupport.stylesheetsForCurrentCompatibility(input.stylesheets)
-                + CurrentCSSFrontendSupport.inlineStyles(in: document)
+            input.productionStylesheetTexts
+                + (input.hasAuthoredStylesheetOrder ? [] : CurrentCSSFrontendSupport.inlineStyles(in: document))
+        }
+        if let report = config.onDiagnostic {
+            for sheet in input.activeAuthorStylesheets {
+                report(CSSFrontendDiagnostic(stage:.ingestion,stylesheet:sheet.identity,semanticPath:nil,property:nil,
+                    message:"sourceOrder=\(sheet.sourceOrder) active=\(!sheet.isAlternate && !sheet.loadFailed)"))
+            }
         }
         let rules = metrics.time("cssParse") {
-            CurrentCSSFrontendSupport.parseRules(in: fullCSS)
+            CurrentCSSFrontendSupport.parseStylesheets(in: fullCSS,
+                identities: input.hasAuthoredStylesheetOrder ? input.activeAuthorStylesheets.map(\.identity) : [],
+                onDiagnostic: config.onDiagnostic)
         }
-        let builder = ComputedStyleTreeBuilder(rules: rules, config: config)
+        let builder = ComputedStyleTreeBuilder(rules: rules.regular, config: config, firstLetterRules: rules.firstLetter)
         var linkAnchors: [Int: LinkAnchorInfo] = [:]
         let rootNode = metrics.time("styleTree") {
             let tree = builder.buildTree(body: body)
@@ -68,13 +76,25 @@ enum CurrentCSSFrontendSupport {
             .filter { !$0.isEmpty }
     }
 
-    static func parseRules(in stylesheets: [String]) -> [CSSRule] {
-        // Current is a boundary around the existing frontend, so its cascade
-        // ordering remains byte-for-byte compatible during this task. The old
-        // BrowserLayoutDocument parsed every stylesheet with a zero offset.
-        stylesheets.flatMap { css in
-            CSSParser.parse(css: css, orderOffset: 0)
+    static func parseRules(in stylesheets: [String]) -> [CSSRule] { parseStylesheets(in: stylesheets).regular }
+
+    static func parseStylesheets(in stylesheets: [String], identities: [StylesheetIdentity] = [],
+                                 onDiagnostic: ((CSSFrontendDiagnostic) -> Void)? = nil) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
+        var result: [CSSRule] = []
+        var initials: [CSSRule] = []
+        var offset = 0
+        for (index, css) in stylesheets.enumerated() {
+            let identity = identities.indices.contains(index) ? identities[index] : StylesheetIdentity(sourceOrder:index,label:"input[\(index)]")
+            let parsed = CSSParser.parseWithFirstLetter(css: css, orderOffset: offset, onUnsupported: onDiagnostic.map { report in
+                { selector, order in report(CSSFrontendDiagnostic(stage:.selector,stylesheet:identity,semanticPath:nil,property:nil,
+                    message:"unsupported selector=\(selector) order=\(order)")) }
+            })
+            func attributedRule(_ rule: CSSRule) -> CSSRule { var copy = rule; copy.sourceStylesheet = identity; return copy }
+            result += parsed.regular.filter { !$0.isDarkMedia }.map(attributedRule)
+            initials += parsed.firstLetter.map(attributedRule)
+            offset = (parsed.regular + parsed.firstLetter).map(\.order).max().map { $0 + 1 } ?? offset
         }
+        return (result, initials)
     }
 }
 

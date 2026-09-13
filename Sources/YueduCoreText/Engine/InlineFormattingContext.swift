@@ -10,7 +10,7 @@ struct InlineFirstLineConstraint: Equatable {
 
     static let none = InlineFirstLineConstraint(textIndent: 0)
 
-    var isActive: Bool { textIndent > 0 }
+    var isActive: Bool { textIndent != 0 }
 
     func apply(to interval: InlineInterval) -> InlineInterval {
         guard isActive else { return interval }
@@ -37,6 +37,7 @@ struct InlineFormattingContext {
     let floatContext: FloatContext?
     let blockOffsetY: CGFloat
     let firstLineConstraint: InlineFirstLineConstraint
+    let paragraphStyle: ComputedStyle?
 
     init(
         containingInlineSize: CGFloat,
@@ -47,7 +48,8 @@ struct InlineFormattingContext {
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
         floatContext: FloatContext?,
         blockOffsetY: CGFloat,
-        firstLineConstraint: InlineFirstLineConstraint = .none
+        firstLineConstraint: InlineFirstLineConstraint = .none,
+        paragraphStyle: ComputedStyle? = nil
     ) {
         self.containingInlineSize = containingInlineSize
         self.rootFontSize = rootFontSize
@@ -58,6 +60,7 @@ struct InlineFormattingContext {
         self.floatContext = floatContext
         self.blockOffsetY = blockOffsetY
         self.firstLineConstraint = firstLineConstraint
+        self.paragraphStyle = paragraphStyle
     }
 
     var baseInterval: InlineInterval {

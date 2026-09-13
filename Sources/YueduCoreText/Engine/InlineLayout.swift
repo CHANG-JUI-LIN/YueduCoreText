@@ -172,16 +172,47 @@ enum InlineLayout {
 
         let cssHeight = lineHeight ?? runs.first?.style.lineHeight
         let lineSpacing = runs.first?.style.configLineSpacing ?? 0
-        func usedHeight(_ info: CoreTextLineBreaker.LineBreak) -> CGFloat {
-            var requested = cssHeight ?? 0
-            attributed.enumerateAttribute(.paragraphStyle, in: info.range) { value, _, _ in
-                if let paragraph = value as? NSParagraphStyle {
-                    requested = max(requested, paragraph.minimumLineHeight)
+        // Half-leading belongs to the inline box, not its glyph ink bounds.
+        // Keep the existing vertical/ruby metrics while resolving horizontal
+        // text struts and replaced elements independently around the baseline.
+        func lineMetrics(_ info: CoreTextLineBreaker.LineBreak) -> (height: CGFloat, baseline: CGFloat) {
+            var above: CGFloat = -.greatestFiniteMagnitude
+            var below: CGFloat = -.greatestFiniteMagnitude
+            if let strut = context.paragraphStyle, context.writingMode == .horizontal {
+                let font = resolveFont(strut)
+                let leading = ((strut.lineHeight ?? (font.ascender - font.descender)) - font.ascender + font.descender) / 2
+                above = font.ascender + leading; below = -font.descender + leading
+            }
+            for (index, run) in runs.enumerated() {
+                let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
+                guard part.length > 0, run.decorationEdge == nil else { continue }
+                let font = resolveFont(run.style)
+                var requested = run.style.lineHeight ?? cssHeight
+                attributed.enumerateAttribute(.paragraphStyle, in: part) { value, _, _ in
+                    if let p = value as? NSParagraphStyle, p.minimumLineHeight > 0 {
+                        requested = max(requested ?? 0, p.minimumLineHeight)
+                    }
+                }
+                if run.atomic != nil || run.ruby != nil || context.writingMode != .horizontal {
+                    above = max(above, info.ascent)
+                    below = max(below, info.descent)
+                } else {
+                    let ink = font.ascender - font.descender
+                    let leading = ((requested ?? ink) - ink) / 2
+                    above = max(above, font.ascender + leading)
+                    below = max(below, -font.descender + leading)
                 }
             }
+            if !above.isFinite || !below.isFinite { above = info.ascent; below = info.descent }
+            if context.writingMode != .horizontal {
+                let requested = cssHeight ?? 0
+                let leading = max(0, requested - info.ascent - info.descent) / 2
+                above = max(above, info.ascent + leading); below = max(below, info.descent + leading)
+            }
             let spacing = NSMaxRange(info.range) < attributed.length ? lineSpacing : 0
-            return max(requested, info.ascent + info.descent) + spacing
+            return (max(0, above + below) + spacing, above)
         }
+        func usedHeight(_ info: CoreTextLineBreaker.LineBreak) -> CGFloat { lineMetrics(info).height }
         func makeLayoutLine(
             _ breakInfo: CoreTextLineBreaker.LineBreak,
             interval: InlineInterval,
@@ -189,9 +220,12 @@ enum InlineLayout {
         ) -> LayoutLine {
             let lineRange = breakInfo.range
             let lineEnd = lineRange.location + lineRange.length
-            let alignment = runs.first?.style.textAlign ?? .natural
+            let paragraph = context.paragraphStyle ?? runs.first?.style
+            let terminal = (attributed.string as NSString).character(at: max(0, lineEnd - 1))
+            let isLast = lineEnd == attributed.length || [10, 13, 0x2028, 0x2029].contains(Int(terminal))
+            let alignment = (isLast ? paragraph?.textAlignLast : nil) ?? paragraph?.textAlign ?? .natural
             let shapedLine = alignment == .justified
-                ? justifiedLine(breakInfo, attributed: attributed, width: interval.lineWidth)
+                ? justifiedLine(breakInfo, attributed: attributed, width: interval.lineWidth, forceLast: isLast && paragraph?.textAlignLast == .justified)
                 : breakInfo.line
             // A newly spaced line is shaped from its own substring; retain that
             // local index space in every fragment rather than mixing it with
@@ -245,7 +279,7 @@ enum InlineLayout {
                     sourceRange: sliceSource,
                     shapedRange: NSRange(
                         location: intersectStart + shapedOffset,
-                        length: intersectEnd - intersectStart
+                        length: intersectEnd - intersectStart + (breakInfo.generatedHyphen && intersectEnd == lineEnd ? 1 : 0)
                     ),
                     x: xCursor,
                     width: width,
@@ -294,11 +328,8 @@ enum InlineLayout {
                 trimLineTrailingWhitespace(from: &lineRuns, sourceText: sourceText)
             }
 
-            let contentHeight = breakInfo.ascent + breakInfo.descent
             let height = usedHeight(breakInfo)
-            let trailingSpacing = NSMaxRange(breakInfo.range) < attributed.length ? lineSpacing : 0
-            let extraLeading = max(0, height - contentHeight - trailingSpacing)
-            let baselineOffset = extraLeading / 2 + breakInfo.ascent
+            let baselineOffset = lineMetrics(breakInfo).baseline
             let top = yTop
             let alignSlack = alignmentOffset(
                 alignment: alignment,
@@ -349,7 +380,7 @@ enum InlineLayout {
             return lines
         }
 
-        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+        let typesetter = CTTypesetterCreateWithAttributedString(CoreTextLineBreaker.shapingText(attributed))
         let nsString = attributed.string as NSString
         var result: [LayoutLine] = []
         var charIndex = 0
@@ -554,15 +585,16 @@ enum InlineLayout {
     private static func justifiedLine(
         _ info: CoreTextLineBreaker.LineBreak,
         attributed: NSAttributedString,
-        width: CGFloat
+        width: CGFloat,
+        forceLast: Bool = false
     ) -> CTLine {
         let end = NSMaxRange(info.range)
-        guard end < attributed.length, width > 0, width.isFinite else { return info.line }
-        let slice = NSMutableAttributedString(attributedString: attributed.attributedSubstring(from: info.range))
+        guard (end < attributed.length || forceLast), width > 0, width.isFinite else { return info.line }
+        let slice = NSMutableAttributedString(attributedString: info.presentation ?? CoreTextLineBreaker.shapingText(attributed.attributedSubstring(from: info.range)))
         let text = slice.string as NSString
         guard text.length > 1 else { return info.line }
         let terminal = text.character(at: text.length - 1)
-        guard terminal != 0x0A && terminal != 0x0D && terminal != 0x2028 && terminal != 0x2029 else { return info.line }
+        guard forceLast || (terminal != 0x0A && terminal != 0x0D && terminal != 0x2028 && terminal != 0x2029) else { return info.line }
         var clusters: [NSRange] = []
         var index = 0
         while index < text.length {
@@ -580,7 +612,7 @@ enum InlineLayout {
         let naturalWidth = CGFloat(CTLineGetTypographicBounds(natural, nil, nil, nil)
             - CTLineGetTrailingWhitespaceWidth(natural))
         let residual = width - naturalWidth
-        guard naturalWidth / width >= 0.7, residual > 0.5 else { return info.line }
+        guard residual > 0.5 else { return info.line }
         let gaps = Array(clusters.dropLast())
         let spaces = gaps.filter { text.substring(with: $0) == " " }
         let targets: [NSRange]
@@ -705,7 +737,13 @@ enum InlineLayout {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: style.color ?? UIColor.black,
+            TextBreakingAttributes.hyphens: style.hyphens,
+            TextBreakingAttributes.emergency: style.overflowWrap != "normal" || style.wordBreak == "break-all" || style.wordBreak == "break-word",
         ]
+        if let language = style.language {
+            attributes[TextBreakingAttributes.language] = language
+            attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language
+        }
         if style.configLetterSpacing != 0 {
             attributes[.kern] = style.configLetterSpacing
         }

@@ -317,9 +317,9 @@ struct BrowserLayoutFloatLayoutTests {
         #expect(paragraphLines.count == 3)
         #expect(paragraphLines[0].rect.minY == 0)
         #expect(paragraphLines[0].rect.minX >= 100)
-        #expect(abs(paragraphLines[1].rect.minY - 22.4) < 0.001)
+        #expect(abs(paragraphLines[1].rect.minY - 20) < 0.001)
         #expect(paragraphLines[1].rect.minX >= 100)
-        #expect(abs(paragraphLines[2].rect.minY - 44.8) < 0.001)
+        #expect(abs(paragraphLines[2].rect.minY - 40) < 0.001)
         #expect(paragraphLines[2].rect.minX >= 100,
                 "A 20pt line band at y=40 still overlaps the 50pt float")
     }
@@ -383,7 +383,7 @@ struct BrowserLayoutFloatLayoutTests {
         #expect(layout.rootBox.children[1].lines[0].contentX == 134)
     }
 
-    @Test func actualLineBandHeightDrivesFloatExclusion() {
+    @Test func explicitLineBandHeightDrivesFloatExclusion() {
         var style = ComputedStyle(fontSize: 16, fontFamilies: ["PingFangSC-Regular"])
         style.color = .black
         let text = "A line whose measured CoreText box crosses a float that starts at y 21."
@@ -414,9 +414,9 @@ struct BrowserLayoutFloatLayoutTests {
             )
         )
 
-        #expect(lines[0].height > 21)
-        #expect(lines[0].contentX == 100,
-                "The actual line band intersects the float even though a 20pt estimate would miss it")
+        #expect(lines[0].height == 20)
+        #expect(lines[0].contentX == 0,
+                "CSS half-leading keeps the 20pt line box above the float at y=21, even when glyph ink is taller")
     }
 
     @Test func replacedImageFloatUsesIntrinsicSize() throws {
@@ -471,8 +471,9 @@ struct BrowserLayoutFloatLayoutTests {
                 "85% must resolve against the 196pt float content box, not the 400pt viewport")
         #expect(abs((floatBox.lines.first?.contentX ?? -1) - 14.7) < 0.001,
                 "text-align:center must use the float's 196pt content width")
-        #expect(floatBox.frame.height == 166.6,
-                "The resolved image height must define the float exclusion bottom")
+        let strutDescent = -InlineLayout.font(for:floatBox.style).descender
+        #expect(abs(floatBox.frame.height - (166.6 + strutDescent)) < 0.001,
+                "A baseline-aligned inline image contributes its height above the baseline; the parent text strut still contributes descent below it")
     }
 
     @Test func oversizedReplacedFloatUsesPagedFitPolicy() async throws {

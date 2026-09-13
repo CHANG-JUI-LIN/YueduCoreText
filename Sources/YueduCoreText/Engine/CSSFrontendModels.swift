@@ -5,7 +5,14 @@ import Foundation
 /// preserve authored order and diagnose a differential later in the migration.
 public struct CSSFrontendInput {
     /// The exact existing production sheet order; the frontend and admission scanner share it.
-    public var productionStylesheetTexts: [String] { CurrentCSSFrontendSupport.stylesheetsForCurrentCompatibility(stylesheets) }
+    public var productionStylesheetTexts: [String] {
+        if hasAuthoredStylesheetOrder { return activeAuthorStylesheets.map(\.text) }
+        return CurrentCSSFrontendSupport.stylesheetsForCurrentCompatibility(stylesheets)
+    }
+    /// Ingestion supplied a complete DOM-order projection (including inline sheets).
+    var hasAuthoredStylesheetOrder: Bool {
+        stylesheets.contains { $0.currentCompatibilityOnly || $0.currentCompatibilityOrder == nil }
+    }
     public let html: String
     public let stylesheets: [AuthorStylesheet]
     public let diagnostics: [CSSFrontendDiagnostic]
@@ -16,7 +23,7 @@ public struct CSSFrontendInput {
         self.diagnostics = diagnostics
     }
 
-    /// Lexbor consumes each active authored sheet exactly once, in DOM order.
+    /// The production frontend consumes each active authored sheet once, in DOM order.
     /// Unsupported media remains in `stylesheets` and diagnostics for the gate.
     public var activeAuthorStylesheets: [AuthorStylesheet] {
         stylesheets.filter { !$0.currentCompatibilityOnly && !$0.isAlternate && !$0.loadFailed && $0.hasSupportedMedia }

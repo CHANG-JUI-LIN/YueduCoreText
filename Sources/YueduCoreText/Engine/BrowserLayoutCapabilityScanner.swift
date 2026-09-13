@@ -83,7 +83,15 @@ public enum BrowserLayoutCapabilityScanner {
         }
     }
 
+    public static func scan(input: CSSFrontendInput, writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
+        scan(html: input.html, cssTexts: input.productionStylesheetTexts, writingMode: writingMode, includeInline: !input.hasAuthoredStylesheetOrder)
+    }
+
     public static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
+        scan(html: html, cssTexts: cssTexts, writingMode: writingMode, includeInline: true)
+    }
+
+    private static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode, includeInline: Bool) -> BrowserLayoutCapabilityResult {
         func declaration(key: String, value: String) -> UnsupportedFeature? {
             let k = key.lowercased(), v = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if writingMode == .verticalRTL {
@@ -108,7 +116,7 @@ public enum BrowserLayoutCapabilityScanner {
 
         // DOM-level checks (script, MathML, SVG semantics, table/float/flex in markup).
         if let doc = try? SwiftSoup.parse(html) {
-            let fullCSS = cssTexts + LegacyCSSFrontendSupport.inlineStyles(in: doc)
+            let fullCSS = cssTexts + (includeInline ? LegacyCSSFrontendSupport.inlineStyles(in: doc) : [])
             func hasAny(_ selector: String) -> Bool {
                 ((try? doc.select(selector).isEmpty()) ?? true) == false
             }
@@ -187,10 +195,10 @@ public enum BrowserLayoutCapabilityScanner {
             // as layout. Replaying raw declarations here gets overrides,
             // specificity and !important wrong.
             if let body = doc.body() {
-                let rules = LegacyCSSFrontendSupport.parseRules(in: fullCSS)
+                let parsed = LegacyCSSFrontendSupport.parseStylesheets(in: fullCSS)
                 let styleTree = ComputedStyleTreeBuilder(
-                    rules: rules,
-                    config: BrowserLayoutConfig()
+                    rules: parsed.regular,
+                    config: BrowserLayoutConfig(), firstLetterRules: parsed.firstLetter
                 ).buildTree(body: body)
                 let hasRubyMarkup = hasAny("ruby, rp, rt, rb, rtc")
                 if hasRubyMarkup,
@@ -231,7 +239,7 @@ public enum BrowserLayoutCapabilityScanner {
             // Non-replaced floats with width:auto need CSS shrink-to-fit, which
             // Phase 4B deliberately does not guess. max-width alone does not
             // turn width:auto into a definite used width.
-            if (!isReplaced && node.style.width == .auto) || hasFloatedAncestor {
+            if (!isReplaced && node.tag != "::first-letter" && node.style.width == .auto) || hasFloatedAncestor {
                 reasons.append(.float)
             }
         }

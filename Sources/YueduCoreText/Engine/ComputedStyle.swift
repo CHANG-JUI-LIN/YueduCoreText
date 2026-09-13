@@ -133,6 +133,11 @@ struct ComputedStyle: Equatable {
     /// Inherited specified/computed value. Percentages remain symbolic until
     /// BlockLayout has resolved this block container's final inline size.
     var textIndent: CSSTextIndent = .initial
+    var hyphens: String = "manual"
+    var language: String? = nil
+    var overflowWrap: String = "normal"
+    var wordBreak: String = "normal"
+    var textAlignLast: NSTextAlignment? = nil
     var rubyAlign: RubyAlignment = .center
     var rubyPosition: RubyPosition = .over
     var rubyMerge: RubyMerge = .separate
@@ -140,6 +145,7 @@ struct ComputedStyle: Equatable {
     // Box model (specified)
     var width: CSSLength = .auto
     var height: CSSLength = .auto
+    var minHeight: CSSLength? = nil
     var maxHeight: CSSLength? = nil
     var maxWidth: CSSLength? = nil      // nil = none
     var marginTop: CSSLength = .px(0)
@@ -255,6 +261,11 @@ extension ComputedStyle {
         style.rubyPosition = parent.rubyPosition
         style.rubyMerge = parent.rubyMerge
         style.textIndent = parent.textIndent
+        style.hyphens = parent.hyphens
+        style.language = parent.language
+        style.overflowWrap = parent.overflowWrap
+        style.wordBreak = parent.wordBreak
+        style.textAlignLast = parent.textAlignLast
         style.lineHeightMultiplier = parent.lineHeightMultiplier
         style.pendingLineHeightLength = nil
         return style

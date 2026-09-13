@@ -5,6 +5,36 @@ import Consumer
 
 @MainActor
 struct ConsumerTests {
+    @Test func englishAuthorStylesDrawWithStableSourceGeometry() async throws {
+        let text = "Extraordinary imagination illuminates extraordinary possibilities."
+        let html = "<html lang='en'><body><p id='start'><a href='#start'>\(text)</a></p></body></html>"
+        let css = ["body {margin:0;font-family:Georgia;font-size:20px} p {margin:0;line-height:24px;text-indent:12pt;text-align:justify;hyphens:auto} p:first-letter {font-size:200%;color:red}"]
+        let config = BrowserLayoutConfig(renderWidth:180,renderHeight:120,rootFontSize:20)
+        let doc = HTMLLayoutDocument(html:html,css:css,configuration:config)
+        #expect(doc.capabilities().supported)
+        let session = try doc.makePageSession(); try await session.finish()
+        #expect(session.sourceText == text)
+        let flow = try doc.prepareContinuous().makeDocument()
+        #expect(flow.sourceText == text)
+        let first = try #require(session.completedPages.first)
+        let list = DisplayListBuilder.build(for:first,sourceText:session.sourceText)
+        let initialRect = try #require(list.selectionRects(for:NSRange(location:0,length:1)).first)
+        #expect(initialRect.minX == 16)
+        #expect(list.sourceRange(at:CGPoint(x:initialRect.midX,y:initialRect.midY),sourceText:text)?.location == 0)
+        #expect(list.items.contains { if case .text(let t) = $0 { return t.linkTarget == "#start" }; return false })
+        let bitmap = try #require(CGContext(data:nil,width:180,height:120,bitsPerComponent:8,bytesPerRow:720,
+            space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+        list.draw(in:bitmap)
+        let rendered = try #require(bitmap.makeImage())
+        let data = try #require(rendered.dataProvider?.data)
+        let bytes = try #require(CFDataGetBytePtr(data))
+        #expect(stride(from:0,to:CFDataGetLength(data),by:4).contains { bytes[$0] > 150 && bytes[$0+1] < 50 && bytes[$0+2] < 50 })
+        let reformatted = HTMLLayoutDocument(html:html,css:css,configuration:BrowserLayoutConfig(renderWidth:240,renderHeight:120,rootFontSize:20))
+        let changed = try reformatted.prepareContinuous().makeDocument()
+        #expect(changed.sourceText == flow.sourceText)
+        #expect(changed.contentSize != flow.contentSize)
+    }
+
     @Test func compiledExampleDrawsAndReturnsLinks() async throws {
         let result = try await renderExample()
         #expect(result.text == "Hello 世界 🌕")
