@@ -187,7 +187,12 @@ public final class BrowserLayoutSession {
             for fragment in fragments {
                 switch fragment {
                 case .text(let t):
-                    if result == nil || t.sourceRange.location < result!.sourceRange.location {
+                    // Explicit branches avoid Swift 6.3 Release isolation errors in ||'s autoclosure.
+                    if let current = result {
+                        if t.sourceRange.location < current.sourceRange.location {
+                            result = t
+                        }
+                    } else {
                         result = t
                     }
                 case .group(let children): walk(children)

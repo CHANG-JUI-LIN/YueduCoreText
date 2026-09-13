@@ -2,6 +2,13 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.5.1] - 2026-09-13
+
+### Fixed
+
+- Avoid a short-circuit autoclosure in diagnostic fragment traversal so Swift 6.3 Release builds compile without sending-data-race errors.
+- Add a Release build for iOS devices to CI alongside Simulator regression tests.
+
 ## [0.5.0] - 2026-09-13
 
 ### Fixed

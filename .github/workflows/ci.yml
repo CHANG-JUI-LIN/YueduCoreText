@@ -29,6 +29,13 @@ jobs:
           swift --version
           xcrun simctl list devices available
           swift package describe
+      - name: Build Release for iOS devices
+        run: |
+          xcodebuild build \
+            -scheme YueduCoreText-Package \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO
       - name: Test on iOS Simulator
         run: |
           xcodebuild test \
