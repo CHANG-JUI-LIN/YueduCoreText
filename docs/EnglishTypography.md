@@ -1,6 +1,6 @@
-# English publishing CSS (unreleased)
+# English publishing CSS (0.5.0)
 
-These changes are in the working tree after 0.4.0. They are **not included in the 0.4.0 tag**. Use the adjacent local checkout for integration until a new release is approved.
+These corrections are included in 0.5.0. Version 0.4.0 does not contain them. Use `.upToNextMinor(from: "0.5.0")` for remote integration.
 
 The existing Current CSS frontend, native block/inline layout, incremental paginator and continuous layout remain the production pipeline. No Lexbor cutover or WebView fallback is involved.
 
@@ -23,3 +23,11 @@ The existing standalone consumer includes a public-API-only English example test
 This is a publishing subset, not full CSS conformance. Arbitrary `font` shorthand, `hanging`/`each-line` indentation, general shrink-to-fit floats, advanced first-letter layouts spanning block/replaced/ruby boundaries, and percentage min-height with an indefinite containing block are not newly supported. Advanced vertical layout is unchanged. Unspecified indentation remains zero; the engine does not infer indentation from a reference reader screenshot. Auto hyphenation is enabled only when authored CSS requests it.
 
 Compatibility references: [CSS Text 3, 14 August 2026 CR Draft](https://www.w3.org/TR/2026/CRD-css-text-3-20260814/), [CSS 2.2 inline height/leading](https://www.w3.org/TR/CSS22/visudet.html#line-height), [CSS 2.2 first-letter](https://www.w3.org/TR/CSS22/selector.html#first-letter). Geometry fixes are backed by targeted tests; antialiasing or identical pagination across different readers is not an acceptance criterion.
+
+## Migration from 0.4.x
+
+- `CSSSelector.Combinator` adds `adjacentSibling` and `generalSibling`. Update exhaustive switches in clients that inspect selectors.
+- `BrowserLayoutCapabilityScanner.scan(input:writingMode:)` accepts the same ordered `CSSFrontendInput` as layout. Prefer this overload when providing authored stylesheet identities; the existing string-array overload remains available.
+- `BrowserLayoutConfig.onDiagnostic` is optional and defaults to nil. Existing construction remains valid.
+- Indentation values may now be signed and styles inherit computed relative lengths. Corrected line heights, minimum heights and hyphenation change geometry and pagination; keep reading positions as source UTF-16 offsets, not saved page numbers.
+- A full author stylesheet projection is applied once in document order. The string-array convenience API retains external-sheet then inline-style collection semantics.

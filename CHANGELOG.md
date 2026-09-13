@@ -2,6 +2,27 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.5.0] - 2026-09-13
+
+### Fixed
+
+- Honor authored first-letter styles through the normal frontend, float/inline layout and drawing pipeline.
+- Preserve root inheritance, global stylesheet ordering, signed and pt indentation, explicit horizontal line heights and absolute minimum block heights.
+- Connect language-aware automatic/manual hyphenation to line selection and painting while preserving UTF-16 source and selection geometry.
+- Preserve author alignment, paragraph-tail alignment and source whitespace around overflowing words.
+
+### Added
+
+- Adjacent/general sibling selectors and first-of-type matching.
+- Ordered-input capability scanner overload and optional local typography diagnostics.
+- English publishing regression fixtures, actual Reader corpus integration, and an independent public API consumer test.
+
+### Migration
+
+- Selector combinators gain two enum cases; clients with exhaustive switches must handle them.
+- See [English typography migration](docs/EnglishTypography.md#migration-from-04x) for source order and geometry changes.
+- iOS 17, Swift tools 6.0 and SwiftSoup 2.13.7 requirements are unchanged. This remains a supported CSS subset.
+
 ## [0.4.0] - 2026-09-12
 
 ### Added

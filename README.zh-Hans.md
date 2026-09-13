@@ -8,7 +8,7 @@
 
 适合需要自行控制绘制和交互的原生文档或阅读界面。你的 App 提供资源、承载界面；包负责解析、计算样式、排版、分页与绘制。
 
-[0.4.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.4.0) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
+[0.5.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.5.0) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
 
 ## 环境要求与安装
 
@@ -16,14 +16,14 @@
 - HTML/CSS 引擎从 **0.3.0** 开始提供。0.2.1 及更早版本只有原有工具 API。
 - 主产品依赖 `YueduCoreTextTypography` 与 **SwiftSoup 2.13.7**。
 
-在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.4.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.4.0**。
+在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.5.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.5.0**。
 
 如果使用 Swift Package，将以下内容加入 `Package.dependencies`：
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.4.0")
+    .upToNextMinor(from: "0.5.0")
 )
 ```
 
@@ -33,7 +33,7 @@
 .product(name: "YueduCoreText", package: "YueduCoreText")
 ```
 
-0.x 的 minor 版本可能调整 public API；上述约束会保持在 0.4.x。只需要文字排印工具时，可改选 `YueduCoreTextTypography` 产品。
+0.x 的 minor 版本可能调整 public API；上述约束会保持在 0.5.x。只需要文字排印工具时，可改选 `YueduCoreTextTypography` 产品。
 
 ## 绘制第一页
 
@@ -143,9 +143,9 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 
 ## 支持范围
 
-0.4.0 之后、尚未发布的英文出版 CSS 修复记录于 [English publishing CSS](docs/EnglishTypography.md)。0.4.0 tag 不包含这些变更。
+0.5.0 加入[英文出版 CSS 修正](docs/EnglishTypography.md)，包括首字样式、缩进、行高与按内容语言断字。
 
-| 项目 | 0.4.0 |
+| 项目 | 0.5.0 |
 |---|---|
 | 排版 | 横排与基础 vertical-rl block／inline flow、已支持的 px／em／% 尺寸、margin／padding、white-space 与 text-indent |
 | 分页 | 增量分页 session、分页图片适配与连续文档排版 |
@@ -189,7 +189,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.4.0 获取。
+示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.5.0 获取。
 
 CI 在 iOS Simulator 运行包与只使用 public API 的独立 consumer 测试，并保留 `.xcresult` 产物；已验证的版本、工具链与结果请见 [CI 运行记录](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions)。本文档不宣称真机性能。
 
