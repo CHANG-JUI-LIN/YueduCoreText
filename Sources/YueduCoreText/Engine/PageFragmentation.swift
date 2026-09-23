@@ -272,6 +272,11 @@ struct PageWalker {
         let writingMode: ReaderWritingMode
         let rect: DocumentRect
         let alt: String?
+        /// Block extent of the image's line box below the image itself — the
+        /// parent strut's descent (CSS 2.1 §10.8.1) plus any Reader line
+        /// spacing. Zero for block images, and for an inline image that does
+        /// not end its line, whose remaining runs still sit on this line.
+        var trailingLineExtent: CGFloat = 0
     }
 
     private struct BoxFrame {
@@ -635,6 +640,10 @@ struct PageWalker {
                             + "atomicSize=\(atomic.usedSize.width)x\(atomic.usedSize.height)"
                         BrowserLayoutDeviceDiagnostic.summary(walkLine)
                         #endif
+                        let endsLine = !line.runs[frame.runIndex...].contains {
+                            !$0.isDecorationEdge && ($0.atomic != nil || $0.ruby != nil || $0.width > 0.001)
+                        }
+                        let lineBottom = frame.contentOrigin.y + line.top + line.height
                         return .image(StepImage(
                             source: atomic.source,
                             image: atomic.image,
@@ -643,7 +652,8 @@ struct PageWalker {
                             linkTarget: run.linkTarget,
                             writingMode: writingMode,
                             rect: rect,
-                            alt: nil
+                            alt: nil,
+                            trailingLineExtent: endsLine ? max(0, lineBottom - rect.maxY) : 0
                         ))
                     }
                     let rect = DocumentRect(rawValue: CGRect(
@@ -1251,6 +1261,16 @@ struct PageWalker {
         #endif
         let flushed = advanceToPage(target)
         adjustedDocRect.origin.y = discardMarginAdjoiningBreak(adjustedDocY, target: target)
+        // The band of the image's line box below the image (parent strut
+        // descent) belongs to the same unsplittable line. Carried past the
+        // bottom of this page it made the next page-tall image miss its page,
+        // leaving an empty page between gallery images (3 images → 6 pages).
+        // Like a margin adjoining an unforced break (§4.2), the part crossing
+        // the break is discarded; following content starts at the next page top.
+        let spill = adjustedDocRect.maxY + step.trailingLineExtent - CGFloat(target + 1) * pageHeight
+        if step.trailingLineExtent > 0, spill > 0.001 {
+            flowShift -= min(spill, step.trailingLineExtent)
+        }
         let adjustedDoc = DocumentRect(rawValue: adjustedDocRect)
         let canvas = canvasRect(forDocument: adjustedDoc, pageIndex: currentIndex)
         currentPage.append(.image(ImageFragment(

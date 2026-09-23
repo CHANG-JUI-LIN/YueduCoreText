@@ -38,6 +38,7 @@ struct InlineFormattingContext {
     let blockOffsetY: CGFloat
     let firstLineConstraint: InlineFirstLineConstraint
     let paragraphStyle: ComputedStyle?
+    let fontCache: InlineFontCache?
 
     init(
         containingInlineSize: CGFloat,
@@ -49,7 +50,8 @@ struct InlineFormattingContext {
         floatContext: FloatContext?,
         blockOffsetY: CGFloat,
         firstLineConstraint: InlineFirstLineConstraint = .none,
-        paragraphStyle: ComputedStyle? = nil
+        paragraphStyle: ComputedStyle? = nil,
+        fontCache: InlineFontCache? = nil
     ) {
         self.containingInlineSize = containingInlineSize
         self.rootFontSize = rootFontSize
@@ -61,6 +63,7 @@ struct InlineFormattingContext {
         self.blockOffsetY = blockOffsetY
         self.firstLineConstraint = firstLineConstraint
         self.paragraphStyle = paragraphStyle
+        self.fontCache = fontCache
     }
 
     var baseInterval: InlineInterval {

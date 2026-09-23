@@ -1,6 +1,8 @@
 import UIKit
 import CoreText
 
+public enum TextPaintPhase: Sendable, Equatable { case all, decorations, glyphs }
+
 public enum DisplayListDrawer {
     /// Draws the list into the CURRENT context. The caller owns the background.
     ///
@@ -15,21 +17,22 @@ public enum DisplayListDrawer {
         _ list: DisplayList,
         in context: CGContext,
         skipAuthoredBackgroundPaint: Bool = false,
+        textPaintPhase: TextPaintPhase = .all,
         textDecoration: ((CTLine, NSAttributedString, CGContext) -> Void)? = nil
     ) {
         var pendingText: [DisplayTextItem] = []
         func flushText() {
             let shaped = pendingText.map { item in
-                let string = item.attributedText
-                return (item, string, CTLineCreateWithAttributedString(string))
+                let resource = item.preparedDrawing ?? TextDrawingResources(item)
+                return (item, resource.attributed, resource.line)
             }
             // Decorations may extend past an inline element's own bounds.
             // Paint the complete text group underneath all its glyphs so a
             // later span's padding cannot erase the preceding span's ink.
-            for (item, string, line) in shaped {
+            for (item, string, line) in shaped where textPaintPhase != .glyphs {
                 drawText(item, string: string, line: line, decorationOnly: true, textDecoration: textDecoration, in: context)
             }
-            for (item, string, line) in shaped {
+            for (item, string, line) in shaped where textPaintPhase != .decorations {
                 drawText(item, string: string, line: line, decorationOnly: false, textDecoration: textDecoration, in: context)
             }
             pendingText.removeAll(keepingCapacity: true)

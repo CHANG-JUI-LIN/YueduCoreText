@@ -6,12 +6,15 @@ import UIKit
 /// into `text`; concatenating them in document order reassembles the text.
 struct SourceTextBuilder {
     private(set) var text = ""
-    var currentOffset: Int { (text as NSString).length }
+    // Re-bridging the growing chapter for every inline run makes content
+    // preparation quadratic. UTF-16 offsets are additive, including surrogate pairs.
+    private(set) var currentOffset = 0
 
     @discardableResult
     mutating func append(_ s: String) -> NSRange {
         let range = NSRange(location: currentOffset, length: (s as NSString).length)
         text.append(s)
+        currentOffset += range.length
         return range
     }
 }

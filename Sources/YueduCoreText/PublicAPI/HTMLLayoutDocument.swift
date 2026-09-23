@@ -57,6 +57,20 @@ public final class HTMLLayoutDocument {
                                     imageLoader: imageLoader, generation: generation)
     }
 
+    func makeViewportSessionImpl(validateCapabilities: Bool) throws -> BrowserViewportSession {
+        if validateCapabilities { try validate() }
+        guard configuration.writingMode == .horizontal else {
+            throw HTMLLayoutError.unsupported([.verticalWritingMode])
+        }
+        if Task.isCancelled { throw HTMLLayoutError.cancelled }
+        var metrics = LayoutMetrics()
+        let pipeline = try BrowserLayoutDocument(input: input, config: configuration, imageLoader: imageLoader)
+            .makeLayout(containerSize: CGSize(width: configuration.renderWidth + configuration.contentInsets.left + configuration.contentInsets.right,
+                                              height: configuration.renderHeight + configuration.contentInsets.top + configuration.contentInsets.bottom),
+                        metrics: &metrics, performLayout: false)
+        return BrowserViewportSession(pipeline: pipeline, configuration: configuration, imageLoader: imageLoader)
+    }
+
     /// Continuous preparation permits loading a computed background after parsing, before paint.
     public func prepareContinuous(validateCapabilities: Bool = true) throws -> BrowserContinuousLayout {
         if validateCapabilities { try validate() }
@@ -75,6 +89,9 @@ public final class BrowserContinuousLayout {
     private let configuration: BrowserLayoutConfig
     private let imageLoader: (String) -> UIImage?
     public var backgroundImageSource: String? { BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox).image?.source }
+    public var pageBackground: BrowserPageBackground? {
+        BrowserPageBackground(BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox))
+    }
     public var footnotes: [String: String] { pipeline.footnotes }
     public var mediaAttachments: [Int: EPUBMediaAttachment] { pipeline.mediaAttachments }
     public var pronunciationHints: [TTSPronunciationHint] { pipeline.pronunciationHints }
@@ -85,21 +102,26 @@ public final class BrowserContinuousLayout {
         self.pipeline = pipeline; self.configuration = configuration; self.imageLoader = imageLoader
     }
 
-    public func makeDocument() -> BrowserScrollDocument {
+    /// `paintsPageBackground: false` leaves the html/body background out of the
+    /// display list for a host that draws `pageBackground` itself, across the
+    /// whole screen. The chapter still gets at least one screen of height for it.
+    public func makeDocument(estimatedContentHeight: CGFloat? = nil,
+                             paintsPageBackground: Bool = true) -> BrowserScrollDocument {
         let config = configuration
         let background = BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox)
         let flow = BrowserScrollDocument.make(pipeline: pipeline, contentWidth: config.renderWidth,
                                              contentInsets: config.contentInsets, writingMode: config.writingMode)
         let hasBackdrop = background.color != nil || background.image != nil
-        let height = hasBackdrop ? max(config.renderHeight, flow.contentHeight) : flow.contentHeight
+        let extent = max(flow.contentHeight, estimatedContentHeight ?? 0)
+        let height = hasBackdrop ? max(config.renderHeight, extent) : extent
         let canvas = CGRect(x: 0, y: 0, width: flow.contentWidth, height: height)
         var items: [DisplayItem] = []
-        if let color = background.color {
+        if paintsPageBackground, let color = background.color {
             items.append(.fill(DisplayFillItem(rect: PageLocalRect(rawValue: canvas), color: color,
                 cornerRadius: 0, borderTop: .zero, borderBottom: .zero, borderLeft: .zero,
                 borderRight: .zero, nodeID: -1, writingMode: config.writingMode, isBackgroundPaint: true)))
         }
-        if let backgroundImage = background.image, let image = imageLoader(backgroundImage.source) {
+        if paintsPageBackground, let backgroundImage = background.image, let image = imageLoader(backgroundImage.source) {
             items.append(.image(DisplayImageItem(source: backgroundImage.source, image: image,
                 sourceRange: NSRange(location: 0, length: 0), nodeID: -1, linkTarget: nil,
                 writingMode: config.writingMode, rect: PageLocalRect(rawValue: BrowserLayoutDocument.coverRect(
@@ -117,10 +139,12 @@ extension DisplayList {
     /// CGContext uses top-left, y-down coordinates. The caller establishes scale/translation.
     /// No layout or parsing occurs here. A scroll tile uses items(in:) then this method.
     public func draw(in context: CGContext, skipAuthoredBackgroundPaint: Bool = false,
+                     textPaintPhase: TextPaintPhase = .all,
                      textDecoration: ((CTLine, NSAttributedString, CGContext) -> Void)? = nil) {
         UIGraphicsPushContext(context)
         defer { UIGraphicsPopContext() }
         DisplayListDrawer.draw(self, in: context, skipAuthoredBackgroundPaint: skipAuthoredBackgroundPaint,
+                               textPaintPhase: textPaintPhase,
                                textDecoration: textDecoration)
     }
     public func selectionRects(for range: NSRange) -> [CGRect] { BrowserTextGeometry.rects(in: self, range: range) }

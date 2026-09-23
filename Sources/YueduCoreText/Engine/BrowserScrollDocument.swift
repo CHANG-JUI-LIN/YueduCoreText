@@ -114,48 +114,7 @@ public struct BrowserScrollDocument {
     /// is the window's contents. Items are returned in document order so paint
     /// order (backgrounds before text) is preserved.
     public func items(in documentRect: CGRect) -> DisplayList {
-        var result: [DisplayItem] = []
-        for item in displayList.items {
-            switch item {
-            case .text(let t):
-                guard t.rect.rawValue.intersects(documentRect) else { continue }
-                result.append(.text(DisplayTextItem(
-                    sourceRange: t.sourceRange, nodeID: t.nodeID, linkTarget: t.linkTarget,
-                    writingMode: t.writingMode,
-                    rect: PageLocalRect(rawValue: t.rect.rawValue.offsetBy(
-                        dx: -documentRect.minX, dy: -documentRect.minY
-                    )),
-                    baselineY: t.baselineY - (t.writingMode == .horizontal ? documentRect.minY : documentRect.minX),
-                    font: t.font, color: t.color, text: t.text, ctLine: t.ctLine,
-                    sourceMapping: t.sourceMapping,
-                    renderedTextOverride: t.renderedTextOverride
-                )))
-            case .fill(let f):
-                guard f.rect.rawValue.intersects(documentRect) else { continue }
-                result.append(.fill(DisplayFillItem(
-                    rect: PageLocalRect(rawValue: f.rect.rawValue.offsetBy(
-                        dx: -documentRect.minX, dy: -documentRect.minY
-                    )),
-                    color: f.color, cornerRadius: f.cornerRadius,
-                    borderTop: f.borderTop, borderBottom: f.borderBottom,
-                    borderLeft: f.borderLeft, borderRight: f.borderRight,
-                    nodeID: f.nodeID, writingMode: f.writingMode,
-                    fragmentPosition: f.fragmentPosition,
-                    isBackgroundPaint: f.isBackgroundPaint
-                )))
-            case .image(let i):
-                guard i.rect.rawValue.intersects(documentRect) else { continue }
-                result.append(.image(DisplayImageItem(
-                    source: i.source, image: i.image, sourceRange: i.sourceRange,
-                    nodeID: i.nodeID, linkTarget: i.linkTarget, writingMode: i.writingMode,
-                    rect: PageLocalRect(rawValue: i.rect.rawValue.offsetBy(
-                        dx: -documentRect.minX, dy: -documentRect.minY
-                    )),
-                    alt: i.alt, isBackgroundPaint: i.isBackgroundPaint
-                )))
-            }
-        }
-        return DisplayList(items: result)
+        displayList.items(in: documentRect)
     }
 
     /// Link regions for the whole chapter, in DOCUMENT coordinates. A tile
@@ -216,6 +175,57 @@ public struct BrowserScrollDocument {
             return (image.sourceRange, image.rect.rawValue)
         default: return nil
         }
+    }
+
+}
+
+
+extension DisplayList {
+    public func items(in documentRect: CGRect, filteringItems: Bool = true) -> DisplayList {
+        var result: [DisplayItem] = []
+        for item in items {
+            switch item {
+            case .text(let t):
+                guard !filteringItems || t.rect.rawValue.intersects(documentRect) else { continue }
+                var translated = DisplayTextItem(
+                    sourceRange: t.sourceRange, nodeID: t.nodeID, linkTarget: t.linkTarget,
+                    writingMode: t.writingMode,
+                    rect: PageLocalRect(rawValue: t.rect.rawValue.offsetBy(
+                        dx: -documentRect.minX, dy: -documentRect.minY
+                    )),
+                    baselineY: t.baselineY - (t.writingMode == .horizontal ? documentRect.minY : documentRect.minX),
+                    font: t.font, color: t.color, text: t.text, ctLine: t.ctLine,
+                    sourceMapping: t.sourceMapping,
+                    renderedTextOverride: t.renderedTextOverride
+                )
+                translated.preparedDrawing = t.preparedDrawing
+                result.append(.text(translated))
+            case .fill(let f):
+                guard !filteringItems || f.rect.rawValue.intersects(documentRect) else { continue }
+                result.append(.fill(DisplayFillItem(
+                    rect: PageLocalRect(rawValue: f.rect.rawValue.offsetBy(
+                        dx: -documentRect.minX, dy: -documentRect.minY
+                    )),
+                    color: f.color, cornerRadius: f.cornerRadius,
+                    borderTop: f.borderTop, borderBottom: f.borderBottom,
+                    borderLeft: f.borderLeft, borderRight: f.borderRight,
+                    nodeID: f.nodeID, writingMode: f.writingMode,
+                    fragmentPosition: f.fragmentPosition,
+                    isBackgroundPaint: f.isBackgroundPaint
+                )))
+            case .image(let i):
+                guard !filteringItems || i.rect.rawValue.intersects(documentRect) else { continue }
+                result.append(.image(DisplayImageItem(
+                    source: i.source, image: i.image, sourceRange: i.sourceRange,
+                    nodeID: i.nodeID, linkTarget: i.linkTarget, writingMode: i.writingMode,
+                    rect: PageLocalRect(rawValue: i.rect.rawValue.offsetBy(
+                        dx: -documentRect.minX, dy: -documentRect.minY
+                    )),
+                    alt: i.alt, isBackgroundPaint: i.isBackgroundPaint
+                )))
+            }
+        }
+        return DisplayList(items: result)
     }
 
 }

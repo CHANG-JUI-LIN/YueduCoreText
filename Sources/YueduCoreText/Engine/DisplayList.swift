@@ -11,7 +11,26 @@ public enum DisplayItem {
     case image(DisplayImageItem)
 }
 
+final class TextDrawingResources {
+    let attributed: NSAttributedString
+    let line: CTLine
+    init(_ item: DisplayTextItem) {
+        attributed = item.attributedText
+        line = CTLineCreateWithAttributedString(attributed)
+    }
+    /// The same drawing text with a line of the caller's own. Core Text layout
+    /// objects are used by one thread at a time; the attributed text is immutable.
+    init(copying other: TextDrawingResources) {
+        attributed = other.attributed
+        line = CTLineCreateWithAttributedString(attributed)
+    }
+}
+
 public struct DisplayTextItem {
+    // Populated only by viewport preparation. Geometry translations preserve
+    // this immutable artifact; theme/config changes produce new display items.
+    var preparedDrawing: TextDrawingResources?
+
     public let sourceRange: NSRange
     public let nodeID: Int
     public let linkTarget: String?
@@ -196,6 +215,40 @@ public struct DisplayList {
     public init(items: [DisplayItem]) { self.items = items }
     public let items: [DisplayItem]
     public static var empty: DisplayList { DisplayList(items: []) }
+
+    /// Exact paint and interaction equality for a retained rendering surface.
+    /// A viewport revision elsewhere in the document does not dirty this surface.
+    /// CTLine identity includes its immutable shaping attributes; a new line is
+    /// conservatively treated as changed even when the plain text matches.
+    public func hasSameContents(as other: DisplayList, geometryTolerance: CGFloat = 0) -> Bool {
+        guard items.count == other.items.count else { return false }
+        func same(_ a: CGFloat, _ b: CGFloat) -> Bool { abs(a - b) <= geometryTolerance }
+        func sameRect(_ a: PageLocalRect, _ b: PageLocalRect) -> Bool {
+            same(a.minX, b.minX) && same(a.minY, b.minY)
+                && same(a.rawValue.width, b.rawValue.width) && same(a.rawValue.height, b.rawValue.height)
+        }
+        return zip(items, other.items).allSatisfy { lhs, rhs in
+            switch (lhs, rhs) {
+            case (.text(let a), .text(let b)):
+                return a.ctLine === b.ctLine && sameRect(a.rect, b.rect) && same(a.baselineY, b.baselineY)
+                    && a.sourceRange == b.sourceRange && a.nodeID == b.nodeID && a.linkTarget == b.linkTarget
+                    && a.writingMode == b.writingMode && a.font == b.font && a.color == b.color
+                    && a.text == b.text && a.sourceMapping == b.sourceMapping
+                    && a.renderedTextOverride == b.renderedTextOverride
+            case (.fill(let a), .fill(let b)):
+                return sameRect(a.rect, b.rect) && a.color == b.color && a.cornerRadius == b.cornerRadius
+                    && a.borderTop == b.borderTop && a.borderBottom == b.borderBottom
+                    && a.borderLeft == b.borderLeft && a.borderRight == b.borderRight
+                    && a.nodeID == b.nodeID && a.writingMode == b.writingMode
+                    && a.fragmentPosition == b.fragmentPosition && a.isBackgroundPaint == b.isBackgroundPaint
+            case (.image(let a), .image(let b)):
+                return a.image === b.image && a.source == b.source && sameRect(a.rect, b.rect)
+                    && a.sourceRange == b.sourceRange && a.nodeID == b.nodeID && a.linkTarget == b.linkTarget
+                    && a.writingMode == b.writingMode && a.alt == b.alt && a.isBackgroundPaint == b.isBackgroundPaint
+            default: return false
+            }
+        }
+    }
 }
 
 /// Flattens a page's fragment tree (groups are recursive) into a flat draw list.

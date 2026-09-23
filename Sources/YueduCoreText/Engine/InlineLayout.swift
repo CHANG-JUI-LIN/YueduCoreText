@@ -75,7 +75,8 @@ enum InlineLayout {
 
     static func layoutLines(
         runs: [InlineRun],
-        context: InlineFormattingContext
+        context: InlineFormattingContext,
+        cursorSink: ((InlineLayoutCursor) -> Void)? = nil
     ) -> [LayoutLine] {
         guard !runs.isEmpty else { return [] }
         let maxWidth = context.containingInlineSize
@@ -85,8 +86,11 @@ enum InlineLayout {
         let floatContext = context.floatContext
         let blockOffsetY = context.blockOffsetY
 
+        // Cache the FINAL font, including cascade and synthetic traits. Caching
+        // only the publication callback still rebuilt the cascade per line.
+        let fonts = context.fontCache ?? InlineFontCache()
         func resolveFont(_ style: ComputedStyle) -> UIFont {
-            resolvedFont(for: style, resolver: fontResolver)
+            fonts.resolve(style) { resolvedFont(for: style, resolver: fontResolver) }
         }
 
         // Build the attributed string mirroring the runs. Atomic runs become
@@ -158,7 +162,7 @@ enum InlineLayout {
                 } else {
                     attributed.append(NSAttributedString(
                         string: run.text,
-                        attributes: textAttributes(for: run.style, resolver: fontResolver)
+                        attributes: textAttributes(for: run.style, resolver: fontResolver, font: resolveFont(run.style))
                     ))
                 }
             }
@@ -175,32 +179,59 @@ enum InlineLayout {
         // Half-leading belongs to the inline box, not its glyph ink bounds.
         // Keep the existing vertical/ruby metrics while resolving horizontal
         // text struts and replaced elements independently around the baseline.
+        // The one half-leading split (CSS 2.1 §10.8.1) for the strut and every
+        // text range. Two algebraically equal copies rounded differently, so a
+        // strut with the text's own font and line-height outvoted it by an ULP.
+        func inlineBox(_ font: UIFont, lineHeight: CGFloat?) -> (above: CGFloat, below: CGFloat) {
+            let ink = font.ascender - font.descender
+            let leading = ((lineHeight ?? ink) - ink) / 2
+            return (font.ascender + leading, -font.descender + leading)
+        }
         func lineMetrics(_ info: CoreTextLineBreaker.LineBreak) -> (height: CGFloat, baseline: CGFloat) {
             var above: CGFloat = -.greatestFiniteMagnitude
             var below: CGFloat = -.greatestFiniteMagnitude
             if let strut = context.paragraphStyle, context.writingMode == .horizontal {
-                let font = resolveFont(strut)
-                let leading = ((strut.lineHeight ?? (font.ascender - font.descender)) - font.ascender + font.descender) / 2
-                above = font.ascender + leading; below = -font.descender + leading
+                (above, below) = inlineBox(resolveFont(strut), lineHeight: strut.lineHeight)
             }
             for (index, run) in runs.enumerated() {
                 let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
                 guard part.length > 0, run.decorationEdge == nil else { continue }
                 let font = resolveFont(run.style)
-                var requested = run.style.lineHeight ?? cssHeight
-                attributed.enumerateAttribute(.paragraphStyle, in: part) { value, _, _ in
-                    if let p = value as? NSParagraphStyle, p.minimumLineHeight > 0 {
-                        requested = max(requested ?? 0, p.minimumLineHeight)
-                    }
-                }
+                let cssRequested = run.style.lineHeight ?? cssHeight
                 if run.atomic != nil || run.ruby != nil || context.writingMode != .horizontal {
-                    above = max(above, info.ascent)
-                    below = max(below, info.descent)
+                    // The only paragraph style in this string is a Reader
+                    // rule's line-height (the ruby run above forwards its
+                    // base's; atomic runs never carry one). It must still size
+                    // the line box, as it did before half-leading: spread the
+                    // extra height evenly around the line's content.
+                    var ruleLineHeight: CGFloat = 0
+                    attributed.enumerateAttribute(.paragraphStyle, in: part) { value, _, _ in
+                        if let p = value as? NSParagraphStyle {
+                            ruleLineHeight = max(ruleLineHeight, p.minimumLineHeight)
+                        }
+                    }
+                    let leading = max(0, ruleLineHeight - info.ascent - info.descent) / 2
+                    above = max(above, info.ascent + leading)
+                    below = max(below, info.descent + leading)
                 } else {
-                    let ink = font.ascender - font.descender
-                    let leading = ((requested ?? ink) - ink) / 2
-                    above = max(above, font.ascender + leading)
-                    below = max(below, -font.descender + leading)
+                    // Half-leading per font range. A Reader rule can replace
+                    // the CSS font on part of the run (regex font size); that
+                    // range keeps at least its own ink height unless the rule
+                    // also set a line-height, so its enlarged glyphs never
+                    // reach into the neighbouring lines.
+                    attributed.enumerateAttributes(in: part) { attributes, _, _ in
+                        let used = attributes[.font] as? UIFont ?? font
+                        let ink = used.ascender - used.descender
+                        var requested = cssRequested
+                        if let p = attributes[.paragraphStyle] as? NSParagraphStyle, p.minimumLineHeight > 0 {
+                            requested = max(requested ?? 0, p.minimumLineHeight)
+                        } else if used.fontName != font.fontName || used.pointSize != font.pointSize {
+                            requested = max(requested ?? ink, ink)
+                        }
+                        let box = inlineBox(used, lineHeight: requested)
+                        above = max(above, box.above)
+                        below = max(below, box.below)
+                    }
                 }
             }
             if !above.isFinite || !below.isFinite { above = info.ascent; below = info.descent }
@@ -216,7 +247,8 @@ enum InlineLayout {
         func makeLayoutLine(
             _ breakInfo: CoreTextLineBreaker.LineBreak,
             interval: InlineInterval,
-            yTop: CGFloat
+            yTop: CGFloat,
+            measuredMetrics: (height: CGFloat, baseline: CGFloat)? = nil
         ) -> LayoutLine {
             let lineRange = breakInfo.range
             let lineEnd = lineRange.location + lineRange.length
@@ -225,7 +257,9 @@ enum InlineLayout {
             let isLast = lineEnd == attributed.length || [10, 13, 0x2028, 0x2029].contains(Int(terminal))
             let alignment = (isLast ? paragraph?.textAlignLast : nil) ?? paragraph?.textAlign ?? .natural
             let shapedLine = alignment == .justified
-                ? justifiedLine(breakInfo, attributed: attributed, width: interval.lineWidth, forceLast: isLast && paragraph?.textAlignLast == .justified)
+                ? justifiedLine(breakInfo, attributed: attributed, width: interval.lineWidth,
+                    forceLast: isLast && paragraph?.textAlignLast == .justified,
+                    reuseMeasuredLine: context.fontCache != nil)
                 : breakInfo.line
             // A newly spaced line is shaped from its own substring; retain that
             // local index space in every fragment rather than mixing it with
@@ -328,8 +362,8 @@ enum InlineLayout {
                 trimLineTrailingWhitespace(from: &lineRuns, sourceText: sourceText)
             }
 
-            let height = usedHeight(breakInfo)
-            let baselineOffset = lineMetrics(breakInfo).baseline
+            let height = measuredMetrics?.height ?? usedHeight(breakInfo)
+            let baselineOffset = measuredMetrics?.baseline ?? lineMetrics(breakInfo).baseline
             let top = yTop
             let alignSlack = alignmentOffset(
                 alignment: alignment,
@@ -361,7 +395,7 @@ enum InlineLayout {
         // active: CoreText computes the complete break list before run slicing
         // or line construction. Only float-affected boxes take the band-aware
         // incremental path below.
-        if !needsPerLineIntervals {
+        if !needsPerLineIntervals, cursorSink == nil {
             let effectiveMaxWidth = (runs.contains { $0.style.whiteSpace == .nowrap })
                 ? CGFloat.greatestFiniteMagnitude
                 : maxWidth
@@ -380,16 +414,16 @@ enum InlineLayout {
             return lines
         }
 
+        // Capture a value, never the sink: the sink can own the entry which
+        // retains this cursor, so retaining that closure would form a cycle.
+        let reusesViewportLine = cursorSink != nil
         let typesetter = CTTypesetterCreateWithAttributedString(CoreTextLineBreaker.shapingText(attributed))
         let nsString = attributed.string as NSString
-        var result: [LayoutLine] = []
-        var charIndex = 0
-        var yTop: CGFloat = 0
-        var loopCount = 0
+        let cursor = InlineLayoutCursor { state, lineBreakAttempts in
+            var charIndex = state.characterIndex
+            var yTop = state.y
+            while charIndex < attributed.length {
 
-        while charIndex < attributed.length {
-            loopCount += 1
-            if loopCount > 10_000 { break }
 
             let globalY = blockOffsetY + yTop
             let lineStart = charIndex
@@ -398,6 +432,8 @@ enum InlineLayout {
             var resolvedBreak: CoreTextLineBreaker.LineBreak?
             var resolvedNextIndex = lineStart
             var advancedBelowFloats = false
+            var measured: (width: CGFloat, info: CoreTextLineBreaker.LineBreak, next: Int,
+                           metrics: (height: CGFloat, baseline: CGFloat))?
 
             // The exclusion interval is a property of the ACTUAL line band,
             // not a fixed 20pt guess. Shape tentatively, expand the queried
@@ -419,7 +455,7 @@ enum InlineLayout {
                     break
                 }
 
-                let interval = result.isEmpty
+                let interval = state.lineCount == 0
                     ? context.firstLineConstraint.apply(to: baseInterval)
                     : baseInterval
 
@@ -427,19 +463,33 @@ enum InlineLayout {
                     ? CGFloat.greatestFiniteMagnitude
                     : interval.lineWidth
                 var trialIndex = lineStart
-                guard let candidate = breaker.breakNextLine(
-                    typesetter: typesetter,
-                    charIndex: &trialIndex,
-                    maxWidth: effectiveMaxWidth,
-                    attributed: attributed,
-                    nsString: nsString,
-                    total: attributed.length,
-                    recordMemory: false
-                ) else {
-                    break
+                let candidate: CoreTextLineBreaker.LineBreak
+                let metrics: (height: CGFloat, baseline: CGFloat)
+                if reusesViewportLine, let previous = measured, previous.width == effectiveMaxWidth {
+                    // Re-query the full-height float band, but unchanged width
+                    // cannot change this line's break or metrics. Keep the final
+                    // interval (including x) for placement. One local candidate
+                    // lives only until this line is emitted, never across edits.
+                    candidate = previous.info
+                    trialIndex = previous.next
+                    metrics = previous.metrics
+                } else {
+                    lineBreakAttempts += 1
+                    guard let next = breaker.breakNextLine(
+                        typesetter: typesetter,
+                        charIndex: &trialIndex,
+                        maxWidth: effectiveMaxWidth,
+                        attributed: attributed,
+                        nsString: nsString,
+                        total: attributed.length,
+                        recordMemory: false
+                    ) else { break }
+                    candidate = next
+                    metrics = lineMetrics(next)
+                    measured = (effectiveMaxWidth, next, trialIndex, metrics)
                 }
 
-                let actualHeight = usedHeight(candidate)
+                let actualHeight = metrics.height
                 if actualHeight > queryHeight + 0.001 {
                     queryHeight = actualHeight
                     continue
@@ -456,17 +506,22 @@ enum InlineLayout {
             charIndex = resolvedNextIndex
             MemoryTracker.record(.ctLineRun, bytes: 192)
 
-            let line = makeLayoutLine(breakInfo, interval: interval, yTop: yTop)
-            result.append(line)
-            yTop += line.height
+            let line = makeLayoutLine(breakInfo, interval: interval, yTop: yTop,
+                                      measuredMetrics: reusesViewportLine ? measured?.metrics : nil)
+            state.characterIndex = charIndex
+            state.y = yTop + line.height
+            state.lineCount += 1
+            return line
+            }
+            return nil
         }
-
-        // The attributed string (and its delegates) go out of scope here; the
-        // delegate callbacks' dealloc releases each AtomicInlineBox.
-        _ = delegateBoxes
-        _ = rubyDelegateBoxes
+        if let cursorSink { cursorSink(cursor); return [] }
+        var result: [LayoutLine] = []
+        while let line = cursor.next() { result.append(line) }
         return result
     }
+
+
 
     /// Removes leading whitespace from the first run of a line when the run's
     /// whitespace mode collapses spaces (normal/nowrap/preLine).
@@ -586,7 +641,8 @@ enum InlineLayout {
         _ info: CoreTextLineBreaker.LineBreak,
         attributed: NSAttributedString,
         width: CGFloat,
-        forceLast: Bool = false
+        forceLast: Bool = false,
+        reuseMeasuredLine: Bool = false
     ) -> CTLine {
         let end = NSMaxRange(info.range)
         guard (end < attributed.length || forceLast), width > 0, width.isFinite else { return info.line }
@@ -607,8 +663,24 @@ enum InlineLayout {
             clusters.removeLast()
         }
         guard clusters.count > 1, let last = clusters.last else { return info.line }
-        slice.removeAttribute(.kern, range: NSRange(location: NSMaxRange(last) - 1, length: 1))
-        let natural = CTLineCreateWithAttributedString(slice)
+        let tail = NSMaxRange(last) - 1
+        let removesKern = slice.attribute(.kern, at: tail, effectiveRange: nil) != nil
+        slice.removeAttribute(.kern, range: NSRange(location: tail, length: 1))
+        let measuredRange = CTLineGetStringRange(info.line)
+        // The viewport breaker already shaped this exact range. When removing
+        // terminal kern changes no attributes, reuse its natural measurement
+        // instead of shaping the same line a second time before justification.
+        // Generated/soft hyphens and extended source-only whitespace can have
+        // different presentation ranges; retain the existing measurement there.
+        let sameRange = reuseMeasuredLine && !removesKern && info.presentation == nil
+            && measuredRange.location == info.range.location && measuredRange.length == info.range.length
+        // A typesetter resolves bidi in the whole paragraph; the existing
+        // substring measurement resolves it in isolation. RTL runs can therefore
+        // have a different natural width even with the same source range.
+        let canReuse = sameRange && !(CTLineGetGlyphRuns(info.line) as! [CTRun]).contains {
+            CTRunGetStatus($0).contains(.rightToLeft)
+        }
+        let natural = canReuse ? info.line : CTLineCreateWithAttributedString(slice)
         let naturalWidth = CGFloat(CTLineGetTypographicBounds(natural, nil, nil, nil)
             - CTLineGetTrailingWhitespaceWidth(natural))
         let residual = width - naturalWidth
@@ -619,23 +691,26 @@ enum InlineLayout {
         if !spaces.isEmpty {
             targets = spaces
         } else {
-            func canSeparate(_ range: NSRange) -> Bool {
-                let value = text.substring(with: range)
-                return !value.unicodeScalars.contains {
+            // Classify each grapheme once. Neighbouring gaps share a grapheme;
+            // repeatedly slicing both sides and concatenating the pair caused
+            // avoidable String/CFString work during new viewport layout.
+            let properties = clusters.map { range in
+                let scalars = text.substring(with: range).unicodeScalars
+                let separable = !scalars.contains {
                     CharacterSet.punctuationCharacters.contains($0)
                         || CharacterSet.whitespacesAndNewlines.contains($0)
                         || $0.value == 0xFFFC || $0.value == 0x2060
                 }
-            }
-            targets = gaps.indices.compactMap { i in
-                guard canSeparate(clusters[i]), canSeparate(clusters[i + 1]) else { return nil }
-                let pair = text.substring(with: clusters[i]) + text.substring(with: clusters[i + 1])
-                let isCJK = pair.unicodeScalars.contains {
+                let cjk = scalars.contains {
                     (0x2E80...0x9FFF).contains($0.value) || (0xF900...0xFAFF).contains($0.value)
                         || (0x20000...0x323AF).contains($0.value) || (0x3040...0x30FF).contains($0.value)
                         || (0xAC00...0xD7AF).contains($0.value)
                 }
-                return isCJK ? clusters[i] : nil
+                return (separable: separable, cjk: cjk)
+            }
+            targets = gaps.indices.compactMap { i in
+                let a = properties[i], b = properties[i + 1]
+                return a.separable && b.separable && (a.cjk || b.cjk) ? clusters[i] : nil
             }
         }
         guard !targets.isEmpty else { return info.line }
@@ -731,9 +806,10 @@ enum InlineLayout {
 
     static func textAttributes(
         for style: ComputedStyle,
-        resolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil
+        resolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
+        font preparedFont: UIFont? = nil
     ) -> [NSAttributedString.Key: Any] {
-        let font = resolvedFont(for: style, resolver: resolver)
+        let font = preparedFont ?? resolvedFont(for: style, resolver: resolver)
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: style.color ?? UIColor.black,

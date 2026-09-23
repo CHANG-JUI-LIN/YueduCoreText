@@ -2,6 +2,28 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.6.0] - 2026-09-23
+
+### Added
+
+- Demand-driven continuous layout through `BrowserViewportSession`, with retained geometry, bounded drawing resources, source-position lookup and immutable published snapshots.
+- `BrowserViewportLayoutOwner` for serialized background layout and resource retirement, plus transaction diagnostics.
+- Stable `BrowserPaintFragment` identities, separate text paint phases and independently owned Core Text lines for background drawing.
+- `BrowserPageBackground` metadata so continuous hosts can draw authored canvas backgrounds at viewport size, including fixed attachment.
+
+### Fixed
+
+- Reuse final resolved fonts, measured line geometry and unchanged display items during viewport layout.
+- Use one half-leading calculation for paragraph struts and text runs, removing floating-point differences between equivalent line boxes.
+- Preserve reader line-height decorations, source indices and drawing bounds while retaining or retiring viewport resources.
+
+### Migration
+
+- Existing paged and prepared continuous APIs remain available. See [viewport integration](docs/ViewportIntegration.md) before adopting the new continuous API.
+- Viewport geometry can contain estimated offscreen extents. Hosts must preserve the canonical UTF-16 source anchor when committing updated geometry.
+- Draw `facts.pageBackground` behind the chapter; viewport display lists omit the propagated canvas background. Keep layout, hit-testing and drawing ownership separate as described in the migration guide.
+- iOS 17, Swift tools 6.0 and SwiftSoup 2.13.7 requirements are unchanged.
+
 ## [0.5.1] - 2026-09-13
 
 ### Fixed

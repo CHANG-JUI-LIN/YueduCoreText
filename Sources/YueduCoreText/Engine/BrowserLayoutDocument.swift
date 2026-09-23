@@ -102,7 +102,8 @@ final class BrowserLayoutDocument {
     func makeLayout(
         containerSize: CGSize,
         metrics: inout LayoutMetrics,
-        fragmentHeight: CGFloat? = nil
+        fragmentHeight: CGFloat? = nil,
+        performLayout: Bool = true
     ) throws -> BrowserLayoutPipelineResult {
         let frontendResult = try frontend.buildStyleTree(
             input: input,
@@ -147,7 +148,7 @@ final class BrowserLayoutDocument {
         let contentWidth = max(1, containerSize.width - config.contentInsets.left - config.contentInsets.right)
         let contentHeight = max(1, containerSize.height - config.contentInsets.top - config.contentInsets.bottom)
         metrics.time("layout") {
-            _ = BlockLayout.layOut(
+            if performLayout { _ = BlockLayout.layOut(
                 root: rootBox,
                 containerWidth: config.writingMode == .horizontal ? contentWidth : contentHeight,
                 rootFontSize: config.rootFontSize,
@@ -156,7 +157,7 @@ final class BrowserLayoutDocument {
                 sourceText: sourceText.text,
                 fontResolver: config.fontResolver,
                 fragmentHeight: fragmentHeight
-            )
+            ) }
         }
         if let fragmentHeight,
            let oversized = Self.firstOversizedNonReplacedFloat(

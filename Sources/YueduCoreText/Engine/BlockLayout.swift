@@ -29,7 +29,8 @@ enum BlockLayout {
         blockOffsetY: CGFloat = 0,
         sourceText: String = "",
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
-        fragmentHeight: CGFloat? = nil
+        fragmentHeight: CGFloat? = nil,
+        viewport: BrowserViewportLayoutState? = nil
     ) -> CGFloat {
         // Retained as a source-compatible call-site parameter while Phase 4E0
         // callers are migrated. It is deliberately not a geometry input:
@@ -136,7 +137,7 @@ enum BlockLayout {
                     blockOffsetY: 0,
                     sourceText: sourceText,
                     fontResolver: fontResolver,
-                    fragmentHeight: fragmentHeight
+                    fragmentHeight: fragmentHeight, viewport: viewport
                 )
 
                 let borderBoxBlockExtent = child.borders.vertical + child.padding.vertical + childContentHeight
@@ -216,7 +217,7 @@ enum BlockLayout {
                     blockOffsetY: childBlockOffsetY,
                     sourceText: sourceText,
                     fontResolver: fontResolver,
-                    fragmentHeight: fragmentHeight
+                    fragmentHeight: fragmentHeight, viewport: viewport
                 )
 
                 let borderBoxBlockExtent = LogicalGeometry.blockAxisExtent(child.borders, mode: writingMode)
@@ -301,15 +302,17 @@ enum BlockLayout {
                 floatContext: relevantFloatContext,
                 blockOffsetY: blockOffsetY,
                 firstLineConstraint: firstLineConstraint,
-                paragraphStyle: box.style
+                paragraphStyle: box.style,
+                fontCache: viewport?.fontCache
             )
-            box.lines = InlineLayout.layoutLines(
-                runs: box.inlineRuns,
-                context: context
-            )
+            if let viewport {
+                box.lines = viewport.lines(for: box, context: context)
+            } else {
+                box.lines = InlineLayout.layoutLines(runs: box.inlineRuns, context: context)
+            }
         }
         #if DEBUG
-        assert(box.inlineRuns.isEmpty || !box.lines.isEmpty)
+        assert(viewport != nil || box.inlineRuns.isEmpty || !box.lines.isEmpty)
         #endif
 
         if box.lines.isEmpty, let last = previousBlockEndMargin,
@@ -324,7 +327,10 @@ enum BlockLayout {
             minLineTop = min(minLineTop, line.top)
         }
         if minLineTop < 0 { cursorBlock -= minLineTop }
-        if !box.lines.isEmpty {
+        if let viewport, !box.inlineRuns.isEmpty {
+            cursorBlock = max(cursorBlock, viewport.height(for: box))
+        }
+        if !box.lines.isEmpty || (viewport != nil && !box.inlineRuns.isEmpty) {
             cursorBlock += box.style.configParagraphSpacing
         }
 
