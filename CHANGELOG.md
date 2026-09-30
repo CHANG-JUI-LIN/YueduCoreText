@@ -2,6 +2,19 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.6.1] - 2026-09-30
+
+### Added
+
+- `BrowserFontRequest` and capability-result `fontRequests`, collected from the existing computed-style tree, including inherited struts, visible descendants, ruby and materialized first-letter styles.
+- A configuration-aware capability scan for effective font family, weight and italic demand. Hosts can prepare only referenced faces after accepting a chapter and before capturing their font resolver.
+
+### Compatibility
+
+- Existing ordered-input and HTML/CSS scanner entry points remain available, including the original two-argument function signature.
+- Font registration, EPUB resource ownership and fallback policy remain host responsibilities; the scanner performs no resource I/O.
+- iOS 17, Swift tools 6.0 and SwiftSoup 2.13.7 requirements are unchanged.
+
 ## [0.6.0] - 2026-09-23
 
 ### Added
@@ -15,6 +28,8 @@ All notable changes to YueduCoreText are documented in this file.
 
 - Reuse final resolved fonts, measured line geometry and unchanged display items during viewport layout.
 - Use one half-leading calculation for paragraph struts and text runs, removing floating-point differences between equivalent line boxes.
+- Discard the part of an inline image's line box below the image that crosses a page break, so consecutive page-tall images no longer leave an empty page between them.
+- Apply reader rule line-heights to ruby and vertical lines again, and let a rule that only enlarges the font grow its line box, so enlarged glyphs no longer overlap the previous line.
 - Preserve reader line-height decorations, source indices and drawing bounds while retaining or retiring viewport resources.
 
 ### Migration

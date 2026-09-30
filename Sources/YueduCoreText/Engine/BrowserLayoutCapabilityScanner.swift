@@ -39,6 +39,20 @@ public enum UnsupportedFeature: Equatable, Sendable, CustomStringConvertible {
     }
 }
 
+/// One face tuple from the production computed-style cascade. Families include
+/// authored glyph fallbacks; consumers must prepare them before measuring text.
+public struct BrowserFontRequest: Hashable, Sendable {
+    public let family: String
+    public let weight: Int
+    public let italic: Bool
+
+    public init(family: String, weight: Int, italic: Bool) {
+        self.family = family
+        self.weight = weight
+        self.italic = italic
+    }
+}
+
 public struct BrowserLayoutCapabilityResult: Equatable, Sendable {
     public let supported: Bool
     public let unsupportedFeatures: [UnsupportedFeature]
@@ -46,15 +60,20 @@ public struct BrowserLayoutCapabilityResult: Equatable, Sendable {
     /// scanner already builds. Corpus diagnostics consume this so they do not
     /// parse a second full DOM merely to classify text-indent.
     public let textIndentUsage: HorizontalTextIndentUsage
+    /// Includes inherited/block strut styles, visible descendants, ruby and
+    /// materialized first-letter styles from the tree already built by admission.
+    public let fontRequests: Set<BrowserFontRequest>
 
     public init(
         supported: Bool,
         unsupportedFeatures: [UnsupportedFeature],
-        textIndentUsage: HorizontalTextIndentUsage = .none
+        textIndentUsage: HorizontalTextIndentUsage = .none,
+        fontRequests: Set<BrowserFontRequest> = []
     ) {
         self.supported = supported
         self.unsupportedFeatures = unsupportedFeatures
         self.textIndentUsage = textIndentUsage
+        self.fontRequests = fontRequests
     }
 
     public static let supported = BrowserLayoutCapabilityResult(supported: true, unsupportedFeatures: [])
@@ -84,14 +103,38 @@ public enum BrowserLayoutCapabilityScanner {
     }
 
     public static func scan(input: CSSFrontendInput, writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
-        scan(html: input.html, cssTexts: input.productionStylesheetTexts, writingMode: writingMode, includeInline: !input.hasAuthoredStylesheetOrder)
+        scan(input: input, writingMode: writingMode, configuration: .init())
+    }
+
+    /// Uses the reader's font family and bold settings when reporting face demand.
+    public static func scan(input: CSSFrontendInput, writingMode: ReaderWritingMode = .horizontal,
+                            configuration: BrowserLayoutConfig) -> BrowserLayoutCapabilityResult {
+        scan(html: input.html, cssTexts: input.productionStylesheetTexts, writingMode: writingMode,
+             includeInline: !input.hasAuthoredStylesheetOrder, configuration: configuration)
     }
 
     public static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
-        scan(html: html, cssTexts: cssTexts, writingMode: writingMode, includeInline: true)
+        scan(html: html, cssTexts: cssTexts, writingMode: writingMode, includeInline: true, configuration: .init())
     }
 
-    private static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode, includeInline: Bool) -> BrowserLayoutCapabilityResult {
+    private static func referencedFonts(in root: ComputedStyleNode) -> Set<BrowserFontRequest> {
+        var requests: Set<BrowserFontRequest> = []
+        func visit(_ node: ComputedStyleNode) {
+            guard !node.style.isHidden else { return }
+            // Match InlineLayout.resolvedFont, including the reader's bold override.
+            let weight = node.style.configBold ? max(700, node.style.fontWeight) : node.style.fontWeight
+            requests.formUnion(node.style.fontFamilies.map {
+                BrowserFontRequest(family: $0, weight: weight, italic: node.style.isItalic)
+            })
+            for child in node.children {
+                if case .element(let element) = child { visit(element) }
+            }
+        }
+        visit(root)
+        return requests
+    }
+
+    private static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode, includeInline: Bool, configuration: BrowserLayoutConfig) -> BrowserLayoutCapabilityResult {
         func declaration(key: String, value: String) -> UnsupportedFeature? {
             let k = key.lowercased(), v = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if writingMode == .verticalRTL {
@@ -107,6 +150,7 @@ public enum BrowserLayoutCapabilityScanner {
         var reasons: [UnsupportedFeature] = []
         var unsupportedDeclarations: [UnsupportedDeclaration] = []
         var textIndentUsage: HorizontalTextIndentUsage = .none
+        var fontRequests: Set<BrowserFontRequest> = []
 
         // @media anywhere in the stylesheet affects layout for every chapter
         // that links it (the media query is not re-evaluated per element).
@@ -198,8 +242,9 @@ public enum BrowserLayoutCapabilityScanner {
                 let parsed = LegacyCSSFrontendSupport.parseStylesheets(in: fullCSS)
                 let styleTree = ComputedStyleTreeBuilder(
                     rules: parsed.regular,
-                    config: BrowserLayoutConfig(), firstLetterRules: parsed.firstLetter
+                    config: configuration, firstLetterRules: parsed.firstLetter
                 ).buildTree(body: body)
+                fontRequests = referencedFonts(in: styleTree)
                 let hasRubyMarkup = hasAny("ruby, rp, rt, rb, rtc")
                 if hasRubyMarkup,
                    !HorizontalRubySupport.validate(
@@ -222,7 +267,8 @@ public enum BrowserLayoutCapabilityScanner {
         return BrowserLayoutCapabilityResult(
             supported: reasons.isEmpty,
             unsupportedFeatures: dedupe(reasons),
-            textIndentUsage: textIndentUsage
+            textIndentUsage: textIndentUsage,
+            fontRequests: fontRequests
         )
     }
 

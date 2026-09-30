@@ -8,7 +8,7 @@ Turn HTML/XHTML, CSS and prepared resources into paginated pages or a continuous
 
 Use it to build a native document or reading interface when you need control over drawing and interaction. Your app supplies resources and hosts the result; the package owns parsing, styling, layout, pagination and painting.
 
-[0.6.0 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.6.0) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
+[0.6.1 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.6.1) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
 
 ## Requirements and installation
 
@@ -16,14 +16,14 @@ Use it to build a native document or reading interface when you need control ove
 - The HTML/CSS engine is available from **0.3.0**. Versions through 0.2.1 provide the earlier utilities only.
 - The main product depends on `YueduCoreTextTypography` and **SwiftSoup 2.13.7**.
 
-In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.6.x, choose **Up to Next Minor Version** starting at **0.6.0**.
+In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.6.x, choose **Up to Next Minor Version** starting at **0.6.1**.
 
 For a Swift package, add this to `Package.dependencies`:
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.6.0")
+    .upToNextMinor(from: "0.6.1")
 )
 ```
 
@@ -143,6 +143,8 @@ Page display lists use top-left, y-down **page coordinates**. Continuous display
 
 ## Supported scope
 
+Version 0.6.1 reports computed-style font face demand through `BrowserLayoutCapabilityResult.fontRequests`. Pass reader font/bold settings to `scan(input:writingMode:configuration:)`, prepare the requested faces after accepting the chapter, then capture the font resolver before layout. The original scanner signatures remain available.
+
 Version 0.6.0 adds [demand-driven viewport layout and background painting contracts](docs/ViewportIntegration.md).
 
 Version 0.5.0 adds [English publishing CSS](docs/EnglishTypography.md), including first-letter, indentation, line-height and language-aware hyphenation corrections.
@@ -191,7 +193,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.6.0 dependency.
+The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.6.1 dependency.
 
 CI runs both the package tests and the standalone public-API consumer on iOS Simulator, and retains `.xcresult` artifacts. See [CI runs](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions) for the tested revision, toolchain and outcome. No real-device performance claim is made.
 
