@@ -9,6 +9,8 @@ W3C vertical typography (Yuedu Reader's `docs/superpowers/plans/2026-10-06-verti
 ### Added
 
 - `VerticalOrientation`: each character's UAX #50 `Vertical_Orientation`, from a table generated out of the Unicode Character Database 18.0.0 by `scripts/vertical_orientation.py`. The data's license is in `NOTICE`.
+- `ChineseScript` and `CJKTypographyStyle`: whether text is Traditional or Simplified Chinese, or Japanese, read from its characters; each style's language tag and reference font.
+- `BrowserLayoutConfig.cjkTypographyStyle`, the style a host decided for the chapter's text. nil keeps the previous behaviour.
 
 ## [0.6.2] - 2026-10-06
 

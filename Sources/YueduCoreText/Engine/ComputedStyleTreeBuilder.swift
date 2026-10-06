@@ -1,6 +1,7 @@
 import Foundation
 import SwiftSoup
 import UIKit
+import YueduCoreTextTypography
 
 /// One node of the computed-style tree. DOM identity is a copied value snapshot;
 /// frontend-owned SwiftSoup/Lexbor nodes never cross this boundary.
@@ -90,6 +91,10 @@ public struct BrowserLayoutConfig {
     /// Explicit document writing mode. Vertical-rl currently accepts normal-flow
     /// text and the shared ruby subset; capability checks report exclusions.
     public var writingMode: ReaderWritingMode = .horizontal
+    /// How CJK text is set: where punctuation sits and how much of it squeezes,
+    /// and which fonts draw Han and kana. The host decides it from the script of
+    /// the text; nil leaves CJK text to the fonts' own defaults.
+    public var cjkTypographyStyle: CJKTypographyStyle? = nil
     public init(
         renderWidth: CGFloat = 320,
         renderHeight: CGFloat = 480,
@@ -107,6 +112,7 @@ public struct BrowserLayoutConfig {
         textTransform: ((NSMutableAttributedString) -> Void)? = nil,
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
         writingMode: ReaderWritingMode = .horizontal,
+        cjkTypographyStyle: CJKTypographyStyle? = nil,
         onDiagnostic: ((CSSFrontendDiagnostic) -> Void)? = nil
     ) {
         self.renderWidth = renderWidth
@@ -125,6 +131,7 @@ public struct BrowserLayoutConfig {
         self.textTransform = textTransform
         self.fontResolver = fontResolver
         self.writingMode = writingMode
+        self.cjkTypographyStyle = cjkTypographyStyle
         self.onDiagnostic = onDiagnostic
     }
 }
