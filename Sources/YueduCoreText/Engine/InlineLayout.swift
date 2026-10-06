@@ -642,7 +642,7 @@ enum InlineLayout {
                 // select its affinity; interior indices retain ligature carets.
                 if index == runRange.location { return origin.x + (rtl ? width : 0) }
                 if index == NSMaxRange(runRange) { return origin.x + (rtl ? 0 : width) }
-                return CTLineGetOffsetForStringIndex(line, index, nil)
+                return GlyphBoundary.offset(line, at: index)
             }
             advance += abs(offset(at: NSMaxRange(part)) - offset(at: part.location))
         }

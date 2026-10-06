@@ -1,5 +1,6 @@
 import CoreText
 import UIKit
+import YueduCoreTextTypography
 
 /// Selection, annotations and narration all consume the shaped display text.
 /// No second layout is performed for hit testing.
@@ -16,8 +17,8 @@ public enum BrowserTextGeometry {
             let lineRange = CTLineGetStringRange(line)
             guard start >= lineRange.location, end <= lineRange.location + lineRange.length else { return nil }
             let origin = physicalOrigin(line, shapedRange: shapedRange)
-            let a = CTLineGetOffsetForStringIndex(line, start, nil) - origin
-            let b = CTLineGetOffsetForStringIndex(line, end, nil) - origin
+            let a = GlyphBoundary.offset(line, at: start) - origin
+            let b = GlyphBoundary.offset(line, at: end) - origin
             if text.writingMode == .verticalRTL {
                 return CGRect(x: text.rect.minX, y: text.rect.minY + min(a, b),
                               width: text.rect.width, height: max(1, abs(b - a)))
@@ -39,7 +40,7 @@ public enum BrowserTextGeometry {
         guard case .linear(let shapedRange) = text.sourceMapping,
               let line = text.ctLine else { return text.sourceRange }
         let origin = physicalOrigin(line, shapedRange: shapedRange)
-        let shaped = CTLineGetStringIndexForPosition(line, CGPoint(x: (text.writingMode == .horizontal ? point.x - text.rect.minX : point.y - text.rect.minY) + origin, y: 0))
+        let shaped = GlyphBoundary.index(line, at: (text.writingMode == .horizontal ? point.x - text.rect.minX : point.y - text.rect.minY) + origin)
         guard shaped != kCFNotFound else { return nil }
         let offset = min(NSMaxRange(text.sourceRange) - 1,
                          max(text.sourceRange.location, text.sourceRange.location + shaped - shapedRange.location))
@@ -65,9 +66,9 @@ public enum BrowserTextGeometry {
             let index = shapedRange.location + offset - text.sourceRange.location
             if text.writingMode == .verticalRTL {
                 return CGPoint(x: isEnd ? text.rect.minX : text.rect.maxX,
-                    y: text.rect.minY + CTLineGetOffsetForStringIndex(line, index, nil) - physicalOrigin(line, shapedRange: shapedRange))
+                    y: text.rect.minY + GlyphBoundary.offset(line, at: index) - physicalOrigin(line, shapedRange: shapedRange))
             }
-            return CGPoint(x: text.rect.minX + CTLineGetOffsetForStringIndex(line, index, nil) - physicalOrigin(line, shapedRange: shapedRange),
+            return CGPoint(x: text.rect.minX + GlyphBoundary.offset(line, at: index) - physicalOrigin(line, shapedRange: shapedRange),
                            y: isEnd ? text.rect.maxY : text.rect.minY)
         }
         return nil
@@ -76,8 +77,8 @@ public enum BrowserTextGeometry {
     private static func physicalOrigin(_ line: CTLine, shapedRange: NSRange) -> CGFloat {
         // Logical start is the RIGHT edge of an RTL run. Display fragments
         // store their physical left edge, independent of text direction.
-        min(CTLineGetOffsetForStringIndex(line, shapedRange.location, nil),
-            CTLineGetOffsetForStringIndex(line, NSMaxRange(shapedRange), nil))
+        min(GlyphBoundary.offset(line, at: shapedRange.location),
+            GlyphBoundary.offset(line, at: NSMaxRange(shapedRange)))
     }
 
     private static func distance(_ p: CGPoint, to r: CGRect) -> CGFloat {

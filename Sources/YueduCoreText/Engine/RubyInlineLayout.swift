@@ -132,8 +132,8 @@ enum RubyInlineLayout {
         let measured = inputs.indices.map { index -> RubyLinePiece in
             let start = starts[index]
             let end = start + (inputs[index].text as NSString).length
-            let x0 = CTLineGetOffsetForStringIndex(line, start, nil)
-            let x1 = CTLineGetOffsetForStringIndex(line, end, nil)
+            let x0 = GlyphBoundary.offset(line, at: start)
+            let x1 = GlyphBoundary.offset(line, at: end)
             return RubyLinePiece(
                 text: inputs[index].text,
                 style: inputs[index].style,
