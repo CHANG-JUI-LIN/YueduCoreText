@@ -1,0 +1,7 @@
+{
+  "unicodeVersion": "18.0.0",
+  "source": "https://www.unicode.org/Public/18.0.0/ucd/VerticalOrientation.txt",
+  "sourceSHA256": "0803e09669d7aa7137de678e55b848bd418c6632694fa1b05f0b40941103c748",
+  "output": "Sources/YueduCoreTextTypography/VerticalOrientationTable.swift",
+  "outputSHA256": "3f2809151eb21a88142454984d1f6d9fa410bc056d6748da5a5d95fcfb828b63"
+}

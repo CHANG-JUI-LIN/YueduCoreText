@@ -2,6 +2,14 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [Unreleased]
+
+W3C vertical typography (Yuedu Reader's `docs/superpowers/plans/2026-10-06-vertical-typography.md`).
+
+### Added
+
+- `VerticalOrientation`: each character's UAX #50 `Vertical_Orientation`, from a table generated out of the Unicode Character Database 18.0.0 by `scripts/vertical_orientation.py`. The data's license is in `NOTICE`.
+
 ## [0.6.2] - 2026-10-06
 
 ### Added
