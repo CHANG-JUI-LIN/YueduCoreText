@@ -1,5 +1,4 @@
 import Foundation
-import SwiftSoup
 import Testing
 import UIKit
 @testable import YueduCoreText
