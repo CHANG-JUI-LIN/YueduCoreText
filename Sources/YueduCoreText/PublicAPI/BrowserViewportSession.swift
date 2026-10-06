@@ -96,7 +96,8 @@ public final class BrowserViewportSession {
         defer { ReaderPerfTrace.end(trace) }
         _ = BlockLayout.layOut(root: pipeline.rootBox, containerWidth: config.renderWidth,
             rootFontSize: config.rootFontSize, sourceText: pipeline.sourceText,
-            fontResolver: config.fontResolver, viewport: state)
+            fontResolver: config.fontResolver, cjkTypographyStyle: config.cjkTypographyStyle,
+            viewport: state)
         state.updateGeometry(root: pipeline.rootBox, origin: CGPoint(x: config.contentInsets.left, y: config.contentInsets.top))
     }
 

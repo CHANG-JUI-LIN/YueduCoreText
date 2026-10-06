@@ -42,6 +42,17 @@ struct CJKTypographyOrientationTests {
         #expect(text.attribute(.baselineOffset, at: 0, effectiveRange: nil) == nil)
     }
 
+    @Test("Centring adds to the baseline offset the text already has")
+    func sidewaysKeepsTheTextsOwnOffset() throws {
+        let font = try #require(UIFont(name: "PingFangTC-Regular", size: 20))
+        let text = NSMutableAttributedString(string: "甲ABC乙", attributes: [.font: font, .baselineOffset: 3.0])
+        CJKTypography.applyOrientation(to: text)
+        let centring = -(CTFontGetAscent(font) - CTFontGetDescent(font)) / 2
+        let offset = try #require(text.attribute(.baselineOffset, at: 1, effectiveRange: nil) as? NSNumber)
+        #expect(abs(CGFloat(offset.doubleValue) - (3 + centring)) < 0.001)
+        #expect((text.attribute(.baselineOffset, at: 0, effectiveRange: nil) as? NSNumber)?.doubleValue == 3)
+    }
+
     @Test("The engine's own boxes keep what the engine gave them")
     func runDelegatesAreLeftAlone() throws {
         let font = try #require(UIFont(name: "PingFangTC-Regular", size: 17))

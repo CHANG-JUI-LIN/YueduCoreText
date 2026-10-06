@@ -1,6 +1,7 @@
 import CoreText
 import Foundation
 import UIKit
+import YueduCoreTextTypography
 
 struct RubyLinePiece {
     let text: String
@@ -49,7 +50,8 @@ enum RubyInlineLayout {
         unit: RubyInlineUnit,
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
         attributedSource: NSAttributedString? = nil,
-        writingMode: ReaderWritingMode = .horizontal
+        writingMode: ReaderWritingMode = .horizontal,
+        cjkTypographyStyle: CJKTypographyStyle? = nil
     ) -> RubyBox {
         let base = shape(
             unit.base.map {
@@ -62,7 +64,8 @@ enum RubyInlineLayout {
                 )
             },
             fontResolver: fontResolver,
-            attributedSource: attributedSource, writingMode: writingMode
+            attributedSource: attributedSource, writingMode: writingMode,
+            cjkTypographyStyle: cjkTypographyStyle
         )
         let annotation = shape(
             unit.annotation.pieces.map {
@@ -74,7 +77,8 @@ enum RubyInlineLayout {
                     linkTarget: $0.linkTarget ?? unit.linkTarget
                 )
             },
-            fontResolver: fontResolver, writingMode: writingMode
+            fontResolver: fontResolver, writingMode: writingMode,
+            cjkTypographyStyle: cjkTypographyStyle
         )
         let advance = max(base.width, annotation.width)
         return RubyBox(
@@ -94,7 +98,8 @@ enum RubyInlineLayout {
         _ inputs: [InputPiece],
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
         attributedSource: NSAttributedString? = nil,
-        writingMode: ReaderWritingMode = .horizontal
+        writingMode: ReaderWritingMode = .horizontal,
+        cjkTypographyStyle: CJKTypographyStyle? = nil
     ) -> RubyLine {
         let attributed = NSMutableAttributedString()
         var starts: [Int] = []
@@ -111,6 +116,9 @@ enum RubyInlineLayout {
                     attributes: InlineLayout.textAttributes(for: input.style, resolver: fontResolver)
                 ))
             }
+        }
+        if let cjkTypographyStyle {
+            CJKTypography.applyFonts(to: attributed, style: cjkTypographyStyle)
         }
         if writingMode == .verticalRTL {
             attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,

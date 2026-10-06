@@ -22,7 +22,7 @@ public enum ChineseScript: Sendable, Equatable {
 }
 
 /// How CJK text is typeset: where punctuation sits, how much of it may squeeze, and
-/// which fonts draw it. CLREQ for Chinese, JLREQ for Japanese.
+/// which fonts draw it. CLREQ for Chinese, JLREQ for Japanese, KLREQ for Korean.
 ///
 /// It follows the script of the text, not the language a book declares: converters
 /// often label Traditional text `zh-cn` (Yuedu Reader's vertical typography plan,
@@ -37,6 +37,8 @@ public enum CJKTypographyStyle: String, Sendable, Equatable, CaseIterable, Codab
     case simplified
     /// Japanese (JLREQ).
     case japanese
+    /// Korean (KLREQ).
+    case korean
 
     /// The language CoreText is told the text is in, which picks fonts and glyph forms.
     public var languageTag: String {
@@ -44,6 +46,7 @@ public enum CJKTypographyStyle: String, Sendable, Equatable, CaseIterable, Codab
         case .traditional: return "zh-Hant"
         case .simplified: return "zh-Hans"
         case .japanese: return "ja"
+        case .korean: return "ko"
         }
     }
 
@@ -54,6 +57,7 @@ public enum CJKTypographyStyle: String, Sendable, Equatable, CaseIterable, Codab
         case .traditional: return "PingFangTC-Regular"
         case .simplified: return "PingFangSC-Regular"
         case .japanese: return "HiraginoSans-W3"
+        case .korean: return "AppleSDGothicNeo-Regular"
         }
     }
 
@@ -62,20 +66,26 @@ public enum CJKTypographyStyle: String, Sendable, Equatable, CaseIterable, Codab
 
     /// The style a sample of text calls for, or nil when it does not say.
     ///
-    /// Kana make it Japanese. Otherwise each sentence that shows its script votes, and
-    /// a clear majority decides: Traditional text holds the odd character that
-    /// simplified text uses too (公里 is both), so one sentence never outvotes many.
+    /// Kana make it Japanese, and Hangul outnumbering Han makes it Korean. Otherwise each
+    /// sentence that shows its script votes, and a clear majority decides: Traditional
+    /// text holds the odd character that simplified text uses too (公里 is both), so one
+    /// sentence never outvotes many.
     public static func detect(in sample: String) -> CJKTypographyStyle? {
         let text = sample.utf16.count > sampleLength
             ? String(sample.prefix(sampleLength))
             : sample
         var kana = 0
         var han = 0
+        var hangul = 0
         for scalar in text.unicodeScalars {
-            if isKana(scalar) { kana += 1 } else if isHan(scalar) { han += 1 }
+            if isKana(scalar) { kana += 1 } else if isHan(scalar) { han += 1 } else if isHangul(scalar) { hangul += 1 }
         }
         if kana >= 5 && kana * 10 >= kana + han {
             return .japanese
+        }
+        // Korean text writes the odd word in Hanja; Hangul still far outnumbers it.
+        if hangul >= 5 && hangul > han {
+            return .korean
         }
         var traditional = 0
         var simplified = 0
@@ -95,11 +105,12 @@ public enum CJKTypographyStyle: String, Sendable, Equatable, CaseIterable, Codab
     }
 
     /// The style a declared language implies: `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant`
-    /// are Traditional; other Chinese tags Simplified; `ja` Japanese.
+    /// are Traditional; other Chinese tags Simplified; `ja` Japanese; `ko` Korean.
     public static func declared(_ languageTag: String?) -> CJKTypographyStyle? {
         guard let tag = languageTag?.lowercased().replacingOccurrences(of: "_", with: "-"),
               !tag.isEmpty else { return nil }
         if tag == "ja" || tag.hasPrefix("ja-") { return .japanese }
+        if tag == "ko" || tag.hasPrefix("ko-") { return .korean }
         guard tag == "zh" || tag.hasPrefix("zh-") else { return nil }
         let parts = tag.split(separator: "-")
         if parts.contains("hant") || parts.contains("tw") || parts.contains("hk") || parts.contains("mo") {
@@ -113,6 +124,16 @@ public enum CJKTypographyStyle: String, Sendable, Equatable, CaseIterable, Codab
         // Hiragana, katakana, katakana extensions, half-width katakana. The middle dot ・
         // and the long vowel mark ー are left out: Chinese text uses both.
         case 0x3041...0x309F, 0x30A1...0x30FA, 0x30FD...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9D:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isHangul(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        // Jamo, compatibility jamo, jamo extensions A and B, syllables.
+        case 0x1100...0x11FF, 0x3131...0x318E, 0xA960...0xA97C, 0xAC00...0xD7A3, 0xD7B0...0xD7FB:
             return true
         default:
             return false

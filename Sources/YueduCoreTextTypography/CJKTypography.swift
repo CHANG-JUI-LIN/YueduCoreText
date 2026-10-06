@@ -78,6 +78,11 @@ public enum CJKTypography {
     /// engines land the same. (The ideographic-centred baseline class the legacy engine
     /// used to add moved nothing.)
     ///
+    /// The lowering adds to any baseline offset the text already has. The legacy engine
+    /// raises all its text to centre it in the line height (2.6 pt at 17 pt and 1.5
+    /// line spacing); replacing that offset left Latin runs 0.13–0.15 em off the column
+    /// their upright neighbours were raised along.
+    ///
     /// Dashes and ellipses are centred by their ink instead: fonts draw the dots of …
     /// on the baseline (PingFang, SF) or at mid-height (Hiragino), and the column wants
     /// them on its centre line either way.
@@ -97,7 +102,9 @@ public enum CJKTypography {
             } else {
                 offset = -(CTFontGetAscent(font) - CTFontGetDescent(font)) / 2
             }
-            text.addAttribute(.baselineOffset, value: offset, range: character)
+            let existing = (text.attribute(.baselineOffset, at: character.location, effectiveRange: nil) as? NSNumber)
+                .map { CGFloat($0.doubleValue) } ?? 0
+            text.addAttribute(.baselineOffset, value: existing + offset, range: character)
         }
     }
 

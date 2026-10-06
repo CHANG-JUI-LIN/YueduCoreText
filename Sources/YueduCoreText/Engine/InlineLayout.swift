@@ -116,7 +116,8 @@ enum InlineLayout {
                     value: delegate as Any, range: NSRange(location: isStart ? 0 : 1, length: 1))
                 attributed.append(edge)
             } else if let unit = run.ruby {
-                let ruby = RubyInlineLayout.measure(unit: unit, fontResolver: fontResolver, attributedSource: run.attributedSource, writingMode: context.writingMode)
+                let ruby = RubyInlineLayout.measure(unit: unit, fontResolver: fontResolver, attributedSource: run.attributedSource,
+                                                    writingMode: context.writingMode, cjkTypographyStyle: context.cjkTypographyStyle)
                 measuredRuby[index] = ruby
                 let box = RubyRunDelegateBox(ruby)
                 rubyDelegateBoxes.append(box)
@@ -168,6 +169,12 @@ enum InlineLayout {
                 }
             }
             attributedCursor += shapedLength(of: run)
+        }
+
+        // CJK text in its language's font, in both orientations and both engines; vertical
+        // orientation below reads the fonts this chooses.
+        if let style = context.cjkTypographyStyle {
+            CJKTypography.applyFonts(to: attributed, style: style)
         }
 
         if context.writingMode == .verticalRTL {
@@ -226,11 +233,14 @@ enum InlineLayout {
                     // reach into the neighbouring lines.
                     attributed.enumerateAttributes(in: part) { attributes, _, _ in
                         let used = attributes[.font] as? UIFont ?? font
+                        // A CJK stand-in draws the run's own text: only a font a rule
+                        // chose makes this a range with a font of its own.
+                        let asked = attributes[CJKTypography.replacedFontAttribute] as? UIFont ?? used
                         let ink = used.ascender - used.descender
                         var requested = cssRequested
                         if let p = attributes[.paragraphStyle] as? NSParagraphStyle, p.minimumLineHeight > 0 {
                             requested = max(requested ?? 0, p.minimumLineHeight)
-                        } else if used.fontName != font.fontName || used.pointSize != font.pointSize {
+                        } else if asked.fontName != font.fontName || asked.pointSize != font.pointSize {
                             requested = max(requested ?? ink, ink)
                         }
                         let box = inlineBox(used, lineHeight: requested)
@@ -782,9 +792,10 @@ enum InlineLayout {
     ) -> UIFont {
         let weight = style.configBold ? max(700, style.fontWeight) : style.fontWeight
         let resolved = resolver?(style.fontFamilies, weight, style.isItalic, style.fontSize)
+        // No family that resolves: the system font, as in the legacy engine. CJK text
+        // gets its language's font from `CJKTypography.applyFonts`.
         let base = resolved
-            ?? (style.fontFamilies.isEmpty ? ["PingFangSC-Regular"] : style.fontFamilies)
-                .compactMap { UIFont(name: $0, size: style.fontSize) }.first
+            ?? style.fontFamilies.compactMap { UIFont(name: $0, size: style.fontSize) }.first
             ?? UIFont.systemFont(ofSize: style.fontSize)
         var font = base
         if style.fontWeight >= 600 || style.configBold {

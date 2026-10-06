@@ -23,9 +23,10 @@ public enum ReaderHyphenation {
     /// locale, so an English book silently fails to hyphenate for a reader whose phone is set to
     /// Chinese — which describes most of this app's readers.
     ///
-    /// Text containing ANY CJK is never tagged. The language attribute also drives Han glyph variant
-    /// selection (a `zh` vs `ja` tag picks visibly different shapes for the same codepoint), so a
-    /// wrong tag would swap glyphs — a far worse regression than a missing hyphen. Such text does
+    /// Text containing ANY CJK is never tagged here. The language attribute also drives Han glyph
+    /// variant selection (a `zh` vs `ja` tag picks visibly different shapes for the same codepoint),
+    /// so a guessed tag would swap glyphs — a far worse regression than a missing hyphen. CJK text
+    /// gets its tag from `CJKTypography.applyFonts`, which reads the book's script. Such text does
     /// not hyphenate anyway.
     ///
     /// The tag is `en`: Latin text here is overwhelmingly English, and EPUB's own `lang` attribute

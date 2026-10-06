@@ -12,10 +12,15 @@ W3C vertical typography (Yuedu Reader's `docs/superpowers/plans/2026-10-06-verti
 - `ChineseScript` and `CJKTypographyStyle`: whether text is Traditional or Simplified Chinese, or Japanese, read from its characters; each style's language tag and reference font.
 - `BrowserLayoutConfig.cjkTypographyStyle`, the style a host decided for the chapter's text. nil keeps the previous behaviour.
 - `CJKTypography.applyOrientation(to:in:)` and `centreSideways(_:in:)`: vertical text set as CSS Writing Modes 3 `text-orientation: mixed` sets it.
+- `CJKTypographyStyle.korean`, from Hangul text or a declared `ko`.
+- `CJKTypography.applyFonts(to:style:in:)`: CJK text tagged with its language and drawn in that language's font — PingFang TC, PingFang SC, Hiragino Sans or Apple SD Gothic Neo for Han; Hiragino Sans for kana; Apple SD Gothic Neo for Hangul. Dashes, ellipses, quotation marks and middle dots next to CJK text go with it, as do symbols the text's fonts lack. A character the font or its cascade has keeps that font. `CJKTypography.replacedFontAttribute` records the font a range had before.
 
 ### Changed
 
 - Vertical lines no longer set every character upright. Latin letters, ASCII digits and other `R` characters lie on their side, centred on the column; `Tr` characters such as brackets and ー use the font's vertical alternate, or lie on their side when it has none.
+- `CJKTypography.centreSideways` adds to a run's existing baseline offset instead of replacing it.
+- With a `cjkTypographyStyle`, inline layout and ruby run `applyFonts` in both writing modes. A range's CJK stand-in does not count as a font of its own when line boxes are sized.
+- Text without a family that resolves is set in the system font, not PingFang SC, and `ReaderFontCascade` no longer names PingFang SC or STHeiti SC. On iOS the system font's own fallback follows the device's languages, so CJK text should come with a `cjkTypographyStyle`.
 
 ## [0.6.2] - 2026-10-06
 

@@ -187,6 +187,7 @@ final class BrowserLayoutDocument {
                 textWritingMode: config.writingMode,
                 sourceText: sourceText.text,
                 fontResolver: config.fontResolver,
+                cjkTypographyStyle: config.cjkTypographyStyle,
                 fragmentHeight: fragmentHeight
             ) }
         }

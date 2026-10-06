@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import UIKit
+import YueduCoreTextTypography
 
 /// Used first-line constraints after BlockLayout resolves authored values.
 /// The full positive indent is preserved even when it exhausts the interval;
@@ -39,6 +40,8 @@ struct InlineFormattingContext {
     let firstLineConstraint: InlineFirstLineConstraint
     let paragraphStyle: ComputedStyle?
     let fontCache: InlineFontCache?
+    /// The book's CJK typography (`BrowserLayoutConfig.cjkTypographyStyle`).
+    let cjkTypographyStyle: CJKTypographyStyle?
 
     init(
         containingInlineSize: CGFloat,
@@ -51,7 +54,8 @@ struct InlineFormattingContext {
         blockOffsetY: CGFloat,
         firstLineConstraint: InlineFirstLineConstraint = .none,
         paragraphStyle: ComputedStyle? = nil,
-        fontCache: InlineFontCache? = nil
+        fontCache: InlineFontCache? = nil,
+        cjkTypographyStyle: CJKTypographyStyle? = nil
     ) {
         self.containingInlineSize = containingInlineSize
         self.rootFontSize = rootFontSize
@@ -64,6 +68,7 @@ struct InlineFormattingContext {
         self.firstLineConstraint = firstLineConstraint
         self.paragraphStyle = paragraphStyle
         self.fontCache = fontCache
+        self.cjkTypographyStyle = cjkTypographyStyle
     }
 
     var baseInterval: InlineInterval {

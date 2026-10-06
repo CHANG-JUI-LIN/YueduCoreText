@@ -1,5 +1,6 @@
 import CoreGraphics
 import UIKit
+import YueduCoreTextTypography
 
 /// One-pass block formatting: resolves used widths/margins/paddings and stacks
 /// children along the BLOCK axis. `containerWidth` is the parent's *content*
@@ -29,6 +30,7 @@ enum BlockLayout {
         blockOffsetY: CGFloat = 0,
         sourceText: String = "",
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
+        cjkTypographyStyle: CJKTypographyStyle? = nil,
         fragmentHeight: CGFloat? = nil,
         viewport: BrowserViewportLayoutState? = nil
     ) -> CGFloat {
@@ -137,6 +139,7 @@ enum BlockLayout {
                     blockOffsetY: 0,
                     sourceText: sourceText,
                     fontResolver: fontResolver,
+                    cjkTypographyStyle: cjkTypographyStyle,
                     fragmentHeight: fragmentHeight, viewport: viewport
                 )
 
@@ -217,6 +220,7 @@ enum BlockLayout {
                     blockOffsetY: childBlockOffsetY,
                     sourceText: sourceText,
                     fontResolver: fontResolver,
+                    cjkTypographyStyle: cjkTypographyStyle,
                     fragmentHeight: fragmentHeight, viewport: viewport
                 )
 
@@ -303,7 +307,8 @@ enum BlockLayout {
                 blockOffsetY: blockOffsetY,
                 firstLineConstraint: firstLineConstraint,
                 paragraphStyle: box.style,
-                fontCache: viewport?.fontCache
+                fontCache: viewport?.fontCache,
+                cjkTypographyStyle: cjkTypographyStyle
             )
             if let viewport {
                 box.lines = viewport.lines(for: box, context: context)
