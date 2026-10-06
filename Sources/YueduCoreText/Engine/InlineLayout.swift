@@ -197,7 +197,11 @@ enum InlineLayout {
         // both orientations and both engines; vertical orientation below reads the fonts
         // this chooses.
         if let style = context.cjkTypographyStyle {
-            CJKTypography.apply(to: attributed, style: style, vertical: context.writingMode == .verticalRTL)
+            let vertical = context.writingMode == .verticalRTL
+            ReaderPerfTrace.span(.cjkTypographyPrepare, metadata: .init(
+                characterCount: attributed.length, writingMode: vertical ? "vertical" : "horizontal")) {
+                CJKTypography.apply(to: attributed, style: style, vertical: vertical)
+            }
         }
 
         if context.writingMode == .verticalRTL {

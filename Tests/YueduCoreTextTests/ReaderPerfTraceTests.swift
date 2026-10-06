@@ -18,6 +18,7 @@ struct ReaderPerfTraceTests {
             (.imageDecode, "resource.image.decode"),
             (.layoutFingerprint, "layout.fingerprint"),
             (.layoutVerticalPrepare, "layout.vertical.prepare"),
+            (.cjkTypographyPrepare, "cjk.typography.prepare"),
             (.layoutFramesetterCreate, "layout.framesetter.create"),
             (.layoutPageRanges, "layout.pageRanges"),
             (.layoutDisplayList, "layout.displayList"),
