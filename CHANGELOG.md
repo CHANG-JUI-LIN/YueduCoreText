@@ -2,7 +2,7 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
-## [Unreleased]
+## [0.7.0] - 2026-10-07
 
 W3C vertical typography (Yuedu Reader's `docs/superpowers/plans/2026-10-06-vertical-typography.md`).
 

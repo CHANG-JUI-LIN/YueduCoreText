@@ -8,7 +8,7 @@ Turn HTML/XHTML, CSS and prepared resources into paginated pages or a continuous
 
 Use it to build a native document or reading interface when you need control over drawing and interaction. Your app supplies resources and hosts the result; the package owns parsing, styling, layout, pagination and painting.
 
-[0.6.2 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.6.2) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
+[0.7.0 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.7.0) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
 
 ## Requirements and installation
 
@@ -16,14 +16,14 @@ Use it to build a native document or reading interface when you need control ove
 - The HTML/CSS engine is available from **0.3.0**. Versions through 0.2.1 provide the earlier utilities only.
 - The main product depends on `YueduCoreTextTypography` and **SwiftSoup 2.13.7**.
 
-In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.6.x, choose **Up to Next Minor Version** starting at **0.6.2**.
+In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.7.x, choose **Up to Next Minor Version** starting at **0.7.0**.
 
 For a Swift package, add this to `Package.dependencies`:
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.6.2")
+    .upToNextMinor(from: "0.7.0")
 )
 ```
 
@@ -143,6 +143,8 @@ Page display lists use top-left, y-down **page coordinates**. Continuous display
 
 ## Supported scope
 
+Version 0.7.0 sets CJK text as W3C and the Chinese and Japanese layout requirements describe, in both writing modes. With a `cjkTypographyStyle` in `BrowserLayoutConfig`, inline layout draws CJK text in its language's font, places and squeezes punctuation as CLREQ and JLREQ do, and orients vertical text by UAX #50; authored `text-combine-upright` becomes one upright cell. `YueduCoreTextTypography` exposes the same passes (`CJKTypography`, `TextCombineUpright`, `CombinedUpright`, `GlyphBoundary`) for a host's own text engine.
+
 Version 0.6.2 parses and styles a chapter once for both admission and layout: `BrowserChapterDocument(input:).evaluate(configuration:)` returns a `BrowserChapterEvaluation` carrying the verdict and the style tree, and `HTMLLayoutDocument(evaluation:)` / `BrowserLayoutSession(evaluation:)` lay out from it. A session may add geometry, a font resolver or a diagnostic sink to the configuration, never different cascade inputs.
 
 Version 0.6.1 reports computed-style font face demand through `BrowserLayoutCapabilityResult.fontRequests`. Pass reader font/bold settings to `scan(input:writingMode:configuration:)`, prepare the requested faces after accepting the chapter, then capture the font resolver before layout. The original scanner signatures remain available.
@@ -177,7 +179,7 @@ See the [integration guide](docs/EngineIntegration.md) for advanced input, owner
 
 ## Other products and APIs
 
-- **YueduCoreTextTypography:** CJK punctuation compression, smart punctuation, vertical normalization/glyph helpers, Latin hyphenation language tagging and framesetter creation.
+- **YueduCoreTextTypography:** CJK typography in both writing modes (fonts by language, CLREQ/JLREQ punctuation positions and spacing, UAX #50 orientation, 縦中横 composition, glyph boundaries), smart punctuation, vertical normalization/glyph helpers, Latin hyphenation language tagging and framesetter creation.
 - **YueduCoreText:** also exposes `ReaderContentMetrics` / `ReaderContentUnitMap`, `TextSelectionManager` and `ReaderPerfTrace`. Names containing “Reader” do not require the Yuedu Reader app.
 
 `TextSelectionManager` is mutable and must stay on one actor or serial queue. Performance tracing uses local Points of Interest signposts, not uploads; do not put document text, titles, URLs or personal data in trace metadata.
@@ -195,7 +197,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.6.2 dependency.
+The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.7.0 dependency.
 
 CI runs both the package tests and the standalone public-API consumer on iOS Simulator, and retains `.xcresult` artifacts. See [CI runs](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions) for the tested revision, toolchain and outcome. No real-device performance claim is made.
 
