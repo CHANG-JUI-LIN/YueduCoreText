@@ -1,6 +1,7 @@
 import CoreText
 import Foundation
 import UIKit
+import YueduCoreTextTypography
 
 /// Accumulates the chapter's collapsed source text. Runs' `sourceRange`s point
 /// into `text`; concatenating them in document order reassembles the text.
@@ -82,6 +83,7 @@ enum BoxTreeBuilder {
             case .text(let raw):
                 appendTextNode(
                     raw, style: node.style, nodeID: node.nodeID, link: node.linkTarget,
+                    combinesUpright: config.writingMode == .verticalRTL,
                     to: &pendingInline, sourceText: &sourceText,
                     anchors: &anchors, anchorStack: &anchorStack
                 )
@@ -217,6 +219,7 @@ enum BoxTreeBuilder {
             case .text(let raw):
                 appendTextNode(
                     raw, style: node.style, nodeID: node.nodeID, link: node.linkTarget,
+                    combinesUpright: config.writingMode == .verticalRTL,
                     to: &runs, sourceText: &sourceText, anchors: &anchors, anchorStack: &localStack
                 )
             case .element(let elementNode):
@@ -329,6 +332,7 @@ enum BoxTreeBuilder {
         style: ComputedStyle,
         nodeID: Int,
         link: String?,
+        combinesUpright: Bool,
         to runs: inout [InlineRun],
         sourceText: inout SourceTextBuilder,
         anchors: inout [String: Int],
@@ -346,10 +350,31 @@ enum BoxTreeBuilder {
             registerAnchors(&anchorStack, anchors: &anchors, at: sourceText.currentOffset)
         }
         let range = sourceText.append(collapsed)
-        runs.append(InlineRun(
-            text: collapsed, style: style,
-            sourceRange: range, nodeID: nodeID, linkTarget: link
-        ))
+        // Authored 縦中横 in vertical text: each combined part keeps its characters in
+        // sourceText and becomes one upright cell, like a ruby base.
+        let segments = combinesUpright && !isWhitespaceOnly
+            ? style.textCombineUpright.segments(of: collapsed) : [(text: collapsed, combined: false)]
+        guard segments.contains(where: \.combined) else {
+            runs.append(InlineRun(
+                text: collapsed, style: style,
+                sourceRange: range, nodeID: nodeID, linkTarget: link
+            ))
+            return
+        }
+        var location = range.location
+        for segment in segments {
+            let part = NSRange(location: location, length: (segment.text as NSString).length)
+            location = NSMaxRange(part)
+            if segment.combined {
+                runs.append(InlineRun(
+                    text: "\u{FFFC}", style: style, sourceRange: part, nodeID: nodeID, linkTarget: link,
+                    combined: CombinedUprightUnit(text: segment.text, style: style, sourceRange: part,
+                                                  nodeID: nodeID, linkTarget: link)
+                ))
+            } else {
+                runs.append(InlineRun(text: segment.text, style: style, sourceRange: part, nodeID: nodeID, linkTarget: link))
+            }
+        }
     }
 
     private static func appendRubyRun(
@@ -440,6 +465,7 @@ enum BoxTreeBuilder {
                     style: inheritedNode.style,
                     nodeID: inheritedNode.nodeID,
                     link: inheritedNode.linkTarget,
+                    combinesUpright: false,
                     to: &runs,
                     sourceText: &sourceText,
                     anchors: &anchors,

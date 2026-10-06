@@ -1,5 +1,6 @@
 import Foundation
 import SwiftSoup
+import YueduCoreTextTypography
 
 /// Structured reason a chapter was rejected by the capability scanner.
 /// Never carries book titles, chapter text, or URLs — only the feature name.
@@ -137,6 +138,14 @@ public enum BrowserLayoutCapabilityScanner {
         if writingMode == .verticalRTL {
             if ["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].contains(k) {
                 return v == "vertical-rl" || v == "inherit" ? nil : .verticalWritingMode
+            }
+            if ["text-combine-upright", "-epub-text-combine-horizontal", "-ms-text-combine-horizontal"].contains(k) {
+                return ["inherit", "initial", "unset"].contains(v) || TextCombineUpright.parse(v).isSupported
+                    ? nil : .verticalWritingMode
+            }
+            if ["-webkit-text-combine", "-epub-text-combine"].contains(k) {
+                return ["inherit", "initial", "unset"].contains(v) || TextCombineUpright.parseLegacy(v).isSupported
+                    ? nil : .verticalWritingMode
             }
             if k.contains("text-combine"), v != "none" { return .verticalWritingMode }
             if k.contains("text-orientation"), v != "mixed" { return .verticalWritingMode }

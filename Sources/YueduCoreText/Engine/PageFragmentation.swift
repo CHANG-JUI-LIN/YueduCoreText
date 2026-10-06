@@ -33,6 +33,10 @@ public struct TextFragment {
     public let ctLine: CTLine?
     public let sourceMapping: TextSourceMapping
     public let renderedTextOverride: String?
+    /// Authored 縦中横: horizontal text in one upright cell of a vertical line. The
+    /// walker emits it in the line's canonical axes; `LogicalFlow.page` keeps it
+    /// horizontal and centres it in the cell.
+    var isCombinedUpright = false
 
     public init(
         sourceRange: NSRange,
@@ -236,6 +240,7 @@ struct PageWalker {
         let ctLine: CTLine?
         let sourceMapping: TextSourceMapping
         let renderedTextOverride: String?
+        var isCombinedUpright = false
     }
 
     struct StepRuby {
@@ -616,6 +621,30 @@ struct PageWalker {
                             writingMode: writingMode
                         ))
                     }
+                    if let combined = run.combined {
+                        // The line box, as for text; the cell's own place is the line's
+                        // inline position and its centre line.
+                        return .text(StepText(
+                            sourceRange: run.sourceRange,
+                            nodeID: run.nodeID,
+                            linkTarget: run.linkTarget,
+                            writingMode: writingMode,
+                            rect: DocumentRect(rawValue: CGRect(
+                                x: frame.contentOrigin.x + line.contentX + run.x,
+                                y: frame.contentOrigin.y + line.top,
+                                width: run.width,
+                                height: line.height
+                            )),
+                            baselineY: frame.contentOrigin.y + line.baseline,
+                            font: run.font,
+                            color: run.style.color ?? .black,
+                            ctLine: combined.line,
+                            sourceMapping: .linear(shapedRange: NSRange(
+                                location: 0, length: CTLineGetStringRange(combined.line).length)),
+                            renderedTextOverride: nil,
+                            isCombinedUpright: true
+                        ))
+                    }
                     if let atomic = run.atomic {
                         let rect = DocumentRect(rawValue: CGRect(
                             x: frame.contentOrigin.x + line.contentX + run.x,
@@ -641,7 +670,7 @@ struct PageWalker {
                         BrowserLayoutDeviceDiagnostic.summary(walkLine)
                         #endif
                         let endsLine = !line.runs[frame.runIndex...].contains {
-                            !$0.isDecorationEdge && ($0.atomic != nil || $0.ruby != nil || $0.width > 0.001)
+                            !$0.isDecorationEdge && ($0.atomic != nil || $0.ruby != nil || $0.combined != nil || $0.width > 0.001)
                         }
                         let lineBottom = frame.contentOrigin.y + line.top + line.height
                         return .image(StepImage(
@@ -884,7 +913,7 @@ struct PageWalker {
             // No break can occur, so nothing is ever relocated and `flowShift`
             // stays zero: the document position IS the final position.
             let canvas = canvasRect(forDocument: step.rect, pageIndex: 0)
-            currentPage.append(.text(TextFragment(
+            var fragment = TextFragment(
                 sourceRange: step.sourceRange,
                 nodeID: step.nodeID,
                 linkTarget: step.linkTarget,
@@ -897,7 +926,9 @@ struct PageWalker {
                 ctLine: step.ctLine,
                 sourceMapping: step.sourceMapping,
                 renderedTextOverride: step.renderedTextOverride
-            )))
+            )
+            fragment.isCombinedUpright = step.isCombinedUpright
+            currentPage.append(.text(fragment))
             return nil
         }
         let shiftedY = step.rect.minY + flowShift
@@ -920,7 +951,7 @@ struct PageWalker {
             width: step.rect.width, height: step.rect.height
         ))
         let canvas = canvasRect(forDocument: adjustedDoc, pageIndex: currentIndex)
-        currentPage.append(.text(TextFragment(
+        var fragment = TextFragment(
             sourceRange: step.sourceRange,
             nodeID: step.nodeID,
             linkTarget: step.linkTarget,
@@ -933,7 +964,9 @@ struct PageWalker {
             ctLine: step.ctLine,
             sourceMapping: step.sourceMapping,
             renderedTextOverride: step.renderedTextOverride
-        )))
+        )
+        fragment.isCombinedUpright = step.isCombinedUpright
+        currentPage.append(.text(fragment))
         return flushed
     }
 

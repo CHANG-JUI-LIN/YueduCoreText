@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import UIKit
+import YueduCoreTextTypography
 
 struct EdgeSizes: Equatable {
     var top: CGFloat = 0
@@ -141,6 +142,7 @@ struct ComputedStyle: Equatable {
     var rubyAlign: RubyAlignment = .center
     var rubyPosition: RubyPosition = .over
     var rubyMerge: RubyMerge = .separate
+    var textCombineUpright: TextCombineUpright = .none
 
     // Box model (specified)
     var width: CSSLength = .auto
@@ -260,6 +262,7 @@ extension ComputedStyle {
         style.rubyAlign = parent.rubyAlign
         style.rubyPosition = parent.rubyPosition
         style.rubyMerge = parent.rubyMerge
+        style.textCombineUpright = parent.textCombineUpright
         style.textIndent = parent.textIndent
         style.hyphens = parent.hyphens
         style.language = parent.language

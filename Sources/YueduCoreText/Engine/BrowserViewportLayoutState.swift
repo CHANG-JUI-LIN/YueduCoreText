@@ -64,6 +64,7 @@ final class BrowserViewportLayoutState {
                         result.insert(ObjectIdentifier(ruby.base.line))
                         result.insert(ObjectIdentifier(ruby.annotation.line))
                     }
+                    if let combined = run.combined { result.insert(ObjectIdentifier(combined.line)) }
                 }
             }
         }

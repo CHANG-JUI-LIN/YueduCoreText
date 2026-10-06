@@ -65,6 +65,7 @@ struct LineRun {
     let linkTarget: String?
     let atomic: AtomicInline?         // non-nil = replaced element run (image)
     let ruby: RubyBox?
+    let combined: CombinedUprightBox?
     var inlineDecorations: [InlineDecoration] = []
     var isDecorationEdge = false
 
@@ -78,7 +79,8 @@ struct LineRun {
         nodeID: Int,
         linkTarget: String?,
         atomic: AtomicInline?,
-        ruby: RubyBox? = nil
+        ruby: RubyBox? = nil,
+        combined: CombinedUprightBox? = nil
     ) {
         self.sourceRange = sourceRange
         self.shapedRange = shapedRange ?? sourceRange
@@ -90,6 +92,7 @@ struct LineRun {
         self.linkTarget = linkTarget
         self.atomic = atomic
         self.ruby = ruby
+        self.combined = combined
     }
 }
 

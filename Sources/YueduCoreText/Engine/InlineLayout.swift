@@ -16,6 +16,8 @@ struct InlineRun {
     let isHardBreak: Bool
     let atomic: AtomicInline?
     let ruby: RubyInlineUnit?
+    /// Authored 縦中横: one upright cell holding these characters set horizontally.
+    let combined: CombinedUprightUnit?
     /// Shared immutable chapter attributes, indexed by source UTF-16 offsets.
     var attributedSource: NSAttributedString? = nil
     var inlineDecorations: [InlineDecoration] = []
@@ -31,7 +33,8 @@ struct InlineRun {
         linkTarget: String? = nil,
         isHardBreak: Bool = false,
         atomic: AtomicInline? = nil,
-        ruby: RubyInlineUnit? = nil
+        ruby: RubyInlineUnit? = nil,
+        combined: CombinedUprightUnit? = nil
     ) {
         self.text = text
         self.style = style
@@ -41,7 +44,9 @@ struct InlineRun {
         self.isHardBreak = isHardBreak
         self.atomic = atomic
         self.ruby = ruby
-        assert(atomic == nil || ruby == nil, "inline image and ruby payloads are mutually exclusive")
+        self.combined = combined
+        assert([atomic != nil, ruby != nil, combined != nil].filter { $0 }.count <= 1,
+               "inline image, ruby and combined payloads are mutually exclusive")
     }
 }
 
@@ -102,6 +107,7 @@ enum InlineLayout {
         var attributedCursor = 0
         var delegateBoxes: [AtomicInlineBox] = []
         var measuredRuby: [Int: RubyBox] = [:]
+        var measuredCombined: [Int: CombinedUprightBox] = [:]
         var rubyDelegateBoxes: [RubyRunDelegateBox] = []
         for (index, run) in runs.enumerated() {
             runAttributedStart.append(attributedCursor)
@@ -144,6 +150,22 @@ enum InlineLayout {
                     attributes[.paragraphStyle] = paragraph
                 }
                 attributed.append(NSAttributedString(string: "\u{FFFC}", attributes: attributes))
+            } else if let unit = run.combined {
+                // One upright cell, an em down the column and an em across it, centred on
+                // the column's centre line like an ideograph; the walker draws the
+                // characters horizontally inside it.
+                let combined = CombinedUprightLayout.measure(
+                    unit: unit, fontResolver: fontResolver, attributedSource: run.attributedSource,
+                    cjkTypographyStyle: context.cjkTypographyStyle)
+                measuredCombined[index] = combined
+                let box = AtomicInlineBox(width: combined.em, ascent: combined.em / 2, descent: combined.em / 2)
+                delegateBoxes.append(box)
+                var callbacks = AtomicInlineBox.callbacks
+                let delegate = CTRunDelegateCreate(&callbacks, Unmanaged.passRetained(box).toOpaque())
+                attributed.append(NSAttributedString(string: "\u{FFFC}", attributes: [
+                    kCTRunDelegateAttributeName as NSAttributedString.Key: delegate as Any,
+                    .font: resolveFont(run.style),
+                ]))
             } else if let atomic = run.atomic {
                 // CSS 2.1 §10.8.1: an inline replaced element with
                 // `vertical-align: baseline` sits with its BOTTOM margin edge ON
@@ -302,7 +324,7 @@ enum InlineLayout {
                 if run.atomic != nil || run.decorationEdge != nil {
                     sliceLen = 0
                     sourceOffset = run.sourceRange.location
-                } else if run.ruby != nil {
+                } else if run.ruby != nil || run.combined != nil {
                     sliceLen = run.sourceRange.length
                     sourceOffset = run.sourceRange.location
                 } else {
@@ -318,6 +340,8 @@ enum InlineLayout {
                     width = atomic.usedSize.width
                 } else if let ruby = measuredRuby[index] {
                     width = ruby.advance
+                } else if let combined = measuredCombined[index] {
+                    width = combined.em
                 } else {
                     width = shapedAdvance(
                         in: shapedLine,
@@ -338,7 +362,8 @@ enum InlineLayout {
                     nodeID: run.nodeID,
                     linkTarget: run.linkTarget,
                     atomic: run.atomic,
-                    ruby: measuredRuby[index]
+                    ruby: measuredRuby[index],
+                    combined: measuredCombined[index]
                 )
                 laidOutRun.inlineDecorations = run.inlineDecorations
                 laidOutRun.isDecorationEdge = run.decorationEdge != nil
@@ -347,7 +372,7 @@ enum InlineLayout {
             }
 
             // The breaker's measured line width (≤ maxWidth) is authoritative.
-            if let last = lineRuns.last, last.atomic == nil, last.ruby == nil, !last.isDecorationEdge {
+            if let last = lineRuns.last, last.atomic == nil, last.ruby == nil, last.combined == nil, !last.isDecorationEdge {
                 let clampedWidth: CGFloat
                 if lineRuns.count == 1 {
                     clampedWidth = usedWidth
@@ -364,7 +389,8 @@ enum InlineLayout {
                     nodeID: last.nodeID,
                     linkTarget: last.linkTarget,
                     atomic: last.atomic,
-                    ruby: last.ruby
+                    ruby: last.ruby,
+                    combined: last.combined
                 )
                 lineRuns[lineRuns.count - 1].inlineDecorations = last.inlineDecorations
             }
@@ -544,7 +570,7 @@ enum InlineLayout {
     private static func trimLineLeadingWhitespace(from runs: inout [LineRun], sourceText: String) {
         let ns = sourceText as NSString
         while var first = runs.first {
-            if first.atomic != nil || first.ruby != nil { return }
+            if first.atomic != nil || first.ruby != nil || first.combined != nil { return }
             let mode = first.style.whiteSpace
             guard mode == .normal || mode == .nowrap || mode == .preLine else { return }
             guard first.sourceRange.location >= 0,
@@ -574,7 +600,8 @@ enum InlineLayout {
                     nodeID: first.nodeID,
                     linkTarget: first.linkTarget,
                     atomic: first.atomic,
-                    ruby: first.ruby
+                    ruby: first.ruby,
+                    combined: first.combined
                 )
                 first.inlineDecorations = runs[0].inlineDecorations
                 runs[0] = first
@@ -587,7 +614,7 @@ enum InlineLayout {
 
     /// Removes trailing whitespace from the last run of a line for collapsing whitespace modes.
     private static func trimLineTrailingWhitespace(from runs: inout [LineRun], sourceText: String) {
-        guard var last = runs.last, last.atomic == nil, last.ruby == nil else { return }
+        guard var last = runs.last, last.atomic == nil, last.ruby == nil, last.combined == nil else { return }
         let mode = last.style.whiteSpace
         guard mode == .normal || mode == .nowrap || mode == .preLine else { return }
         let ns = sourceText as NSString
@@ -610,7 +637,8 @@ enum InlineLayout {
                 nodeID: last.nodeID,
                 linkTarget: last.linkTarget,
                 atomic: last.atomic,
-                ruby: last.ruby
+                ruby: last.ruby,
+                combined: last.combined
             )
             last.inlineDecorations = runs[runs.count - 1].inlineDecorations
             runs[runs.count - 1] = last
@@ -784,7 +812,7 @@ enum InlineLayout {
     }
 
     private static func shapedLength(of run: InlineRun) -> Int {
-        run.atomic != nil || run.ruby != nil ? 1 : (run.text as NSString).length
+        run.atomic != nil || run.ruby != nil || run.combined != nil ? 1 : (run.text as NSString).length
     }
 
     static func resolvedFont(

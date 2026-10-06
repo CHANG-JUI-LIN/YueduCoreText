@@ -1,4 +1,6 @@
+import CoreText
 import UIKit
+import YueduCoreTextTypography
 
 /// The existing line/fragment walker stores (inline, block) in CGPoint's (x, y)
 /// slots. Keep those slots canonical until emission, including for vertical-rl.
@@ -53,6 +55,8 @@ enum LogicalFlow {
         func fragment(_ value: Fragment) -> Fragment {
             switch value {
             case .group(let children): return .group(children.map(fragment))
+            case .text(let t) where t.isCombinedUpright:
+                return .text(combinedUpright(t, extent: extent, documentBlockExtent: documentBlockExtent))
             case .text(let t):
                 return .text(TextFragment(sourceRange: t.sourceRange, nodeID: t.nodeID,
                     linkTarget: t.linkTarget, writingMode: mode,
@@ -81,21 +85,53 @@ enum LogicalFlow {
             pageRect: PageLocalRect(rawValue: CGRect(origin: .zero, size: size(page.pageRect.rawValue.size, mode: mode))),
             fragments: page.fragments.map(fragment))
     }
+
+    /// A 縦中横 cell, from the line's canonical axes to the page: one em square on
+    /// the column's centre line, its text kept horizontal and centred in it both ways.
+    /// The canonical rect is the line box at the cell's inline position, `baselineY`
+    /// the column's centre line.
+    private static func combinedUpright(_ t: TextFragment, extent: CGFloat, documentBlockExtent: CGFloat) -> TextFragment {
+        let em = t.rect.rawValue.width
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        let width = t.ctLine.map { CGFloat(CTLineGetTypographicBounds($0, &ascent, &descent, nil)) } ?? em
+        func cell(_ line: CGRect, centre: CGFloat, blockExtent: CGFloat) -> CGRect {
+            let square = rect(CGRect(x: line.minX, y: centre - em / 2, width: em, height: em), blockExtent: blockExtent)
+            return CGRect(x: square.midX - width / 2, y: square.minY, width: width, height: square.height)
+        }
+        let page = cell(t.rect.rawValue, centre: t.baselineY, blockExtent: extent)
+        let documentCentre = t.documentRect.rawValue.minY + (t.baselineY - t.rect.rawValue.minY)
+        let document = cell(t.documentRect.rawValue, centre: documentCentre, blockExtent: documentBlockExtent)
+        var fragment = TextFragment(sourceRange: t.sourceRange, nodeID: t.nodeID, linkTarget: t.linkTarget,
+            writingMode: .horizontal, rect: PageLocalRect(rawValue: page),
+            documentRect: DocumentRect(rawValue: document),
+            baselineY: page.minY + (em + ascent - descent) / 2, font: t.font, color: t.color, ctLine: t.ctLine,
+            sourceMapping: t.sourceMapping, renderedTextOverride: t.renderedTextOverride)
+        fragment.isCombinedUpright = true
+        return fragment
+    }
 }
 
-/// Initial vertical scope: normal-flow text and ruby. Replaced elements, floats
-/// and constrained block-axis dimensions need their own vertical acceptance
-/// coverage before admission. Consumers receive a fact, never an empty page.
+/// Initial vertical scope: normal-flow text, ruby and authored 縦中横. Replaced
+/// elements, floats and constrained block-axis dimensions need their own vertical
+/// acceptance coverage before admission. Consumers receive a fact, never an empty page.
 enum VerticalTextSupport {
-    static func accepts(_ node: ComputedStyleNode) -> Bool {
+    static func accepts(_ node: ComputedStyleNode, inRuby: Bool = false) -> Bool {
         if ["img", "svg", "video", "audio", "table"].contains(node.tag) || node.style.isFloated
             || node.style.maxWidth != nil { return false }
         switch node.style.width {
         case .auto, .px: break
         default: return false
         }
+        // A combined run is one upright cell of plain text: never ruby, nor inside it.
+        let ruby = inRuby || ["ruby", "rb", "rt", "rtc", "rp"].contains(node.tag)
+        switch node.style.textCombineUpright {
+        case .none: break
+        case .unsupported: return false
+        case .all, .digits: if ruby { return false }
+        }
         return node.children.allSatisfy {
-            if case .element(let child) = $0 { return accepts(child) }
+            if case .element(let child) = $0 { return accepts(child, inRuby: ruby) }
             return true
         }
     }

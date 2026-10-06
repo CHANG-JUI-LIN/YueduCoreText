@@ -28,10 +28,21 @@ Horizontal configuration continues to reject authored vertical layout.
 - Centered, separate ruby over horizontal text or right of vertical text.
   Each group is atomic to the parent line breaker; an oversized group may
   overflow its available inline extent rather than split its reading.
+- Authored `text-combine-upright` (縦中横) in vertical text: `all`, `digits`
+  (Level 4, 2 to 4 digits), and the prefixed `-webkit-text-combine: horizontal`,
+  `-epub-text-combine(-horizontal)`, `-ms-text-combine-horizontal`. Each text
+  node, or each short digit run of it, becomes one upright cell: an em along
+  the column and an em across, atomic to the line breaker like a ruby group.
+  Its characters stay in `sourceText`; the cell is a horizontal text fragment
+  inside the vertical page, composed by `CombinedUpright.line` (letter-spacing
+  ignored, scaled horizontally to fit when wider than an em) and centred in
+  the square. Nothing combines automatically. The property is ignored in
+  horizontal text, as CSS has it.
 
 Vertical replaced elements/images, floats, max-width, non-pixel explicit block
 widths, min-width/min-height, alternate nested writing modes, vertical-lr,
-text-combine-upright and non-mixed text-orientation report unsupported.
+text-combine-upright inside or around ruby, unknown text-combine values and
+non-mixed text-orientation report unsupported.
 Nested ruby, rtc, under/inter-character ruby and alternate alignment/merge are
 also unsupported in both modes. Existing exclusions (tables, flex/grid,
 positioned content, scripts, etc.) still apply. No full CSS Writing Modes or
