@@ -188,6 +188,13 @@ struct CJKTypographyFontTests {
         #expect(text.attribute(Self.language, at: 3, effectiveRange: nil) == nil)
     }
 
+    @Test("Among Latin lines, a mark alone on its line is still the book's")
+    func aloneAmongLatinLines() {
+        let facts = set("Hello\n……\nWorld", style: .traditional)
+        #expect(font(of: "…", in: facts) == "PingFangTC-Regular", "\(facts)")
+        #expect(font(of: "H", in: facts) == UIFont.systemFont(ofSize: Self.size).fontName)
+    }
+
     @Test("Latin text is left exactly as it was")
     func latinUntouched() {
         let text = NSMutableAttributedString(string: "Plain English, with an em dash—and more.",

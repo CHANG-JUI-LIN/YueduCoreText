@@ -47,6 +47,18 @@ extension CJKTypography {
         (text.string as NSString).getCharacters(&units, range: whole)
         var kinds = ScriptKind.classify(units)
         guard kinds.contains(.shared) || kinds.contains(where: \.isCJK) else { return }
+        // Without CJK text, a shared or neutral mark changes only when it stands alone
+        // on its line; Latin prose full of quotation marks and dashes changes nothing,
+        // and is spared the coverage lookups below, which BrowserAuto otherwise runs on
+        // every paragraph of an English book.
+        if !kinds.contains(where: \.isCJK) {
+            let changes = kinds.withUnsafeBufferPointer { kinds in
+                kinds.indices.contains { index in
+                    (kinds[index] == .shared || kinds[index] == .neutral) && ScriptKind.joinsCJK(at: index, in: kinds)
+                }
+            }
+            guard changes else { return }
+        }
         text.enumerateAttribute(runDelegate, in: whole) { value, delegated, _ in
             guard value != nil else { return }
             for index in (delegated.location - whole.location)..<(NSMaxRange(delegated) - whole.location) {
