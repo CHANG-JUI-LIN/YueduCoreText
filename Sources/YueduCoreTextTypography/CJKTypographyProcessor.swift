@@ -1,30 +1,27 @@
 import CoreText
 import UIKit
 
-/// CJK typography post-processor.
-/// Called after HTMLAttributedStringBuilder.build() produces the NSAttributedString,
-/// applies negative kern between adjacent full-width punctuation marks for Punctuation Compression.
+/// The legacy renderer's punctuation post-processor.
 ///
-/// ## W3C JLREQ compression rules
-/// - Closing mark (」。， etc.) followed by another closing mark: compress the trailing space of the closing mark (-0.5em kern)
-/// - Closing mark followed by opening mark (「（ etc.): compress both trailing space of closing and leading space of opening (-1.0em kern)
-/// - Opening mark followed by opening mark: compress the leading space of the following opening mark (-0.5em kern on preceding opening mark)
+/// Called after the CJK pass (`CJKTypography.apply`), it turns ASCII quotes into curly
+/// quotes and draws them in Georgia. Each replacement is one UTF-16 unit for one, so the
+/// offsets reading progress uses stay put.
 ///
-/// ## Preserves UTF-16 length
-/// Smart punctuation replaces ASCII quotes with BMP curly quotes one-for-one, and spacing only modifies `.kern`.
-/// UTF-16 offsets used by reading progress therefore remain stable.
+/// The punctuation lists drive line breaking: `protectedLineBreakOffset` keeps closing
+/// marks off a line's start and opening marks off its end. Spacing between adjacent marks
+/// is `CJKTypography.applySpacing`'s, by CLREQ's and JLREQ's classes.
 public enum CJKTypographyProcessor {
 
-    // MARK: - Punctuation Classification
+    // MARK: - Line breaking classes
 
-    /// Closing marks / sentence-ending punctuation: glyph on left, right half is empty space
+    /// Closing brackets, pause and stop marks, and the ellipsis: they may not start a line.
     public static let closingMarks: Set<Unicode.Scalar> = [
         "」", "』", "）", "】", "〕", "｝", "〉", "》",
         "。", "．", "，", "、", "；", "：", "！", "？",
         "\u{2026}", // …
     ]
 
-    /// Opening marks: glyph on right, left half is empty space
+    /// Opening brackets: they may not end a line.
     public static let openingMarks: Set<Unicode.Scalar> = [
         "「", "『", "（", "【", "〔", "｛", "〈", "《",
     ]
@@ -37,13 +34,13 @@ public enum CJKTypographyProcessor {
 
     // MARK: - Public API
 
-    /// Checks whether the first character is an opening mark, used for line-start compression
+    /// Whether the character is an opening bracket.
     public static func isOpening(_ char: Character) -> Bool {
         guard let first = char.unicodeScalars.first else { return false }
         return openingMarks.contains(first)
     }
 
-    /// Checks whether the last character is a closing mark, used for line-end compression
+    /// Whether the character is a closing mark.
     public static func isClosing(_ char: Character) -> Bool {
         guard let first = char.unicodeScalars.first else { return false }
         return closingMarks.contains(first)
@@ -77,69 +74,9 @@ public enum CJKTypographyProcessor {
         return max(lowerBound, adjusted)
     }
 
-    /// Applies smart punctuation normalization + CJK punctuation compression.
+    /// Applies smart punctuation normalization.
     public static func apply(to attrStr: NSAttributedString) -> NSAttributedString {
-        let smart = applySmartPunctuation(to: attrStr)
-        guard smart.length > 1 else { return smart }
-
-        let mutable = NSMutableAttributedString(attributedString: smart)
-        let string = smart.string
-
-        // Use Unicode scalar view to correctly handle multi-code-unit characters
-        let scalars = Array(string.unicodeScalars)
-        // Pre-build scalar → UTF-16 offset mapping
-        let utf16Offsets = buildUTF16OffsetMap(for: string)
-
-        guard scalars.count == utf16Offsets.count else { return smart }
-
-        for i in 0 ..< scalars.count - 1 {
-            let curr = scalars[i]
-            let next = scalars[i + 1]
-            let utf16Idx = utf16Offsets[i]
-
-            let currIsClosing = closingMarks.contains(curr)
-            let currIsOpening = openingMarks.contains(curr)
-            let nextIsClosing = closingMarks.contains(next)
-            let nextIsOpening = openingMarks.contains(next)
-
-            // Get the current character's font size to calculate em units
-            let fontSize = fontSizeAt(utf16Idx, in: smart)
-            let halfEm = fontSize * 0.5
-
-            let requestedCompression: CGFloat
-            if currIsClosing && nextIsOpening {
-                // Closing + Opening: compress at most two half-width spaces (1em total).
-                requestedCompression = halfEm * 2
-            } else if currIsClosing && nextIsClosing {
-                // Closing + Closing: compress at most the first mark's trailing half-space.
-                requestedCompression = halfEm
-            } else if currIsOpening && nextIsOpening {
-                // Opening + Opening: compress at most the following mark's leading half-space.
-                requestedCompression = halfEm
-            } else {
-                requestedCompression = 0
-            }
-
-            if requestedCompression > 0 {
-                let nextUTF16Idx = utf16Offsets[i + 1]
-                let safeCompression = safePunctuationCompression(
-                    requested: requestedCompression,
-                    currentUTF16Offset: utf16Idx,
-                    nextUTF16Offset: nextUTF16Idx,
-                    nextUTF16Length: next.utf16.count,
-                    in: smart
-                )
-                if safeCompression > 0 {
-                    addKern(-safeCompression, at: utf16Idx, in: mutable)
-                }
-            }
-
-            // NOTE: No automatic CJK↔Latin/number spacing ("pangu" spacing) is inserted.
-            // The source text controls spacing; injecting 1/8em between Han and digits/letters
-            // produced unwanted gaps (e.g. "2017 年 3 月第 1 版") that don't exist in the source.
-        }
-
-        return mutable
+        applySmartPunctuation(to: attrStr)
     }
 
     // MARK: - Smart Punctuation
@@ -342,91 +279,6 @@ public enum CJKTypographyProcessor {
     }
 
     // MARK: - Private helpers
-
-    private static func fontSizeAt(_ utf16Offset: Int, in attrStr: NSAttributedString) -> CGFloat {
-        guard attrStr.length > 0, utf16Offset < attrStr.length else { return 17 }
-        let font = attrStr.attribute(.font, at: utf16Offset, effectiveRange: nil) as? UIFont
-        return font?.pointSize ?? 17
-    }
-
-    /// Bounds punctuation compression by the shaped glyphs' actual ink gap.
-    ///
-    /// A fixed `0.5em` assumes every punctuation glyph has exactly half an em of removable side
-    /// bearing. That is false for ellipses and varies with EPUB fonts and CoreText fallback fonts;
-    /// applying the full amount can overlap combinations such as `……】`. Shape the pair through
-    /// CoreText, measure the fonts and glyphs it really selected, and never remove more than the
-    /// visible gap can safely absorb.
-    private static func safePunctuationCompression(
-        requested: CGFloat,
-        currentUTF16Offset: Int,
-        nextUTF16Offset: Int,
-        nextUTF16Length: Int,
-        in attrStr: NSAttributedString
-    ) -> CGFloat {
-        let pairRange = NSRange(
-            location: currentUTF16Offset,
-            length: nextUTF16Offset + nextUTF16Length - currentUTF16Offset
-        )
-        guard pairRange.location >= 0,
-              pairRange.length > 1,
-              NSMaxRange(pairRange) <= attrStr.length
-        else { return 0 }
-
-        let pair = attrStr.attributedSubstring(from: pairRange)
-        let line = CTLineCreateWithAttributedString(pair)
-        let inkRects = glyphInkRectsByStringIndex(in: line)
-        let nextLocalOffset = nextUTF16Offset - currentUTF16Offset
-        guard let currentInk = inkRects[0],
-              let nextInk = inkRects[nextLocalOffset]
-        else { return 0 }
-
-        let naturalInkGap = nextInk.minX - currentInk.maxX
-        let fontSize = fontSizeAt(currentUTF16Offset, in: attrStr)
-        let minimumVisibleGap = max(0.5, fontSize * 0.05)
-        let safelyRemovableGap = max(0, naturalInkGap - minimumVisibleGap)
-        return min(requested, safelyRemovableGap)
-    }
-
-    private static func glyphInkRectsByStringIndex(in line: CTLine) -> [Int: CGRect] {
-        var result: [Int: CGRect] = [:]
-        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
-            let count = CTRunGetGlyphCount(run)
-            guard count > 0 else { continue }
-            let attributes = CTRunGetAttributes(run) as NSDictionary
-            guard let fontValue = attributes[kCTFontAttributeName] else { continue }
-            let font = fontValue as! CTFont
-
-            var glyphs = [CGGlyph](repeating: 0, count: count)
-            var positions = [CGPoint](repeating: .zero, count: count)
-            var stringIndices = [CFIndex](repeating: 0, count: count)
-            CTRunGetGlyphs(run, CFRangeMake(0, 0), &glyphs)
-            CTRunGetPositions(run, CFRangeMake(0, 0), &positions)
-            CTRunGetStringIndices(run, CFRangeMake(0, 0), &stringIndices)
-
-            for glyphIndex in 0..<count {
-                var glyph = glyphs[glyphIndex]
-                let bounds = CTFontGetBoundingRectsForGlyphs(
-                    font,
-                    .horizontal,
-                    &glyph,
-                    nil,
-                    1
-                )
-                result[stringIndices[glyphIndex]] = bounds.offsetBy(
-                    dx: positions[glyphIndex].x,
-                    dy: positions[glyphIndex].y
-                )
-            }
-        }
-        return result
-    }
-
-    /// Accumulates kern at utf16Offset (adds to existing kern to avoid overwriting existing typography)
-    private static func addKern(_ delta: CGFloat, at utf16Offset: Int, in mutable: NSMutableAttributedString) {
-        let range = NSRange(location: utf16Offset, length: 1)
-        let existing = mutable.attribute(.kern, at: utf16Offset, effectiveRange: nil) as? CGFloat ?? 0
-        mutable.addAttribute(.kern, value: existing + delta, range: range)
-    }
 
     private static func avoidSurrogateSplit(
         at offset: Int,

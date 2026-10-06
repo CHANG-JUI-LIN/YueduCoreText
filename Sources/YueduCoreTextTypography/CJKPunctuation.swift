@@ -3,13 +3,14 @@ import Foundation
 import UIKit
 
 extension CJKTypography {
-    /// Fonts, then punctuation positions: the CJK pass both engines run over text
-    /// they are about to shape. Vertical orientation is a separate pass, as only
-    /// vertical text needs it.
+    /// Fonts, then punctuation positions, then the squeeze between adjacent marks: the
+    /// CJK pass both engines run over text they are about to shape. Vertical orientation
+    /// is a separate pass, as only vertical text needs it.
     public static func apply(to text: NSMutableAttributedString, style: CJKTypographyStyle,
                              vertical: Bool, in range: NSRange? = nil) {
         applyFonts(to: text, style: style, in: range)
         applyPositions(to: text, style: style, vertical: vertical, in: range)
+        applySpacing(to: text, style: style, vertical: vertical, in: range)
     }
 
     /// Moves 、。，．：；？！ to where the style puts them when the font that draws
@@ -68,16 +69,34 @@ extension CJKTypography {
             text.addAttribute(.baselineOffset, value: existing + raise, range: NSRange(location: move.index, length: 1))
             // Along: the mark's own advance stays; the gap before it grows by as much as
             // the gap after it shrinks. A mark that opens its range has nothing before it.
-            guard move.index > whole.location, move.along != 0 else { continue }
-            addKern(move.along, at: move.index - 1, in: text)
-            addKern(-move.along, at: move.index, in: text)
+            guard move.along != 0, let before = characterBefore(move.index, in: text),
+                  before.location >= whole.location else { continue }
+            addKern(move.along, to: before, in: text)
+            addKern(-move.along, to: NSRange(location: move.index, length: 1), in: text)
         }
     }
 
-    private static func addKern(_ amount: CGFloat, at index: Int, in text: NSMutableAttributedString) {
-        let existing = (text.attribute(.kern, at: index, effectiveRange: nil) as? NSNumber)
+    /// The character that ends just before `index`, when a kern on it changes its advance
+    /// as one glyph: a single UTF-16 unit, or a surrogate pair kerned whole. A kern on half
+    /// a pair split 𠀀 into two missing glyphs, 0.6 em wider. A combining sequence has no
+    /// such range: CoreText applied a 10 pt kern on e + U+0301 as 12.5 pt, −5.2 pt or
+    /// 5.3 pt by the unit that carried it (measured 2026-10-06), so it gets none.
+    static func characterBefore(_ index: Int, in text: NSAttributedString) -> NSRange? {
+        guard index > 0 else { return nil }
+        let string = text.string as NSString
+        let range = string.rangeOfComposedCharacterSequence(at: index - 1)
+        if range.length == 1 { return range }
+        if range.length == 2, CFStringIsSurrogateHighCharacter(string.character(at: range.location)),
+           CFStringIsSurrogateLowCharacter(string.character(at: range.location + 1)) {
+            return range
+        }
+        return nil
+    }
+
+    static func addKern(_ amount: CGFloat, to range: NSRange, in text: NSMutableAttributedString) {
+        let existing = (text.attribute(.kern, at: range.location, effectiveRange: nil) as? NSNumber)
             .map { CGFloat($0.doubleValue) } ?? 0
-        text.addAttribute(.kern, value: existing + amount, range: NSRange(location: index, length: 1))
+        text.addAttribute(.kern, value: existing + amount, range: range)
     }
 }
 
@@ -149,7 +168,17 @@ enum PunctuationPlacement {
     /// Ems from the square's centre. `along` is positive later in the line; `across`
     /// is positive below a horizontal line and right of a vertical one. The square's
     /// centre across the line is the centre of 田's ink in the same font.
-    struct Position: Equatable { let along: CGFloat; let across: CGFloat }
+    ///
+    /// `inkStart` and `inkEnd` are where the ink begins and ends along the line, and
+    /// `advance` the square's length, in ems from the square's start: the blank before
+    /// the ink is `inkStart`, the blank after it `advance - inkEnd`.
+    struct Position: Equatable {
+        let along: CGFloat
+        let across: CGFloat
+        var inkStart: CGFloat = 0
+        var inkEnd: CGFloat = 0
+        var advance: CGFloat = 1
+    }
 
     private struct Key: Hashable {
         let font: String
@@ -214,9 +243,15 @@ enum PunctuationPlacement {
         let (before, mark, after) = (boxes[0], boxes[1], boxes[2])
         // The square's centre is midway between the two 田, both ways, as a reader sees it.
         let centre = CGPoint(x: (before.midX + after.midX) / 2, y: (before.midY + after.midY) / 2)
+        // Pixel centres lie half a pixel inside the ink.
+        let advance = (edges[2] - edges[1]) / em
         if vertical {
-            return Position(along: (centre.y - mark.midY) / em, across: (mark.midX - centre.x) / em)
+            return Position(along: (centre.y - mark.midY) / em, across: (mark.midX - centre.x) / em,
+                            inkStart: (origin.y - mark.maxY - 0.5 - edges[1]) / em,
+                            inkEnd: (origin.y - mark.minY + 0.5 - edges[1]) / em, advance: advance)
         }
-        return Position(along: (mark.midX - centre.x) / em, across: (centre.y - mark.midY) / em)
+        return Position(along: (mark.midX - centre.x) / em, across: (centre.y - mark.midY) / em,
+                        inkStart: (mark.minX - 0.5 - origin.x - edges[1]) / em,
+                        inkEnd: (mark.maxX + 0.5 - origin.x - edges[1]) / em, advance: advance)
     }
 }
