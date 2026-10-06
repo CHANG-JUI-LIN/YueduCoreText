@@ -2,6 +2,23 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.6.2] - 2026-10-06
+
+### Added
+
+- `BrowserChapterDocument` and `BrowserChapterEvaluation`: a chapter's markup and stylesheets are parsed once, styled once for a configuration, and that one evaluation carries both the admission verdict (`capabilities`, with font requests) and the style tree a session lays out from. `HTMLLayoutDocument(evaluation:)` and `BrowserLayoutSession(evaluation:)` start from it instead of parsing the chapter again; `bodyInlineStyle` lets a host read its font-scale policy from the same parse.
+- `BrowserChapterEvaluation.accepts(_:)` / `rebound(to:)`: a session may add geometry, a font resolver or a diagnostic sink to the configuration after admission, but never change the cascade inputs the tree was computed for; a mismatch is refused, never laid out from stale values.
+
+### Changed
+
+- Admission judges matched declarations from the cascade's own rule matching (plus the elements the cascade never styles) rather than matching every rule against every element a second time. The verdict, its order, text-indent usage and font requests are unchanged; `BrowserLayoutCapabilityScanner` keeps its entry points as thin wrappers over the shared evaluation.
+- Pipeline metrics of a reused evaluation carry its `htmlParse` / `cssCollect` / `cssParse` / `styleTree` stage times.
+
+### Compatibility
+
+- Existing scanner, `HTMLLayoutDocument(input:configuration:)` and `BrowserLayoutSession(input:config:)` entry points are unchanged and still parse on their own.
+- iOS 17, Swift tools 6.0 and SwiftSoup 2.13.7 requirements are unchanged.
+
 ## [0.6.1] - 2026-09-30
 
 ### Added

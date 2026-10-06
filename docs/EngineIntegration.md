@@ -39,6 +39,24 @@ To use the published release in your own consumer, declare the GitHub URL with
   using its existing generation checks; task cancellation does not authorize stale results.
 - Metrics and diagnostic counters use locks; they do not own document/resource caches.
 
+## One parse per chapter
+
+`BrowserChapterDocument(input:)` parses a chapter's markup and stylesheets once.
+`evaluate(configuration:)` styles it for the reader configuration and returns a
+`BrowserChapterEvaluation`: the admission verdict (`capabilities`, including font
+requests) and the style tree that `HTMLLayoutDocument(evaluation:)` or
+`BrowserLayoutSession(evaluation:)` lay out from. A host that decides the engine,
+prepares fonts and then lays out therefore parses the chapter once, not three times;
+`bodyInlineStyle` serves its font-scale policy from the same parse.
+
+The tree's computed values belong to the configuration's cascade inputs (root font
+size, families, colors, line height, spacing, bold, alignment). After admission a host
+may add geometry, a font resolver captured after font preparation, or a diagnostic sink
+through `rebound(to:)`; a configuration with different cascade inputs is refused
+(`accepts(_:)` is false, the session initializers throw) and needs a new evaluation.
+The document and evaluation hold the DOM and are not Sendable: build, evaluate and
+hand off from one executor at a time, and drop them once the layout has taken them.
+
 ## Adapter and drawing boundary
 
 Reader retains chapter/spine management, CoreTextPageEngine fallback, browserAuto policy,

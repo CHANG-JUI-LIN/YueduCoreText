@@ -17,6 +17,8 @@ public final class BrowserLayoutSession {
     private let input: CSSFrontendInput
     private let config: BrowserLayoutConfig
     private let imageLoader: (String) -> UIImage?
+    /// The style tree admission already built for `config`, when the session has one.
+    private let preparedFrontend: BrowserLayoutDocument.PreparedFrontend?
     /// Incremented by the CALLER to invalidate in-flight work.
     public let generation: Int
     /// DEBUG-only: spine index for on-device diagnostics (set by the engine).
@@ -61,6 +63,28 @@ public final class BrowserLayoutSession {
         self.input = input
         self.config = config
         self.imageLoader = imageLoader
+        self.preparedFrontend = nil
+        self.generation = generation
+    }
+
+    /// Starts from the evaluation's style tree instead of parsing the chapter again.
+    /// `configuration` may differ from the evaluation's in geometry, resolver or
+    /// diagnostics, never in cascade inputs (see `HTMLLayoutDocument.init(evaluation:)`).
+    public init(
+        evaluation: BrowserChapterEvaluation,
+        configuration: BrowserLayoutConfig? = nil,
+        imageLoader: @escaping (String) -> UIImage?,
+        generation: Int
+    ) throws {
+        let configuration = configuration ?? evaluation.configuration
+        guard evaluation.accepts(configuration) else {
+            assertionFailure("layout configuration differs from the evaluation's cascade inputs")
+            throw HTMLLayoutError.layoutFailure("configuration differs from the evaluation's cascade inputs")
+        }
+        self.input = evaluation.document.input
+        self.config = configuration
+        self.imageLoader = imageLoader
+        self.preparedFrontend = evaluation.preparedFrontend
         self.generation = generation
     }
 
@@ -331,7 +355,7 @@ public final class BrowserLayoutSession {
     private func ensureInitialized() throws {
         guard walker == nil, pipeline == nil else { return }
         let document = BrowserLayoutDocument(
-            input: input, config: config, imageLoader: imageLoader
+            input: input, config: config, imageLoader: imageLoader, preparedFrontend: preparedFrontend
         )
         // The page canvas IS the full viewport (render area + content insets).
         let canvasSize = CGSize(

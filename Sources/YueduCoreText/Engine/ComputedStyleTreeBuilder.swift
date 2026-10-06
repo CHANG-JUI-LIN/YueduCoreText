@@ -147,6 +147,14 @@ final class ComputedStyleTreeBuilder {
     private let readerConfig: BrowserLayoutConfig
     private var nextNodeID = 1
 
+    /// Admission reads which rules matched at least one element. The cascade already
+    /// matches every rule against every element it styles, so it records the hits
+    /// here instead of the scanner matching the whole document a second time.
+    /// Elements the cascade never styles (the `<head>` subtree, descendants of a
+    /// hidden element) are not in `styledElements`; admission matches those itself.
+    private(set) var matchedRuleIndices: Set<Int> = []
+    private(set) var styledElements: Set<ObjectIdentifier> = []
+
     init(rules: [CSSRule], config: BrowserLayoutConfig, firstLetterRules: [CSSRule] = []) {
         self.firstLetterRules = firstLetterRules
         self.readerConfig = config
@@ -403,8 +411,10 @@ final class ComputedStyleTreeBuilder {
 
         let ctx = ApplyContext(parent: parent, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies)
 
-        let matched = rules
-            .filter { $0.selector.matches(element: element, parent: parentElement) }
+        let matchedIndices = rules.indices.filter { rules[$0].selector.matches(element: element, parent: parentElement) }
+        matchedRuleIndices.formUnion(matchedIndices)
+        styledElements.insert(ObjectIdentifier(element))
+        let matched = matchedIndices.map { rules[$0] }
             .sorted { lhs, rhs in
                 if lhs.specificity == rhs.specificity { return lhs.order < rhs.order }
                 return lhs.specificity < rhs.specificity

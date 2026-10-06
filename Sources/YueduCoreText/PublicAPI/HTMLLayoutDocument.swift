@@ -15,12 +15,38 @@ public final class HTMLLayoutDocument {
     private let input: CSSFrontendInput
     private let configuration: BrowserLayoutConfig
     private let imageLoader: (String) -> UIImage?
+    /// The chapter's admission evaluation, when layout starts from its style tree.
+    private let evaluation: BrowserChapterEvaluation?
 
     public init(input: CSSFrontendInput, configuration: BrowserLayoutConfig,
                 imageLoader: @escaping (String) -> UIImage? = { _ in nil }) {
         self.input = input
         self.configuration = configuration
         self.imageLoader = imageLoader
+        self.evaluation = nil
+    }
+
+    /// Lays out from an evaluation's style tree instead of parsing the chapter again.
+    /// `configuration` may add geometry, a font resolver or a diagnostic sink, but
+    /// must keep the evaluation's cascade inputs: computed values were resolved for
+    /// those, and a session must never lay out a stale tree under a changed font size.
+    /// Defaults to the evaluation's own configuration.
+    public init(evaluation: BrowserChapterEvaluation, configuration: BrowserLayoutConfig? = nil,
+                imageLoader: @escaping (String) -> UIImage? = { _ in nil }) throws {
+        let configuration = configuration ?? evaluation.configuration
+        guard evaluation.accepts(configuration) else {
+            assertionFailure("layout configuration differs from the evaluation's cascade inputs")
+            throw HTMLLayoutError.layoutFailure("configuration differs from the evaluation's cascade inputs")
+        }
+        self.input = evaluation.document.input
+        self.configuration = configuration
+        self.imageLoader = imageLoader
+        self.evaluation = evaluation
+    }
+
+    private func makePipelineDocument() -> BrowserLayoutDocument {
+        BrowserLayoutDocument(input: input, config: configuration, imageLoader: imageLoader,
+                              preparedFrontend: evaluation?.preparedFrontend)
     }
 
     public convenience init(html: String, css: [String] = [], baseURL: URL? = nil,
@@ -35,7 +61,8 @@ public final class HTMLLayoutDocument {
 
     /// Same capability parser/cascade as production; reports facts without choosing a fallback.
     public func capabilities() -> BrowserLayoutCapabilityResult {
-        BrowserLayoutCapabilityScanner.scan(input: input, writingMode: configuration.writingMode)
+        evaluation?.capabilities
+            ?? BrowserLayoutCapabilityScanner.scan(input: input, writingMode: configuration.writingMode)
     }
 
     private func validate() throws {
@@ -53,6 +80,10 @@ public final class HTMLLayoutDocument {
     @MainActor
     public func makePageSession(generation: Int = 0) throws -> BrowserLayoutSession {
         try validate()
+        if let evaluation {
+            return try BrowserLayoutSession(evaluation: evaluation, configuration: configuration,
+                                            imageLoader: imageLoader, generation: generation)
+        }
         return BrowserLayoutSession(input: input, config: configuration,
                                     imageLoader: imageLoader, generation: generation)
     }
@@ -64,7 +95,7 @@ public final class HTMLLayoutDocument {
         }
         if Task.isCancelled { throw HTMLLayoutError.cancelled }
         var metrics = LayoutMetrics()
-        let pipeline = try BrowserLayoutDocument(input: input, config: configuration, imageLoader: imageLoader)
+        let pipeline = try makePipelineDocument()
             .makeLayout(containerSize: CGSize(width: configuration.renderWidth + configuration.contentInsets.left + configuration.contentInsets.right,
                                               height: configuration.renderHeight + configuration.contentInsets.top + configuration.contentInsets.bottom),
                         metrics: &metrics, performLayout: false)
@@ -77,7 +108,7 @@ public final class HTMLLayoutDocument {
         if Task.isCancelled { throw HTMLLayoutError.cancelled }
         let size = CGSize(width: configuration.renderWidth + configuration.contentInsets.left + configuration.contentInsets.right,
                           height: configuration.renderHeight + configuration.contentInsets.top + configuration.contentInsets.bottom)
-        let pipeline = try BrowserLayoutDocument(input: input, config: configuration, imageLoader: imageLoader)
+        let pipeline = try makePipelineDocument()
             .makeLayout(containerSize: size)
         return BrowserContinuousLayout(pipeline: pipeline, configuration: configuration, imageLoader: imageLoader)
     }

@@ -17,6 +17,20 @@ struct LayoutMetrics {
     var total: TimeInterval {
         stages.values.reduce(0, +)
     }
+
+    /// Adds another run's stage times to this one (a parse done elsewhere, say).
+    mutating func add(_ other: LayoutMetrics) {
+        for (name, elapsed) in other.stages {
+            stages[name] = (stages[name] ?? 0) + elapsed
+        }
+        peakFootprintDelta = max(peakFootprintDelta, other.peakFootprintDelta)
+    }
+
+    mutating func add(stages other: [String: TimeInterval]) {
+        for (name, elapsed) in other {
+            stages[name] = (stages[name] ?? 0) + elapsed
+        }
+    }
 }
 
 /// Public entry point. `html` is the chapter's XHTML (inline `<style>` blocks are
@@ -33,6 +47,15 @@ final class BrowserLayoutDocument {
     private let config: BrowserLayoutConfig
     private let imageLoader: (String) -> UIImage?
     private let frontend: CSSFrontend
+    /// A style tree already built for `config` by a chapter evaluation; the
+    /// frontend is not run again for it.
+    private let preparedFrontend: PreparedFrontend?
+
+    /// The frontend's output together with the stage times that produced it.
+    struct PreparedFrontend {
+        let result: CSSFrontendResult
+        let stages: [String: TimeInterval]
+    }
 
     /// The collapsed source text of the last `renderPages` run.
     private(set) var lastSourceText = ""
@@ -58,12 +81,14 @@ final class BrowserLayoutDocument {
         input: CSSFrontendInput,
         config: BrowserLayoutConfig,
         imageLoader: ((String) -> UIImage?)? = nil,
-        frontend: CSSFrontend = LegacyCSSFrontend()
+        frontend: CSSFrontend = LegacyCSSFrontend(),
+        preparedFrontend: PreparedFrontend? = nil
     ) {
         self.input = input
         self.config = config
         self.imageLoader = imageLoader ?? { _ in nil }
         self.frontend = frontend
+        self.preparedFrontend = preparedFrontend
     }
 
     func renderPages(containerSize: CGSize, isolation: isolated (any Actor)? = #isolation) async throws -> [PageFragments] {
@@ -105,11 +130,17 @@ final class BrowserLayoutDocument {
         fragmentHeight: CGFloat? = nil,
         performLayout: Bool = true
     ) throws -> BrowserLayoutPipelineResult {
-        let frontendResult = try frontend.buildStyleTree(
-            input: input,
-            config: config,
-            metrics: &metrics
-        )
+        let frontendResult: CSSFrontendResult
+        if let preparedFrontend {
+            metrics.add(stages: preparedFrontend.stages)
+            frontendResult = preparedFrontend.result
+        } else {
+            frontendResult = try frontend.buildStyleTree(
+                input: input,
+                config: config,
+                metrics: &metrics
+            )
+        }
         // A partial frontend snapshot is diagnostic evidence, never permission
         // to render dropped declarations. Task 8 will route these facts through
         // whole-chapter admission; direct frontend injection must also fail closed.

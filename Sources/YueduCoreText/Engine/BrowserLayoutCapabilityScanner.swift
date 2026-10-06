@@ -85,22 +85,11 @@ public struct BrowserLayoutCapabilityResult: Equatable, Sendable {
 /// Phase 4B accepts: horizontal reflowable EPUB, block/inline, supported CSS Float
 /// (replaced images, explicit/percent width boxes, clear: left/right/both),
 /// supported box model, supported white-space, plain text, links, anchors, basic images.
+///
+/// These entry points parse the chapter for one verdict and discard the parse.
+/// Production admission goes through `BrowserChapterDocument.evaluate`, which
+/// judges the same facts and keeps the style tree for the layout that follows.
 public enum BrowserLayoutCapabilityScanner {
-
-    /// A matched declaration that would change layout and is not implemented.
-    /// Carries the matched element's tag/class and the property for diagnosis
-    /// (never book content).
-    struct UnsupportedDeclaration: CustomStringConvertible {
-        let feature: UnsupportedFeature
-        let selector: String
-        let tag: String
-        let classes: [String]
-        let property: String
-
-        var description: String {
-            "\(feature.description) via '\(selector)' on <\(tag)>\(classes.isEmpty ? "" : ".\(classes.joined(separator: "."))") property \(property)"
-        }
-    }
 
     public static func scan(input: CSSFrontendInput, writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
         scan(input: input, writingMode: writingMode, configuration: .init())
@@ -109,15 +98,23 @@ public enum BrowserLayoutCapabilityScanner {
     /// Uses the reader's font family and bold settings when reporting face demand.
     public static func scan(input: CSSFrontendInput, writingMode: ReaderWritingMode = .horizontal,
                             configuration: BrowserLayoutConfig) -> BrowserLayoutCapabilityResult {
-        scan(html: input.html, cssTexts: input.productionStylesheetTexts, writingMode: writingMode,
-             includeInline: !input.hasAuthoredStylesheetOrder, configuration: configuration)
+        guard let document = try? BrowserChapterDocument(input: input) else {
+            // Markup SwiftSoup cannot parse: the stylesheets are still judged for
+            // media queries, as they always were.
+            var reasons: [UnsupportedFeature] = []
+            for css in input.productionStylesheetTexts where cssContainsMediaQuery(css) {
+                reasons.append(.mediaQueries)
+            }
+            return BrowserLayoutCapabilityResult(supported: reasons.isEmpty, unsupportedFeatures: dedupe(reasons))
+        }
+        return document.evaluate(configuration: configuration, writingMode: writingMode).capabilities
     }
 
     public static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
-        scan(html: html, cssTexts: cssTexts, writingMode: writingMode, includeInline: true, configuration: .init())
+        scan(input: .currentCompatibility(html: html, cssTexts: cssTexts), writingMode: writingMode, configuration: .init())
     }
 
-    private static func referencedFonts(in root: ComputedStyleNode) -> Set<BrowserFontRequest> {
+    static func referencedFonts(in root: ComputedStyleNode) -> Set<BrowserFontRequest> {
         var requests: Set<BrowserFontRequest> = []
         func visit(_ node: ComputedStyleNode) {
             guard !node.style.isHidden else { return }
@@ -134,145 +131,21 @@ public enum BrowserLayoutCapabilityScanner {
         return requests
     }
 
-    private static func scan(html: String, cssTexts: [String], writingMode: ReaderWritingMode, includeInline: Bool, configuration: BrowserLayoutConfig) -> BrowserLayoutCapabilityResult {
-        func declaration(key: String, value: String) -> UnsupportedFeature? {
-            let k = key.lowercased(), v = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if writingMode == .verticalRTL {
-                if ["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].contains(k) {
-                    return v == "vertical-rl" || v == "inherit" ? nil : .verticalWritingMode
-                }
-                if k.contains("text-combine"), v != "none" { return .verticalWritingMode }
-                if k.contains("text-orientation"), v != "mixed" { return .verticalWritingMode }
-                if k == "min-height" || k == "min-width" { return .verticalWritingMode }
+    /// The feature a declaration would need, for the writing mode being judged.
+    static func declaration(key: String, value: String, writingMode: ReaderWritingMode) -> UnsupportedFeature? {
+        let k = key.lowercased(), v = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if writingMode == .verticalRTL {
+            if ["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].contains(k) {
+                return v == "vertical-rl" || v == "inherit" ? nil : .verticalWritingMode
             }
-            return layoutAffectingDeclaration(key: key, value: value)
+            if k.contains("text-combine"), v != "none" { return .verticalWritingMode }
+            if k.contains("text-orientation"), v != "mixed" { return .verticalWritingMode }
+            if k == "min-height" || k == "min-width" { return .verticalWritingMode }
         }
-        var reasons: [UnsupportedFeature] = []
-        var unsupportedDeclarations: [UnsupportedDeclaration] = []
-        var textIndentUsage: HorizontalTextIndentUsage = .none
-        var fontRequests: Set<BrowserFontRequest> = []
-
-        // @media anywhere in the stylesheet affects layout for every chapter
-        // that links it (the media query is not re-evaluated per element).
-        for css in cssTexts {
-            if cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
-        }
-
-        // DOM-level checks (script, MathML, SVG semantics, table/float/flex in markup).
-        if let doc = try? SwiftSoup.parse(html) {
-            let fullCSS = cssTexts + (includeInline ? LegacyCSSFrontendSupport.inlineStyles(in: doc) : [])
-            func hasAny(_ selector: String) -> Bool {
-                ((try? doc.select(selector).isEmpty()) ?? true) == false
-            }
-            if hasAny("script, iframe, object, embed, canvas, audio") {
-                reasons.append(.scriptedInteractive)
-            }
-            if hasAny("math") {
-                reasons.append(.mathML)
-            }
-            if hasAny("table, thead, tbody, tr, td, th, colgroup") {
-                reasons.append(.table)
-            }
-            let svgs = (try? doc.select("svg").array()) ?? []
-            if svgs.contains(where: {
-                BoxTreeBuilder.svgWrappedImageSource(
-                    SwiftSoupHTMLSemanticAdapter.snapshot($0)
-                ) == nil
-            }) {
-                reasons.append(.unsupportedSVG)
-            }
-
-            // CSS rules: match selectors against the real DOM. Only declarations
-            // from selectors that match at least one element are judged.
-            let elements = (try? doc.getAllElements().array()) ?? []
-            for css in LegacyCSSFrontendSupport.inlineStyles(in: doc) {
-                if cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
-            }
-            for css in fullCSS {
-                var matchedAnyUnsupported = false
-                for rule in CSSParser.parse(css: css, orderOffset: 0) {
-                    let matchedElements = elements.filter { element in
-                        guard rule.selector.matches(element: element, parent: element.parent()) else { return false }
-                        return true
-                    }
-                    guard !matchedElements.isEmpty else { continue }  // unmatched rule → ignore
-
-                    for property in rule.declarationOrder {
-                        guard let value = rule.declarations[property] else { continue }
-                        if let feature = declaration(key: property, value: value) {
-                            reasons.append(feature)
-                            if !matchedAnyUnsupported, let first = matchedElements.first {
-                                unsupportedDeclarations.append(UnsupportedDeclaration(
-                                    feature: feature, selector: rule.selector.debugDescription,
-                                    tag: first.tagName(), classes: ((try? first.classNames().map { $0 }) ?? []),
-                                    property: property
-                                ))
-                                matchedAnyUnsupported = true
-                            }
-                        }
-                    }
-                    for (property, value) in rule.importantDeclarations {
-                        if let feature = declaration(key: property, value: value) {
-                            reasons.append(feature)
-                        }
-                    }
-                }
-            }
-
-            // Element inline style attributes — always apply to this chapter.
-            for element in (try? doc.select("[style]").array()) ?? [] {
-                let inline = (try? element.attr("style")) ?? ""
-                let decl = CSSParser.parseDeclarationBlock(inline)
-                for (key, value) in decl.normal {
-                    if let reason = declaration(key: key, value: value) {
-                        reasons.append(reason)
-                    }
-                }
-                for (key, value) in decl.important {
-                    if let reason = declaration(key: key, value: value) {
-                        reasons.append(reason)
-                    }
-                }
-            }
-
-            // Ruby, Float and text-indent classification must use the SAME resolved cascade
-            // as layout. Replaying raw declarations here gets overrides,
-            // specificity and !important wrong.
-            if let body = doc.body() {
-                let parsed = LegacyCSSFrontendSupport.parseStylesheets(in: fullCSS)
-                let styleTree = ComputedStyleTreeBuilder(
-                    rules: parsed.regular,
-                    config: configuration, firstLetterRules: parsed.firstLetter
-                ).buildTree(body: body)
-                fontRequests = referencedFonts(in: styleTree)
-                let hasRubyMarkup = hasAny("ruby, rp, rt, rb, rtc")
-                if hasRubyMarkup,
-                   !HorizontalRubySupport.validate(
-                       styleTree,
-                       writingMode: writingMode
-                   ).isSupported {
-                    reasons.append(.ruby)
-                }
-                if writingMode == .verticalRTL, !VerticalTextSupport.accepts(styleTree) {
-                    reasons.append(.verticalWritingMode)
-                }
-                validateFloats(in: styleTree, hasFloatedAncestor: false, reasons: &reasons)
-                textIndentUsage = HorizontalTextIndentSupport.usage(in: styleTree)
-                if textIndentUsage == .unsupported {
-                    reasons.append(.textIndent)
-                }
-            }
-        }
-
-        return BrowserLayoutCapabilityResult(
-            supported: reasons.isEmpty,
-            unsupportedFeatures: dedupe(reasons),
-            textIndentUsage: textIndentUsage,
-            fontRequests: fontRequests
-        )
+        return layoutAffectingDeclaration(key: key, value: value)
     }
 
-    private static func validateFloats(
+    static func validateFloats(
         in node: ComputedStyleNode,
         hasFloatedAncestor: Bool,
         reasons: inout [UnsupportedFeature]
@@ -302,7 +175,7 @@ public enum BrowserLayoutCapabilityScanner {
 
     // MARK: - CSS text scanning (media queries only)
 
-    private static func cssContainsMediaQuery(_ css: String) -> Bool {
+    static func cssContainsMediaQuery(_ css: String) -> Bool {
         let cleaned = css.replacingOccurrences(of: #"(?s)/\*.*?(?:\*/|\z)"#, with: "", options: .regularExpression)
         return regexMatch(#"@media\b"#, in: cleaned)
     }
@@ -352,14 +225,8 @@ public enum BrowserLayoutCapabilityScanner {
         return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
-    private static func dedupe(_ reasons: [UnsupportedFeature]) -> [UnsupportedFeature] {
+    static func dedupe(_ reasons: [UnsupportedFeature]) -> [UnsupportedFeature] {
         var seen = Set<UnsupportedFeature>()
         return reasons.filter { seen.insert($0).inserted }
-    }
-}
-
-extension CSSSelector {
-    var debugDescription: String {
-        "selector"
     }
 }
