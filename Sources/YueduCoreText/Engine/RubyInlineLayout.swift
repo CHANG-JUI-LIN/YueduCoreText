@@ -118,7 +118,7 @@ enum RubyInlineLayout {
             }
         }
         if let cjkTypographyStyle {
-            CJKTypography.applyFonts(to: attributed, style: cjkTypographyStyle)
+            CJKTypography.apply(to: attributed, style: cjkTypographyStyle, vertical: writingMode == .verticalRTL)
         }
         if writingMode == .verticalRTL {
             attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,

@@ -171,10 +171,11 @@ enum InlineLayout {
             attributedCursor += shapedLength(of: run)
         }
 
-        // CJK text in its language's font, in both orientations and both engines; vertical
-        // orientation below reads the fonts this chooses.
+        // CJK text in its language's font, its punctuation where its style puts it, in
+        // both orientations and both engines; vertical orientation below reads the fonts
+        // this chooses.
         if let style = context.cjkTypographyStyle {
-            CJKTypography.applyFonts(to: attributed, style: style)
+            CJKTypography.apply(to: attributed, style: style, vertical: context.writingMode == .verticalRTL)
         }
 
         if context.writingMode == .verticalRTL {
