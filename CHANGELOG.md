@@ -11,6 +11,11 @@ W3C vertical typography (Yuedu Reader's `docs/superpowers/plans/2026-10-06-verti
 - `VerticalOrientation`: each character's UAX #50 `Vertical_Orientation`, from a table generated out of the Unicode Character Database 18.0.0 by `scripts/vertical_orientation.py`. The data's license is in `NOTICE`.
 - `ChineseScript` and `CJKTypographyStyle`: whether text is Traditional or Simplified Chinese, or Japanese, read from its characters; each style's language tag and reference font.
 - `BrowserLayoutConfig.cjkTypographyStyle`, the style a host decided for the chapter's text. nil keeps the previous behaviour.
+- `CJKTypography.applyOrientation(to:in:)` and `centreSideways(_:in:)`: vertical text set as CSS Writing Modes 3 `text-orientation: mixed` sets it.
+
+### Changed
+
+- Vertical lines no longer set every character upright. Latin letters, ASCII digits and other `R` characters lie on their side, centred on the column; `Tr` characters such as brackets and ー use the font's vertical alternate, or lie on their side when it has none.
 
 ## [0.6.2] - 2026-10-06
 

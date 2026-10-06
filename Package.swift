@@ -29,7 +29,7 @@ let package = Package(
         ),
         .testTarget(
             name: "YueduCoreTextTests",
-            dependencies: ["YueduCoreText"]
+            dependencies: ["YueduCoreText", "YueduCoreTextTypography"]
         ),
         .testTarget(
             name: "YueduCoreTextTypographyTests",

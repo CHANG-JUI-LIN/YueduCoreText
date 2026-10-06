@@ -2,6 +2,7 @@ import Testing
 import UIKit
 import CoreText
 @testable import YueduCoreText
+import YueduCoreTextTypography
 
 @Suite @MainActor
 struct VerticalLayoutTests {
@@ -64,8 +65,10 @@ extension VerticalLayoutTests {
         #expect(session.completedPages.count == 1)
         let list = DisplayListBuilder.build(for: try #require(session.completedPages.first), sourceText: session.sourceText)
         let item = try #require(list.items.compactMap { if case .text(let t) = $0 { return t }; return nil }.first)
-        let native = NSAttributedString(string: source, attributes: [.font:font,
-            kCTVerticalFormsAttributeName as NSAttributedString.Key:true])
+        // The native frame gets the same orientation the engine gives every vertical
+        // line: CSS Writing Modes 3 `text-orientation: mixed`, so ABC123 lies on its side.
+        let native = NSMutableAttributedString(string: source, attributes: [.font:font])
+        CJKTypography.applyOrientation(to: native)
         let frame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(native),
             CFRange(location:0,length:0), CGPath(rect:CGRect(origin:.zero,size:size),transform:nil),
             [kCTFrameProgressionAttributeName:CTFrameProgression.rightToLeft.rawValue] as CFDictionary)

@@ -1,6 +1,7 @@
 import CoreText
 import Foundation
 import UIKit
+import YueduCoreTextTypography
 
 /// One unit of inline content. `text` arrives ALREADY whitespace-collapsed by
 /// `BoxTreeBuilder` (per `WhiteSpaceMode`); `sourceRange` is the run's span in
@@ -170,8 +171,12 @@ enum InlineLayout {
         }
 
         if context.writingMode == .verticalRTL {
+            // The engine's own boxes (images, ruby, inline-box edges) stay upright, as
+            // they always have; every character is then set as CSS Writing Modes 3
+            // `text-orientation: mixed` sets it, by the pass the legacy engine runs too.
             attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
                                     value: true, range: NSRange(location: 0, length: attributed.length))
+            CJKTypography.applyOrientation(to: attributed)
         }
 
         let cssHeight = lineHeight ?? runs.first?.style.lineHeight
