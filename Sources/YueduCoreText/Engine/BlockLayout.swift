@@ -482,6 +482,12 @@ enum BlockLayout {
         if let maxWidth {
             s.contentWidth = min(s.contentWidth, max(0, maxWidth))
         }
+        // `min-inline-size` (canonical `minWidth`) wins over the maximum, as CSS
+        // 2 §10.4 has it. Nothing else sets it, so ordinary EPUBs are untouched.
+        let minWidth = style.minWidth.flatMap { resolve($0, style: style, ctx: ctx) }
+        if let minWidth, box.imageAttachment == nil {
+            s.contentWidth = max(s.contentWidth, minWidth)
+        }
 
         // CSS width:auto consumes the remaining inline space and treats auto
         // margins as zero. Once max-width constrains that width, however, the

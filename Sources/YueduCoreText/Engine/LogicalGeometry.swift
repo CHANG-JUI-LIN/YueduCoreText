@@ -131,6 +131,43 @@ struct LogicalGeometry {
         }
     }
 
+    /// The physical property a CSS logical property stands for in `mode`
+    /// (CSS Logical Properties 1, with `direction: ltr`): inline-start is the
+    /// left edge in horizontal-tb and the top edge in vertical-rl, block-start
+    /// the top and the right. nil for any other property.
+    ///
+    /// The cascade maps a logical declaration when it applies it, so a logical
+    /// and a physical declaration of the same side meet in one field and the
+    /// later one wins, as CSS has it. `max-inline-size` and `min-inline-size`
+    /// are not listed: their `none`/`auto` values are handled where they apply.
+    static func physicalProperty(forLogical property: String, mode: ReaderWritingMode) -> String? {
+        let side: String
+        let prefix: String
+        switch property {
+        case "inline-size":
+            return mode == .horizontal ? "width" : "height"
+        case "margin-inline-start", "margin-inline-end", "margin-block-start", "margin-block-end":
+            prefix = "margin"; side = String(property.dropFirst("margin-".count))
+        case "padding-inline-start", "padding-inline-end", "padding-block-start", "padding-block-end":
+            prefix = "padding"; side = String(property.dropFirst("padding-".count))
+        default:
+            return nil
+        }
+        let physical: String
+        switch (side, mode) {
+        case ("inline-start", .horizontal): physical = "left"
+        case ("inline-end", .horizontal): physical = "right"
+        case ("block-start", .horizontal): physical = "top"
+        case ("block-end", .horizontal): physical = "bottom"
+        case ("inline-start", .verticalRTL): physical = "top"
+        case ("inline-end", .verticalRTL): physical = "bottom"
+        case ("block-start", .verticalRTL): physical = "right"
+        case ("block-end", .verticalRTL): physical = "left"
+        default: return nil
+        }
+        return "\(prefix)-\(physical)"
+    }
+
     /// Maps a physical CSS edge (top/right/bottom/left) to its block-axis role.
     /// CSS width/height and physical-direction margins/paddings KEEP their
     /// physical semantics; the writing-mode mapper turns them into the logical

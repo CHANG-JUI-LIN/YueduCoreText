@@ -30,12 +30,16 @@ public final class BrowserChapterDocument {
     /// Styles the chapter for `configuration` and judges it for the browser engine.
     ///
     /// The computed values depend on the configuration's cascade inputs (font size,
-    /// families, colors, spacing, bold, alignment); a session built from the result
-    /// must be given a configuration with the same ones (`BrowserLayoutConfig.cascadeInputs`).
-    /// `writingMode` defaults to the configuration's.
+    /// families, colors, spacing, bold, alignment, writing mode); a session built from
+    /// the result must be given a configuration with the same ones
+    /// (`BrowserLayoutConfig.cascadeInputs`). `writingMode` defaults to the
+    /// configuration's; when given, it replaces the configuration's, because logical
+    /// properties (`margin-inline-start`, …) are mapped to physical sides by the cascade.
     public func evaluate(configuration: BrowserLayoutConfig,
                          writingMode: ReaderWritingMode? = nil) -> BrowserChapterEvaluation {
         let mode = writingMode ?? configuration.writingMode
+        var configuration = configuration
+        configuration.writingMode = mode
         var metrics = LayoutMetrics()
         let cascade = try? CurrentCSSFrontend.cascade(parsed, config: configuration, metrics: &metrics)
         let capabilities = BrowserChapterAdmission.judge(parsed: parsed, cascade: cascade, writingMode: mode)
@@ -99,13 +103,15 @@ extension BrowserLayoutConfig {
         let letterSpacing: CGFloat
         let isBold: Bool
         let defaultTextAlignment: NSTextAlignment
+        /// Logical properties resolve to physical sides by writing mode.
+        let writingMode: ReaderWritingMode
     }
 
     var cascadeInputs: CascadeInputs {
         CascadeInputs(rootFontSize: rootFontSize, fontFamilies: fontFamilies, textColor: textColor,
                       backgroundColor: backgroundColor, lineHeight: lineHeight, lineSpacing: lineSpacing,
                       paragraphSpacing: paragraphSpacing, letterSpacing: letterSpacing, isBold: isBold,
-                      defaultTextAlignment: defaultTextAlignment)
+                      defaultTextAlignment: defaultTextAlignment, writingMode: writingMode)
     }
 }
 

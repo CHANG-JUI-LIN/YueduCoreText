@@ -22,6 +22,7 @@ enum LogicalFlow {
         let p = s
         s.width = p.height; s.height = p.width
         s.maxWidth = p.maxHeight; s.maxHeight = p.maxWidth
+        s.minWidth = p.minHeight; s.minHeight = p.minWidth
         s.marginTop = p.marginRight; s.marginRight = p.marginBottom
         s.marginBottom = p.marginLeft; s.marginLeft = p.marginTop
         s.paddingTop = p.paddingRight; s.paddingRight = p.paddingBottom

@@ -203,6 +203,10 @@ struct SharedEvaluationEquivalenceTests {
         var changedFont = Self.layoutConfig
         changedFont.rootFontSize = 23
         #expect(!evaluation.accepts(changedFont))
+        // Logical properties are mapped to physical sides by the cascade.
+        var changedWritingMode = Self.layoutConfig
+        changedWritingMode.writingMode = .verticalRTL
+        #expect(!evaluation.accepts(changedWritingMode))
     }
 
     @Test func evaluationMetricsCarryTheParseStages() throws {

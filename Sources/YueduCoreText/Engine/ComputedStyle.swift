@@ -150,6 +150,9 @@ struct ComputedStyle: Equatable {
     var minHeight: CSSLength? = nil
     var maxHeight: CSSLength? = nil
     var maxWidth: CSSLength? = nil      // nil = none
+    /// Set only by `min-inline-size` (horizontal) or, canonically, by `LogicalFlow`
+    /// from a vertical inline minimum. nil = auto.
+    var minWidth: CSSLength? = nil
     var marginTop: CSSLength = .px(0)
     var marginRight: CSSLength = .px(0)
     var marginBottom: CSSLength = .px(0)

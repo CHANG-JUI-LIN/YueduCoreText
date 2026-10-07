@@ -301,7 +301,7 @@ final class ComputedStyleTreeBuilder {
         guard hasLetter else { return children }
         func styled(_ original: ComputedStyle) -> ComputedStyle {
             var value = original.inherited(from: original)
-            let ctx = ApplyContext(parent: original, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies)
+            let ctx = ApplyContext(parent: original, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies, writingMode: readerConfig.writingMode)
             for rule in matched { cascadeApply(rule.declarations, order: rule.declarationOrder, to: &value, ctx: ctx) }
             for rule in matched { cascadeApply(rule.importantDeclarations, order: rule.declarationOrder, to: &value, ctx: ctx) }
             value.finalizeLineHeight(rootFontSize: rootFontSize)
@@ -416,7 +416,7 @@ final class ComputedStyleTreeBuilder {
             to: &style
         )
 
-        let ctx = ApplyContext(parent: parent, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies)
+        let ctx = ApplyContext(parent: parent, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies, writingMode: readerConfig.writingMode)
 
         let matchedIndices = rules.indices.filter { rules[$0].selector.matches(element: element, parent: parentElement) }
         matchedRuleIndices.formUnion(matchedIndices)
@@ -508,6 +508,8 @@ fileprivate struct ApplyContext {
     let textColor: UIColor
     let backgroundColor: UIColor
     let configFontFamilies: [String]
+    /// Logical properties map to physical sides for this writing mode.
+    let writingMode: ReaderWritingMode
 }
 
 extension ComputedStyle {
@@ -575,6 +577,10 @@ enum ComputedStylePropertyApplier {
         let preserved = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = preserved.lowercased()
         guard !value.isEmpty else { return }
+        if let physical = LogicalGeometry.physicalProperty(forLogical: key, mode: ctx.writingMode) {
+            apply(key: physical, value: raw, to: &style, ctx: ctx)
+            return
+        }
         switch key {
         case "display":
             switch value {
@@ -706,6 +712,17 @@ enum ComputedStylePropertyApplier {
         case "min-height": style.minHeight = CSSLengthResolver.parse(value)
         case "max-height": style.maxHeight = CSSLengthResolver.parse(value)
         case "max-width": if let l = CSSLengthResolver.parse(value) { style.maxWidth = l }
+        case "max-inline-size":
+            // `none` lifts an earlier limit on the same side; an unparseable value is dropped.
+            let length = value == "none" ? nil : CSSLengthResolver.parse(value)
+            guard value == "none" || length != nil else { break }
+            if ctx.writingMode == .horizontal { style.maxWidth = length } else { style.maxHeight = length }
+        case "min-inline-size":
+            // Physical `min-width` stays unparsed, as before; vertical admission
+            // still refuses physical `min-height` (the scanner's declaration check).
+            let length = value == "auto" ? nil : CSSLengthResolver.parse(value)
+            guard value == "auto" || length != nil else { break }
+            if ctx.writingMode == .horizontal { style.minWidth = length } else { style.minHeight = length }
         case "margin": applyMarginShorthand(value, to: &style)
         case "margin-top": if let l = CSSLengthResolver.parse(value) { style.marginTop = l }
         case "margin-right": if let l = CSSLengthResolver.parse(value) { style.marginRight = l }
