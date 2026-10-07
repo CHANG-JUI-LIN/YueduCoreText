@@ -186,17 +186,17 @@ struct LogicalPropertyTests {
     @Test func maxInlineSizeWrapsAtTenCharactersInBothModes() async throws {
         for (name, rects) in try await Self.layouts("p { max-inline-size: 10em }", mode: .horizontal) {
             // Characters 0…9 share the first line; character 10 starts the next one.
-            #expect(rects[0..<10].allSatisfy { abs($0.minY - rects[0].minY) < 0.5 }, name)
-            #expect(rects[10].minY > rects[9].maxY - 0.5, name)
-            #expect(abs(rects[10].minX - rects[0].minX) < 0.5, name)
-            #expect(rects[9].maxX <= 10 * Self.fontSize + 0.5, name)
+            #expect(rects[0..<10].allSatisfy { abs($0.minY - rects[0].minY) < 0.5 }, "\(name)")
+            #expect(rects[10].minY > rects[9].maxY - 0.5, "\(name)")
+            #expect(abs(rects[10].minX - rects[0].minX) < 0.5, "\(name)")
+            #expect(rects[9].maxX <= 10 * Self.fontSize + 0.5, "\(name)")
         }
         for (name, rects) in try await Self.layouts("p { max-inline-size: 10em }", mode: .verticalRTL) {
             // Columns run right to left: character 10 starts the next column, to the left.
-            #expect(rects[0..<10].allSatisfy { abs($0.minX - rects[0].minX) < 0.5 }, name)
-            #expect(rects[10].maxX < rects[9].minX + 0.5, name)
-            #expect(abs(rects[10].minY - rects[0].minY) < 0.5, name)
-            #expect(rects[9].maxY <= 10 * Self.fontSize + 0.5, name)
+            #expect(rects[0..<10].allSatisfy { abs($0.minX - rects[0].minX) < 0.5 }, "\(name)")
+            #expect(rects[10].maxX < rects[9].minX + 0.5, "\(name)")
+            #expect(abs(rects[10].minY - rects[0].minY) < 0.5, "\(name)")
+            #expect(rects[9].maxY <= 10 * Self.fontSize + 0.5, "\(name)")
         }
     }
 
