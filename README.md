@@ -143,6 +143,8 @@ Page display lists use top-left, y-down **page coordinates**. Continuous display
 
 ## Supported scope
 
+Version 0.8.0 reads CSS logical properties (`margin-inline-start`, `padding-block-end`, `inline-size`, `max-inline-size`, …) and maps them to physical sides by `BrowserLayoutConfig.writingMode`, so one stylesheet is right in horizontal-tb and vertical-rl. The writing mode is therefore a cascade input: evaluate a chapter again when it changes.
+
 Version 0.7.0 sets CJK text as W3C and the Chinese and Japanese layout requirements describe, in both writing modes. With a `cjkTypographyStyle` in `BrowserLayoutConfig`, inline layout draws CJK text in its language's font, places and squeezes punctuation as CLREQ and JLREQ do, and orients vertical text by UAX #50; authored `text-combine-upright` becomes one upright cell. `YueduCoreTextTypography` exposes the same passes (`CJKTypography`, `TextCombineUpright`, `CombinedUpright`, `GlyphBoundary`) for a host's own text engine.
 
 Version 0.6.2 parses and styles a chapter once for both admission and layout: `BrowserChapterDocument(input:).evaluate(configuration:)` returns a `BrowserChapterEvaluation` carrying the verdict and the style tree, and `HTMLLayoutDocument(evaluation:)` / `BrowserLayoutSession(evaluation:)` lay out from it. A session may add geometry, a font resolver or a diagnostic sink to the configuration, never different cascade inputs.

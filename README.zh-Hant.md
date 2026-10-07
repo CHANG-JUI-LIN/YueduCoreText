@@ -143,6 +143,8 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 
 ## 支援範圍
 
+0.8.0 支援 CSS 邏輯屬性（`margin-inline-start`、`padding-block-end`、`inline-size`、`max-inline-size` 等），依 `BrowserLayoutConfig.writingMode` 對應到實體邊，同一份樣式表在橫排與直排都正確。因此書寫方向成為 cascade 的輸入：方向改變時要重新評估章節。
+
 0.7.0 依 W3C 與中日文排版需求排 CJK 文字，橫排直排皆然。在 `BrowserLayoutConfig` 帶入 `cjkTypographyStyle`，行內排版就會用文字所屬語言的字型、照 CLREQ／JLREQ 擺放並擠壓標點，直排依 UAX #50 決定每個字的方向；作者標記的 `text-combine-upright` 排成一個直立方格。`YueduCoreTextTypography` 公開同一套處理（`CJKTypography`、`TextCombineUpright`、`CombinedUpright`、`GlyphBoundary`），供宿主自己的文字引擎使用。
 
 0.6.2 讓能力判斷與排版共用同一次解析：`BrowserChapterDocument(input:).evaluate(configuration:)` 回傳同時帶判斷結果與 style tree 的 `BrowserChapterEvaluation`，`HTMLLayoutDocument(evaluation:)`／`BrowserLayoutSession(evaluation:)` 直接由它排版。排版配置可以在判斷後加上幾何、字型 resolver 或診斷 sink，但不能改變 cascade 的輸入。

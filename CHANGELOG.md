@@ -2,6 +2,24 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.8.0] - Unreleased
+
+CSS logical properties (Yuedu Reader's `docs/superpowers/plans/2026-10-07-aozora-complete-support.md`, Phase 2a).
+
+### Added
+
+- `margin-inline-start`, `margin-inline-end`, `margin-block-start`, `margin-block-end`, the matching `padding-` properties, `inline-size`, `max-inline-size` and `min-inline-size`, as CSS Logical Properties 1 has them with `direction: ltr`. Inline-start is the left edge in horizontal-tb and the top in vertical-rl; block-start the top and the right. The cascade maps each declaration to its physical side for `BrowserLayoutConfig.writingMode` when it applies it, so a logical and a physical declaration of the same side resolve by the cascade, the later one winning. One stylesheet written with them is right in both writing modes.
+- `min-inline-size` sets a minimum inline size that wins over the maximum (CSS 2 §10.4). Physical `min-width` is still not parsed, and vertical admission still refuses physical `min-height` and `min-width`.
+
+### Changed
+
+- The writing mode is a cascade input. `BrowserChapterDocument.evaluate(configuration:writingMode:)` styles the chapter for the writing mode it judges, and the evaluation's `configuration` carries that mode; `BrowserChapterEvaluation.accepts(_:)` and `rebound(to:)` refuse a configuration in the other writing mode, which needs a new evaluation. Hosts that already evaluate with their configuration's writing mode see no difference.
+
+### Compatibility
+
+- Chapters without logical properties lay out exactly as before.
+- iOS 17, Swift tools 6.0 and SwiftSoup 2.13.7 requirements are unchanged.
+
 ## [0.7.0] - 2026-10-07
 
 W3C vertical typography (Yuedu Reader's `docs/superpowers/plans/2026-10-06-vertical-typography.md`).
