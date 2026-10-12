@@ -2,6 +2,21 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.9.0] - 2026-10-12
+
+Bottom-justified pages (Yuedu Reader's 底部對齊).
+
+### Added
+
+- `BrowserLayoutConfig.bottomJustify`: on a page that ends because its next text line no longer fits, the space left below the last line is spread evenly over the page's line gaps — line k moves down by k × leftover ÷ (lines − 1) — so the first line keeps its place and the last line's ink sits on the content bottom. The page's fragments carry the moved geometry, so painting, hit testing, selection, links and highlights need no change. Decoration boxes follow the lines they hold.
+- A page keeps its lines when it ends at a forced break, an image, a float or a box start; when it is the document's last page; when the line that moved on is more than twice the last line's box (a display-size heading); when its last line is a block image; and when a box opens below its last line. Horizontal pages only: vertical writing and continuous scrolling are never justified.
+
+### Compatibility
+
+- Off by default; with `bottomJustify` false, pages lay out exactly as before.
+- Not a cascade input: a configuration that adds it to an evaluation's configuration is still accepted.
+- iOS 17, Swift tools 6.0 and SwiftSoup 2.13.7 requirements are unchanged.
+
 ## [0.8.0] - 2026-10-08
 
 CSS logical properties (Yuedu Reader's `docs/superpowers/plans/2026-10-07-aozora-complete-support.md`, Phase 2a).
