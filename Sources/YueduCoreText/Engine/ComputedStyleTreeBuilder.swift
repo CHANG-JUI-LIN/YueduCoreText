@@ -95,6 +95,11 @@ public struct BrowserLayoutConfig {
     /// and which fonts draw Han and kana. The host decides it from the script of
     /// the text; nil leaves CJK text to the fonts' own defaults.
     public var cjkTypographyStyle: CJKTypographyStyle? = nil
+    /// 底部對齊 (legado `textBottomJustify`): a page that ends because its next
+    /// text line no longer fits spreads the space left below its last line evenly
+    /// over its line gaps, so the last line sits on the content bottom. Paged
+    /// horizontal layout only; scroll layout and vertical writing ignore it.
+    public var bottomJustify: Bool = false
     public init(
         renderWidth: CGFloat = 320,
         renderHeight: CGFloat = 480,
@@ -113,6 +118,7 @@ public struct BrowserLayoutConfig {
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
         writingMode: ReaderWritingMode = .horizontal,
         cjkTypographyStyle: CJKTypographyStyle? = nil,
+        bottomJustify: Bool = false,
         onDiagnostic: ((CSSFrontendDiagnostic) -> Void)? = nil
     ) {
         self.renderWidth = renderWidth
@@ -132,7 +138,14 @@ public struct BrowserLayoutConfig {
         self.fontResolver = fontResolver
         self.writingMode = writingMode
         self.cjkTypographyStyle = cjkTypographyStyle
+        self.bottomJustify = bottomJustify
         self.onDiagnostic = onDiagnostic
+    }
+
+    /// Whether the paged walker applies 底部對齊. The walker runs in logical
+    /// coordinates, so the writing mode is decided here.
+    var pagesBottomJustify: Bool {
+        bottomJustify && writingMode == .horizontal
     }
 }
 

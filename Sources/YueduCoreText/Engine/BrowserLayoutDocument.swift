@@ -405,7 +405,8 @@ final class BrowserLayoutDocument {
                 PageFragmentation.fragment(
                     box: pipeline.rootBox,
                     pageSize: LogicalFlow.size(containerSize, mode: config.writingMode),
-                    contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode)
+                    contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode),
+                    bottomJustify: config.pagesBottomJustify
                 )
             }
         }

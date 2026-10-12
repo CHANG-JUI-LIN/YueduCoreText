@@ -220,6 +220,8 @@ struct PageWalker {
     struct StepInlineLineStart {
         let placementRect: DocumentRect
         let fills: [StepFill]
+        /// The line box this step belongs to; see `lineSerialCounter`.
+        var lineSerial: Int? = nil
     }
 
     struct StepFloat {
@@ -241,6 +243,7 @@ struct PageWalker {
         let sourceMapping: TextSourceMapping
         let renderedTextOverride: String?
         var isCombinedUpright = false
+        var lineSerial: Int? = nil
     }
 
     struct StepRuby {
@@ -249,6 +252,7 @@ struct PageWalker {
         let ruby: RubyBox
         let originX: CGFloat
         let writingMode: ReaderWritingMode
+        var lineSerial: Int? = nil
     }
 
     struct StepFill {
@@ -282,6 +286,8 @@ struct PageWalker {
         /// spacing. Zero for block images, and for an inline image that does
         /// not end its line, whose remaining runs still sit on this line.
         var trailingLineExtent: CGFloat = 0
+        /// The line box an inline image sits on, or the block image's own line.
+        var lineSerial: Int? = nil
     }
 
     private struct BoxFrame {
@@ -368,6 +374,19 @@ struct PageWalker {
     }
     private var pageEntry: FragmentainerEntry = .flowStart
 
+    /// 底部對齊 (legado `textBottomJustify`): when a page ends because the next
+    /// text line no longer fits, the leftover space below its last line is spread
+    /// evenly over its line gaps so the last line sits on the content bottom.
+    let bottomJustify: Bool
+    /// Identity of every line box (and every block image, which stands alone in
+    /// the flow) in walk order. Fragments carry it so a finished page can be
+    /// regrouped into its lines: runs of one line are separate fragments.
+    private var lineSerialCounter = 0
+    private var currentLineSerial = 0
+    private var blockImageLineSerials: Set<Int> = []
+    /// `currentPage[i]`'s line, or nil for a block decoration, which spans lines.
+    private var currentPageLineSerials: [Int?] = []
+
     /// Block-start margin adjoining the next content to be placed: the sum of
     /// the block-start margins of the boxes entered since the last emitted
     /// fragment, seeded with the root's own (collapsed) block-start margin.
@@ -388,12 +407,16 @@ struct PageWalker {
         pageSize: CGSize,
         writingMode: ReaderWritingMode = .horizontal,
         contentInsets: UIEdgeInsets = .zero,
-        isContinuous: Bool = false
+        isContinuous: Bool = false,
+        bottomJustify: Bool = false
     ) {
         // Phase 2C: the canvas is the actual page viewport, not the content
         // bounds. pageHeight (the paging stride in document space) is the
         // content flow height inside the canvas.
         self.isContinuous = isContinuous
+        // A scroll column has no page bottom. The paged callers walk in logical
+        // coordinates, so they decide the writing mode (`BrowserLayoutConfig`).
+        self.bottomJustify = bottomJustify && !isContinuous
         self.pageHeight = max(1, pageSize.height - contentInsets.top - contentInsets.bottom)
         self.pageRect = PageLocalRect(rawValue: CGRect(origin: .zero, size: pageSize))
         self.contentInsets = contentInsets
@@ -551,6 +574,8 @@ struct PageWalker {
             if let attachment = stack[index].box.imageAttachment,
                !stack[index].imageEmitted {
                 stack[index].imageEmitted = true
+                lineSerialCounter += 1
+                blockImageLineSerials.insert(lineSerialCounter)
                 let frame = stack[index]
                 let rect = DocumentRect(rawValue: CGRect(
                     x: frame.contentOrigin.x,
@@ -570,13 +595,16 @@ struct PageWalker {
                     linkTarget: attachment.linkTarget,
                     writingMode: writingMode,
                     rect: rect,
-                    alt: nil
+                    alt: nil,
+                    lineSerial: lineSerialCounter
                 ))
             }
             if stack[index].lineIndex < stack[index].box.lines.count {
                 let line = stack[index].box.lines[stack[index].lineIndex]
                 if !stack[index].inlineDecorationsEmitted {
                     stack[index].inlineDecorationsEmitted = true
+                    lineSerialCounter += 1
+                    currentLineSerial = lineSerialCounter
                     if !line.inlineDecorations.isEmpty {
                         let frame = stack[index]
                         return .inlineLineStart(StepInlineLineStart(
@@ -598,7 +626,8 @@ struct PageWalker {
                                     borderRight: decoration.paintsEndEdge ? Self.edge(style.borderRightWidth, style.borderRightStyle, style.borderColor) : .zero,
                                     nodeID: decoration.owner.nodeID, writingMode: writingMode
                                 )
-                            }
+                            },
+                            lineSerial: currentLineSerial
                         ))
                     }
                 }
@@ -618,7 +647,8 @@ struct PageWalker {
                             baseBaselineY: frame.contentOrigin.y + line.baseline,
                             ruby: ruby,
                             originX: frame.contentOrigin.x + line.contentX + run.x,
-                            writingMode: writingMode
+                            writingMode: writingMode,
+                            lineSerial: currentLineSerial
                         ))
                     }
                     if let combined = run.combined {
@@ -642,7 +672,8 @@ struct PageWalker {
                             sourceMapping: .linear(shapedRange: NSRange(
                                 location: 0, length: CTLineGetStringRange(combined.line).length)),
                             renderedTextOverride: nil,
-                            isCombinedUpright: true
+                            isCombinedUpright: true,
+                            lineSerial: currentLineSerial
                         ))
                     }
                     if let atomic = run.atomic {
@@ -682,7 +713,8 @@ struct PageWalker {
                             writingMode: writingMode,
                             rect: rect,
                             alt: nil,
-                            trailingLineExtent: endsLine ? max(0, lineBottom - rect.maxY) : 0
+                            trailingLineExtent: endsLine ? max(0, lineBottom - rect.maxY) : 0,
+                            lineSerial: currentLineSerial
                         ))
                     }
                     let rect = DocumentRect(rawValue: CGRect(
@@ -702,7 +734,8 @@ struct PageWalker {
                         color: run.style.color ?? .black,
                         ctLine: line.ctLine,
                         sourceMapping: .linear(shapedRange: run.shapedRange ?? run.sourceRange),
-                        renderedTextOverride: nil
+                        renderedTextOverride: nil,
+                        lineSerial: currentLineSerial
                     ))
                 }
                 stack[index].lineIndex += 1
@@ -783,10 +816,12 @@ struct PageWalker {
             if let page = place(step) { return page }
         }
         if !currentPage.isEmpty {
+            // The end of the flow, not a full column: the last page keeps its lines where they are.
             finalizeActiveDecorationsForCurrentPage()
             let page = PageFragments(index: currentIndex, pageRect: pageRect, fragments: currentPage)
             completedPages.append(page)
             currentPage = []
+            currentPageLineSerials = []
             currentIndex += 1
             return page
         }
@@ -836,15 +871,23 @@ struct PageWalker {
         return hasInk(currentPage)
     }
 
-    private mutating func advanceToPage(_ target: Int) -> PageFragments? {
+    /// - Parameter overflowLineHeight: the line box height of the text line (or ruby,
+    ///   or a line's inline decorations) moving to `target` because it no longer fits —
+    ///   the page ends because its column is full of text, the one case 底部對齊
+    ///   stretches. nil when an image, a float or a box start leaves the page.
+    private mutating func advanceToPage(_ target: Int, overflowLineHeight: CGFloat? = nil) -> PageFragments? {
         var flushed: PageFragments? = nil
         while target > currentIndex {
             finalizeActiveDecorationsForCurrentPage()
+            if let overflowLineHeight, flushed == nil, bottomJustify {
+                currentPage = bottomJustifiedCurrentPage(overflowLineHeight: overflowLineHeight)
+            }
             let page = PageFragments(index: currentIndex, pageRect: pageRect, fragments: currentPage)
             completedPages.append(page)
             flushed = flushed ?? page
             currentIndex += 1
             currentPage = []
+            currentPageLineSerials = []
             appendActiveDecorationFragmentsForCurrentPage()
             // Pagination itself ran out of room: an UNFORCED break. Author
             // breaks would set `.forcedBreak` instead, and the engine does not
@@ -892,18 +935,18 @@ struct PageWalker {
                 target += 1
                 flowShift += CGFloat(target) * pageHeight - shiftedY
             }
-            flushed = advanceToPage(target)
+            flushed = advanceToPage(target, overflowLineHeight: step.placementRect.height)
             _ = discardMarginAdjoiningBreak(step.placementRect.minY + flowShift, target: target)
         }
         for fill in step.fills {
             let document = DocumentRect(rawValue: fill.rect.rawValue.offsetBy(dx: 0, dy: flowShift))
-            currentPage.append(.fill(FillFragment(
+            appendToCurrentPage(.fill(FillFragment(
                 rect: canvasRect(forDocument: document, pageIndex: currentIndex),
                 documentRect: fill.rect, color: fill.color, cornerRadius: fill.cornerRadius,
                 borderTop: fill.borderTop, borderBottom: fill.borderBottom,
                 borderLeft: fill.borderLeft, borderRight: fill.borderRight,
                 nodeID: fill.nodeID, writingMode: fill.writingMode
-            )))
+            )), lineSerial: step.lineSerial)
         }
         return flushed
     }
@@ -928,7 +971,7 @@ struct PageWalker {
                 renderedTextOverride: step.renderedTextOverride
             )
             fragment.isCombinedUpright = step.isCombinedUpright
-            currentPage.append(.text(fragment))
+            appendToCurrentPage(.text(fragment), lineSerial: step.lineSerial)
             return nil
         }
         let shiftedY = step.rect.minY + flowShift
@@ -944,7 +987,7 @@ struct PageWalker {
             adjustedDocY = CGFloat(target) * pageHeight
             flowShift += adjustedDocY - shiftedY
         }
-        let flushed = advanceToPage(target)
+        let flushed = advanceToPage(target, overflowLineHeight: step.rect.height)
         adjustedDocY = discardMarginAdjoiningBreak(adjustedDocY, target: target)
         let adjustedDoc = DocumentRect(rawValue: CGRect(
             x: step.rect.minX, y: adjustedDocY,
@@ -966,13 +1009,13 @@ struct PageWalker {
             renderedTextOverride: step.renderedTextOverride
         )
         fragment.isCombinedUpright = step.isCombinedUpright
-        currentPage.append(.text(fragment))
+        appendToCurrentPage(.text(fragment), lineSerial: step.lineSerial)
         return flushed
     }
 
     private mutating func placeRuby(_ step: StepRuby) -> PageFragments? {
         if isContinuous {
-            currentPage.append(makeRubyGroup(step, displacementY: 0, pageIndex: 0))
+            appendToCurrentPage(makeRubyGroup(step, displacementY: 0, pageIndex: 0), lineSerial: step.lineSerial)
             return nil
         }
 
@@ -986,13 +1029,13 @@ struct PageWalker {
             adjustedDocY = CGFloat(target) * pageHeight
             flowShift += adjustedDocY - shiftedY
         }
-        let flushed = advanceToPage(target)
+        let flushed = advanceToPage(target, overflowLineHeight: step.placementRect.height)
         adjustedDocY = discardMarginAdjoiningBreak(adjustedDocY, target: target)
-        currentPage.append(makeRubyGroup(
+        appendToCurrentPage(makeRubyGroup(
             step,
             displacementY: adjustedDocY - step.placementRect.minY,
             pageIndex: currentIndex
-        ))
+        ), lineSerial: step.lineSerial)
         return flushed
     }
 
@@ -1056,7 +1099,7 @@ struct PageWalker {
 
     private mutating func placeFill(_ step: StepFill) -> PageFragments? {
         if isContinuous {
-            currentPage.append(.fill(FillFragment(
+            appendToCurrentPage(.fill(FillFragment(
                 rect: canvasRect(forDocument: step.rect, pageIndex: 0),
                 documentRect: step.rect,
                 color: step.color,
@@ -1065,7 +1108,7 @@ struct PageWalker {
                 borderLeft: step.borderLeft, borderRight: step.borderRight,
                 nodeID: step.nodeID,
                 writingMode: step.writingMode
-            )))
+            )), lineSerial: nil)
             return nil
         }
         let shiftedStartY = step.rect.minY + flowShift
@@ -1162,7 +1205,7 @@ struct PageWalker {
         }) {
             currentPage[existing] = .fill(fragment)
         } else {
-            currentPage.append(.fill(fragment))
+            appendToCurrentPage(.fill(fragment), lineSerial: nil)
         }
     }
 
@@ -1218,7 +1261,7 @@ struct PageWalker {
             // there is nothing to fit it to, and block layout already resolved
             // the used size against the container width. An image that still
             // overflows overflows — which is what a browser does too.
-            currentPage.append(.image(ImageFragment(
+            appendToCurrentPage(.image(ImageFragment(
                 source: step.source,
                 image: step.image,
                 sourceRange: step.sourceRange,
@@ -1228,7 +1271,7 @@ struct PageWalker {
                 rect: canvasRect(forDocument: step.rect, pageIndex: 0),
                 documentRect: step.rect,
                 alt: step.alt
-            )))
+            )), lineSerial: step.lineSerial)
             return nil
         }
         let shiftedY = step.rect.minY + flowShift
@@ -1306,7 +1349,7 @@ struct PageWalker {
         }
         let adjustedDoc = DocumentRect(rawValue: adjustedDocRect)
         let canvas = canvasRect(forDocument: adjustedDoc, pageIndex: currentIndex)
-        currentPage.append(.image(ImageFragment(
+        appendToCurrentPage(.image(ImageFragment(
             source: step.source,
             image: step.image,
             sourceRange: step.sourceRange,
@@ -1316,8 +1359,130 @@ struct PageWalker {
             rect: canvas,
             documentRect: step.rect,
             alt: step.alt
-        )))
+        )), lineSerial: step.lineSerial)
         return flushed
+    }
+
+    private mutating func appendToCurrentPage(_ fragment: Fragment, lineSerial: Int?) {
+        currentPage.append(fragment)
+        currentPageLineSerials.append(lineSerial)
+    }
+
+    // MARK: - 底部對齊
+
+    /// The in-progress page with its leftover space spread over its line gaps:
+    /// line k moves down by k × surplus / (lines − 1), so the first line keeps its
+    /// place and the last one's ink sits on the content bottom.
+    ///
+    /// Only for a page a text line overflowed, and only when that line is an
+    /// ordinary one — at most twice the last line's box. A taller line (a display
+    /// heading, a line carrying a tall inline image) can leave most of the page
+    /// empty, and spreading that would tear the page apart. legado has no break
+    /// reason and guesses from the leftover's size instead, which leaves every page
+    /// that ends at a paragraph with wide spacing unaligned. Like legado, a page
+    /// ending in a block image keeps its positions.
+    ///
+    /// Shifting the fragments here, before the page exists, keeps every consumer on
+    /// one geometry: drawing, hit-testing, selection, links and highlights are all
+    /// derived from the page's fragments. `documentRect` is left alone; it is the
+    /// unpaginated flow position and nothing paints from it.
+    private func bottomJustifiedCurrentPage(overflowLineHeight: CGFloat) -> [Fragment] {
+        var lineOrdinal: [Int: Int] = [:]
+        var lineSerials: [Int] = []
+        for case let serial? in currentPageLineSerials where lineOrdinal[serial] == nil {
+            lineOrdinal[serial] = lineSerials.count
+            lineSerials.append(serial)
+        }
+        guard lineSerials.count > 1, let lastSerial = lineSerials.last,
+              !blockImageLineSerials.contains(lastSerial) else { return currentPage }
+
+        let lastLine = lineSerials.count - 1
+        var lineTops = [CGFloat](repeating: .greatestFiniteMagnitude, count: lineSerials.count)
+        var lineBottoms = [CGFloat](repeating: -.greatestFiniteMagnitude, count: lineSerials.count)
+        var lastLineInkBottom = -CGFloat.greatestFiniteMagnitude
+        for (index, fragment) in currentPage.enumerated() {
+            guard let serial = currentPageLineSerials[index], let line = lineOrdinal[serial] else { continue }
+            let bounds = Self.bounds(of: fragment)
+            lineTops[line] = min(lineTops[line], bounds.minY)
+            lineBottoms[line] = max(lineBottoms[line], bounds.maxY)
+            if line == lastLine, let ink = Self.inkBottom(of: fragment) {
+                lastLineInkBottom = max(lastLineInkBottom, ink)
+            }
+        }
+        guard lastLineInkBottom > -.greatestFiniteMagnitude,
+              overflowLineHeight <= 2 * (lineBottoms[lastLine] - lineTops[lastLine]) else { return currentPage }
+
+        let contentBottom = contentInsets.top + pageHeight
+        let surplus = contentBottom - lastLineInkBottom
+        guard surplus > 0.5 else { return currentPage }
+        // A box that opens below the last line (its top fits, its first line was
+        // pushed) occupies the leftover space already: the lines may not move into it.
+        let boxOpensBelowLastLine = currentPage.indices.contains { index in
+            guard currentPageLineSerials[index] == nil, case .fill(let fill) = currentPage[index] else { return false }
+            return fill.rect.minY >= lineBottoms[lastLine] - 0.5
+        }
+        guard !boxOpensBelowLastLine else { return currentPage }
+        let step = surplus / CGFloat(lastLine)
+
+        return currentPage.enumerated().map { index, fragment in
+            if let serial = currentPageLineSerials[index], let line = lineOrdinal[serial] {
+                return Self.offset(fragment, dy: step * CGFloat(line))
+            }
+            // A block decoration spans lines: its top follows the first line it
+            // holds and its bottom the last; a slice running on past this page
+            // already ends at the content bottom and stays there. One holding no
+            // line (a rule between paragraphs) moves whole with the line below it.
+            guard case .fill(let fill) = fragment else { return fragment }
+            guard let firstHeld = lineTops.firstIndex(where: { $0 >= fill.rect.minY - 0.5 }) else { return fragment }
+            let lastHeld = max(firstHeld, lineBottoms.lastIndex { $0 <= fill.rect.maxY + 0.5 } ?? firstHeld)
+            let minY = fill.rect.minY + step * CGFloat(firstHeld)
+            let maxY = fill.rect.maxY >= contentBottom - 0.5
+                ? fill.rect.maxY
+                : fill.rect.maxY + step * CGFloat(lastHeld)
+            var rect = fill.rect.rawValue
+            rect.origin.y = minY
+            rect.size.height = max(0, maxY - minY)
+            return .fill(fill.with(rect: PageLocalRect(rawValue: rect)))
+        }
+    }
+
+    private static func bounds(of fragment: Fragment) -> CGRect {
+        switch fragment {
+        case .text(let text): return text.rect.rawValue
+        case .fill(let fill): return fill.rect.rawValue
+        case .image(let image): return image.rect.rawValue
+        case .group(let children):
+            return children.reduce(CGRect.null) { $0.union(bounds(of: $1)) }
+        }
+    }
+
+    /// Where the fragment's glyphs end: the baseline plus the line's descent, not
+    /// the line box, whose bottom carries the reader's line spacing.
+    private static func inkBottom(of fragment: Fragment) -> CGFloat? {
+        switch fragment {
+        case .text(let text):
+            guard let line = text.ctLine else { return text.rect.maxY }
+            var descent: CGFloat = 0
+            CTLineGetTypographicBounds(line, nil, &descent, nil)
+            return text.baselineY + descent
+        case .image(let image):
+            return image.rect.maxY
+        case .fill:
+            return nil
+        case .group(let children):
+            return children.compactMap { inkBottom(of: $0) }.max()
+        }
+    }
+
+    private static func offset(_ fragment: Fragment, dy: CGFloat) -> Fragment {
+        guard dy != 0 else { return fragment }
+        switch fragment {
+        case .text(let text): return .text(text.offsetBy(dy: dy))
+        case .fill(let fill):
+            return .fill(fill.with(rect: PageLocalRect(rawValue: fill.rect.rawValue.offsetBy(dx: 0, dy: dy))))
+        case .image(let image): return .image(image.offsetBy(dy: dy))
+        case .group(let children): return .group(children.map { offset($0, dy: dy) })
+        }
     }
 
     private static func makeFrame(_ box: BlockBox, contentOrigin: CGPoint) -> BoxFrame {
@@ -1338,13 +1503,74 @@ enum PageFragmentation {
         box: BlockBox,
         pageSize: CGSize,
         writingMode: ReaderWritingMode = .horizontal,
-        contentInsets: UIEdgeInsets = .zero
+        contentInsets: UIEdgeInsets = .zero,
+        bottomJustify: Bool = false
     ) -> [PageFragments] {
         var walker = PageWalker(
             box: box, pageSize: pageSize, writingMode: writingMode,
-            contentInsets: contentInsets
+            contentInsets: contentInsets, bottomJustify: bottomJustify
         )
         while walker.layoutNextPage() != nil {}
         return walker.completedPages
+    }
+}
+
+// MARK: - Page-local moves (底部對齊)
+
+extension TextFragment {
+    func offsetBy(dy: CGFloat) -> TextFragment {
+        var moved = TextFragment(
+            sourceRange: sourceRange,
+            nodeID: nodeID,
+            linkTarget: linkTarget,
+            writingMode: writingMode,
+            rect: PageLocalRect(rawValue: rect.rawValue.offsetBy(dx: 0, dy: dy)),
+            documentRect: documentRect,
+            baselineY: baselineY + dy,
+            font: font,
+            color: color,
+            ctLine: ctLine,
+            sourceMapping: sourceMapping,
+            renderedTextOverride: renderedTextOverride
+        )
+        moved.isCombinedUpright = isCombinedUpright
+        return moved
+    }
+}
+
+extension ImageFragment {
+    func offsetBy(dy: CGFloat) -> ImageFragment {
+        ImageFragment(
+            source: source,
+            image: image,
+            sourceRange: sourceRange,
+            nodeID: nodeID,
+            linkTarget: linkTarget,
+            writingMode: writingMode,
+            rect: PageLocalRect(rawValue: rect.rawValue.offsetBy(dx: 0, dy: dy)),
+            documentRect: documentRect,
+            alt: alt,
+            isBackgroundPaint: isBackgroundPaint
+        )
+    }
+}
+
+extension FillFragment {
+    func with(rect: PageLocalRect) -> FillFragment {
+        FillFragment(
+            rect: rect,
+            documentRect: documentRect,
+            color: color,
+            cornerRadius: cornerRadius,
+            borderTop: borderTop,
+            borderBottom: borderBottom,
+            borderLeft: borderLeft,
+            borderRight: borderRight,
+            nodeID: nodeID,
+            writingMode: writingMode,
+            fragmentPosition: fragmentPosition,
+            decorationID: decorationID,
+            isBackgroundPaint: isBackgroundPaint
+        )
     }
 }

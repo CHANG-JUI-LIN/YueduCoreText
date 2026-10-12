@@ -385,7 +385,8 @@ public final class BrowserLayoutSession {
         walker = PageWalker(
             box: result.rootBox,
             pageSize: LogicalFlow.size(canvasSize, mode: config.writingMode),
-            contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode)
+            contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode),
+            bottomJustify: config.pagesBottomJustify
         )
         #if DEBUG
         BrowserLayoutDeviceDiagnostic.summary("🔬 BROWSER_DEVICE sessionEnsure walkerCreated spine=\(diagnosticSpine) pageSize=\(canvasSize) rootLines=\(result.rootBox.lines.count) rootChildren=\(result.rootBox.children.count)")
