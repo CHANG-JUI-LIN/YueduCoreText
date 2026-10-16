@@ -94,6 +94,10 @@ enum CSSClear: Equatable {
     case none, left, right, both
 }
 
+enum CSSVerticalAlign: Equatable {
+    case baseline, sup, sub
+}
+
 struct ComputedStyle: Equatable {
     var display: CSSDisplay = .block
     var isHidden = false
@@ -106,6 +110,17 @@ struct ComputedStyle: Equatable {
     var cssFloat: CSSFloat = .none
     /// Used `clear`. Same strict rule.
     var cssClear: CSSClear = .none
+    var verticalAlign: CSSVerticalAlign = .baseline
+
+    /// CSS 2.1 §10.8.1 leaves the super/sub shift UA-defined; these match the
+    /// WebKit fractions EPUB stylesheets expect.
+    var verticalAlignOffset: CGFloat {
+        switch verticalAlign {
+        case .baseline: return 0
+        case .sup: return fontSize / 3
+        case .sub: return -fontSize / 5
+        }
+    }
 
     var isFloated: Bool {
         cssFloat == .left || cssFloat == .right
