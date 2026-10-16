@@ -50,8 +50,10 @@ struct BrowserVerticalAlignTests {
             """)
         let big = try #require(byText["世"], "base fragment missing")
         let sup = try #require(byText["獻"], "sup fragment missing")
-        // +⅓em at 10px ≈ +3.3 above the sibling's zero baseline.
-        #expect((try #require(Self.glyphY(sup))) - (try #require(Self.glyphY(big))) > 2)
+        // WebKit shifts by the PARENT box's font-size / 3 + 1: 20/3+1 ≈ 7.67 —
+        // the span's own 0.5em (would be ~3.3) must NOT be the base.
+        let shift = (try #require(Self.glyphY(sup))) - (try #require(Self.glyphY(big)))
+        #expect(abs(shift - (20.0 / 3 + 1)) < 0.75)
     }
 
     @Test func subscriptLowersRunBelowSharedBaseline() async throws {
@@ -61,8 +63,9 @@ struct BrowserVerticalAlignTests {
             """)
         let big = try #require(byText["世"], "base fragment missing")
         let sub = try #require(byText["獻"], "sub fragment missing")
-        // -⅕em at 20px = -4 below the sibling's zero baseline.
-        #expect((try #require(Self.glyphY(big))) - (try #require(Self.glyphY(sub))) > 2)
+        // Parent box's font-size / 5 + 1: 40/5+1 = 9 below the sibling's baseline.
+        let shift = (try #require(Self.glyphY(big))) - (try #require(Self.glyphY(sub)))
+        #expect(abs(shift - (40.0 / 5 + 1)) < 0.75)
     }
 
     @Test func superscriptGrowsLineBoxAbove() async throws {
@@ -78,6 +81,8 @@ struct BrowserVerticalAlignTests {
             """)
         let plainNext = try #require(plain["界"], "plain next-line fragment missing")
         let raisedNext = try #require(raised["界"], "raised next-line fragment missing")
-        #expect(raisedNext.rect.rawValue.minY - plainNext.rect.rawValue.minY > 4)
+        // Same-size span: the line box grows by exactly the shift, 20/3+1 ≈ 7.67.
+        let growth = raisedNext.rect.rawValue.minY - plainNext.rect.rawValue.minY
+        #expect(abs(growth - (20.0 / 3 + 1)) < 1)
     }
 }

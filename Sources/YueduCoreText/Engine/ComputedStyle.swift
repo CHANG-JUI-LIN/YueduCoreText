@@ -112,15 +112,11 @@ struct ComputedStyle: Equatable {
     var cssClear: CSSClear = .none
     var verticalAlign: CSSVerticalAlign = .baseline
 
-    /// CSS 2.1 §10.8.1 leaves the super/sub shift UA-defined; these match the
-    /// WebKit fractions EPUB stylesheets expect.
-    var verticalAlignOffset: CGFloat {
-        switch verticalAlign {
-        case .baseline: return 0
-        case .sup: return fontSize / 3
-        case .sub: return -fontSize / 5
-        }
-    }
+    /// Resolved super/sub baseline shift (0 for baseline). CSS 2.1 §10.8.1
+    /// leaves the amount UA-defined; the value is computed from the PARENT
+    /// box's font-size, never this element's own — see the vertical-align
+    /// handling in ComputedStyleTreeBuilder.
+    var verticalAlignOffset: CGFloat = 0
 
     var isFloated: Bool {
         cssFloat == .left || cssFloat == .right

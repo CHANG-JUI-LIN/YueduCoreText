@@ -623,11 +623,19 @@ enum ComputedStylePropertyApplier {
             }
         case "vertical-align":
             // Only super/sub shift the baseline; top/middle/length values
-            // degrade to baseline instead of rejecting the chapter.
+            // degrade to baseline instead of rejecting the chapter. The shift
+            // matches WebKit (InlineLineBoxVerticalAligner): the PARENT box's
+            // font-size / 3 + 1 up (sub: / 5 + 1 down).
             switch value {
-            case "baseline": style.verticalAlign = .baseline
-            case "super", "-epub-super": style.verticalAlign = .sup
-            case "sub", "-epub-sub": style.verticalAlign = .sub
+            case "baseline":
+                style.verticalAlign = .baseline
+                style.verticalAlignOffset = 0
+            case "super", "-epub-super":
+                style.verticalAlign = .sup
+                style.verticalAlignOffset = ctx.parent.fontSize / 3 + 1
+            case "sub", "-epub-sub":
+                style.verticalAlign = .sub
+                style.verticalAlignOffset = -(ctx.parent.fontSize / 5 + 1)
             default: break
             }
         case "background-image":
