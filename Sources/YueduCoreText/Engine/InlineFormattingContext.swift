@@ -37,6 +37,9 @@ struct InlineFormattingContext {
     let fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?
     let floatContext: FloatContext?
     let blockOffsetY: CGFloat
+    /// The container content box's inline origin in FloatContext coordinates;
+    /// float exclusions are projected into local coordinates from it.
+    let inlineOffsetX: CGFloat
     let firstLineConstraint: InlineFirstLineConstraint
     let paragraphStyle: ComputedStyle?
     let fontCache: InlineFontCache?
@@ -52,6 +55,7 @@ struct InlineFormattingContext {
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
         floatContext: FloatContext?,
         blockOffsetY: CGFloat,
+        inlineOffsetX: CGFloat = 0,
         firstLineConstraint: InlineFirstLineConstraint = .none,
         paragraphStyle: ComputedStyle? = nil,
         fontCache: InlineFontCache? = nil,
@@ -65,6 +69,7 @@ struct InlineFormattingContext {
         self.fontResolver = fontResolver
         self.floatContext = floatContext
         self.blockOffsetY = blockOffsetY
+        self.inlineOffsetX = inlineOffsetX
         self.firstLineConstraint = firstLineConstraint
         self.paragraphStyle = paragraphStyle
         self.fontCache = fontCache
@@ -81,7 +86,10 @@ struct InlineFormattingContext {
     }
 
     func baseAvailableInterval(y: CGFloat, height: CGFloat) -> InlineInterval {
-        floatContext?.availableInterval(y: y, height: height) ?? baseInterval
+        floatContext?.availableInterval(
+            y: y, height: height,
+            inlineRange: inlineOffsetX ..< (inlineOffsetX + containingInlineSize)
+        ) ?? baseInterval
     }
 
     func availableInterval(
