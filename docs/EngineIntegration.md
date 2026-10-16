@@ -14,7 +14,7 @@ and the optional workspace described below are not needed by other apps.
 `Examples/StandaloneConsumer` is a separate library/test package that imports only
 public APIs. Its local path dependency supports development in this repository.
 To use the published release in your own consumer, declare the GitHub URL with
-`.upToNextMinor(from: "0.10.0")` and link the `YueduCoreText` product.
+`.upToNextMinor(from: "0.10.1")` and link the `YueduCoreText` product.
 
 ## Execution contract
 
@@ -61,14 +61,36 @@ host. Use them on one executor at a time and drop them once the layout has taken
 They move between isolation domains as `sending` values: `BrowserChapterDocument.parse(input:)`
 and `BrowserChapterDocument.evaluate(_:configuration:writingMode:)` run on the global
 concurrent executor and hand the result to the caller, so a main-actor host needs no
-wrapper to parse and evaluate off the main thread:
+wrapper to parse and evaluate off the main thread.
+
+`evaluate` takes the configuration as `sending` too, so the configuration must be
+disconnected: nothing else may still reach it. One returned by an actor-isolated method
+is not. The closures that method forms (`fontResolver`, `textTransform`, `onDiagnostic`)
+belong to its actor, and so does the configuration that holds them; even a `-> sending`
+result is refused there. Build the configuration in a nonisolated function, from
+Sendable inputs the actor reads for it, with `@Sendable` resolvers:
 
 ```swift
+struct ConfigurationInputs: Sendable {   // read on the host's actor
+    var renderWidth: CGFloat
+    var rootFontSize: CGFloat
+    var fontResolver: (@Sendable ([String], Int, Bool, CGFloat) -> UIFont?)?
+}
+
+nonisolated func makeConfiguration(_ inputs: ConfigurationInputs) -> BrowserLayoutConfig {
+    BrowserLayoutConfig(renderWidth: inputs.renderWidth, rootFontSize: inputs.rootFontSize,
+                        fontResolver: inputs.fontResolver)
+}
+
 let document = try await BrowserChapterDocument.parse(input: input)
-let configuration = makeConfiguration(fontScale: document.bodyInlineStyle)
+let configuration = makeConfiguration(inputs(fontScale: document.bodyInlineStyle))
 let evaluation = await BrowserChapterDocument.evaluate(document, configuration: configuration)
 // From here on, reach the document and the configuration only through `evaluation`.
 ```
+
+The same holds for the evaluation itself: one the host stored in an actor-isolated
+property belongs to that actor from then on, even after it is removed, and can no
+longer be sent. Hand it from `evaluate` to the code that lays it out instead.
 
 A document and every evaluation made from it (`rebound(to:)` included) share the DOM,
 so the compiler moves them as one value.
@@ -87,7 +109,7 @@ Lexbor remains experimental in the Reader test target; it is not a package depen
 
 ## Remote integration
 
-Use https://github.com/CHANG-JUI-LIN/YueduCoreText with a minimum version of 0.10.0.
+Use https://github.com/CHANG-JUI-LIN/YueduCoreText with a minimum version of 0.10.1.
 Reader's normal Yuedu-Reader.xcodeproj resolves that published dependency; the sibling
 workspace is optional for engine development. Normal remote verification must use the
 project without the local override and must inspect the resolved version and revision.
