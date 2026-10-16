@@ -130,6 +130,14 @@ struct ComputedStyle: Equatable {
     /// Transient winning specified length. The style builder resolves this only
     /// after the complete cascade has selected the final font size.
     var pendingLineHeightLength: CSSLength? = nil
+    /// Resolved `letter-spacing` in px; nil = unspecified, so the reader-config
+    /// default (`configLetterSpacing`) applies — authored declarations win over
+    /// the reader default, as in the browser cascade. em resolves against this
+    /// element's final font size, so the value inherits as an absolute length.
+    var letterSpacing: CGFloat? = nil
+    /// Transient winning specified length, resolved only after the complete
+    /// cascade has selected the final font size.
+    var pendingLetterSpacingLength: CSSLength? = nil
     var whiteSpace: WhiteSpaceMode = .normal
     /// Inherited specified/computed value. Percentages remain symbolic until
     /// BlockLayout has resolved this block container's final inline size.
@@ -224,6 +232,18 @@ extension ComputedStyle {
         pendingLineHeightLength = nil
     }
 
+    mutating func finalizeLetterSpacing(rootFontSize: CGFloat) {
+        guard let length = pendingLetterSpacingLength else { return }
+        // letter-spacing may go negative (title pages tighten glyphs with it).
+        letterSpacing = CSSLengthResolver.resolve(
+            length,
+            emBase: fontSize,
+            remBase: rootFontSize,
+            percentBase: fontSize
+        )
+        pendingLetterSpacingLength = nil
+    }
+
     mutating func finalizeBorderLengths(rootFontSize: CGFloat) {
         func resolved(_ length: CSSLength?) -> CGFloat? {
             guard let length else { return nil }
@@ -273,6 +293,7 @@ extension ComputedStyle {
         style.wordBreak = parent.wordBreak
         style.textAlignLast = parent.textAlignLast
         style.lineHeightMultiplier = parent.lineHeightMultiplier
+        style.letterSpacing = parent.letterSpacing
         style.pendingLineHeightLength = nil
         return style
     }
