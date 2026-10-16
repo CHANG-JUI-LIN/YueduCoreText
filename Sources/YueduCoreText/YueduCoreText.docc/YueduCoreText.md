@@ -20,6 +20,14 @@ Content metrics, unit maps, performance stages, and performance metadata are
 `Sendable`. ``TextSelectionManager`` is mutable and intentionally not
 `Sendable`; confine each instance to one actor or serial queue.
 
+``BrowserChapterDocument`` and ``BrowserChapterEvaluation`` hold a chapter's DOM
+and the host's configuration closures, so they are not `Sendable` either. They move
+between isolation domains as `sending` values:
+``BrowserChapterDocument/parse(input:)`` and
+``BrowserChapterDocument/evaluate(_:configuration:writingMode:)`` run on the global
+concurrent executor and hand their result to the caller. ``CSSFrontendInput`` is
+`Sendable`.
+
 ### Privacy
 
 ``ReaderPerfTrace`` writes local Points of Interest signposts and does not

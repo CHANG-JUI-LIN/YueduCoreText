@@ -2,6 +2,29 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.10.0] - 2026-10-16
+
+A chapter's document and evaluation move between isolation domains (Yuedu Reader's Swift 6 concurrency cleanup).
+
+### Added
+
+- `BrowserChapterDocument.parse(input:)` and `BrowserChapterDocument.evaluate(_:configuration:writingMode:)`: async forms of `init(input:)` and `evaluate(configuration:writingMode:)` that run on the global concurrent executor and return their result as `sending`. A host on the main actor parses and evaluates a chapter off it and receives the document and the evaluation back with no Sendable wrapper; the compiler checks that nothing else still holds them.
+- `CSSFrontendInput`, `AuthorStylesheet`, `StylesheetIdentity` and `CSSFrontendDiagnostic` are `Sendable`. They are plain values.
+
+### Not Sendable, by design
+
+- `BrowserChapterDocument` and `BrowserChapterEvaluation` stay non-Sendable. The document keeps the SwiftSoup DOM, which writes its own indexes while it is read, so two threads reading it race. An evaluation keeps that document and a `BrowserLayoutConfig` whose closures (`fontResolver`, `textTransform`, `onDiagnostic`) belong to the host. Both are used on one executor at a time and move between isolation domains as `sending` values. A document and every evaluation made from it, `rebound(to:)` included, share the DOM and move together.
+
+### Migration
+
+- A host that moved them out of `Task.detached` through an `@unchecked Sendable` box can drop the box: `let document = try await BrowserChapterDocument.parse(input: input)`, read `document.bodyInlineStyle` if it needs it, then `let evaluation = await BrowserChapterDocument.evaluate(document, configuration: configuration)`. After that call, reach the document and the configuration only through the evaluation.
+- The new functions run at the caller's task priority, where `Task.detached(priority:)` set its own.
+
+### Compatibility
+
+- `init(input:)` and `evaluate(configuration:writingMode:)` are unchanged, and evaluations lay out exactly as before.
+- iOS 17, Swift tools 6.0 (Xcode 16) and SwiftSoup 2.13.7 requirements are unchanged.
+
 ## [0.9.0] - 2026-10-12
 
 Bottom-justified pages (Yuedu Reader's 底部對齊).
