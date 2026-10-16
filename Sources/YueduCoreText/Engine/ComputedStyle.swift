@@ -177,6 +177,10 @@ struct ComputedStyle: Equatable {
     var borderColor: UIColor?
     var borderRadius: CGFloat = 0
     var pendingBorderRadius: CSSLength? = nil
+    /// Authored `transform: rotate(<angle>)` in degrees (paint-only; layout is
+    /// unaffected per CSS). nil = none. Other transform functions and
+    /// `transform-origin` are not parsed.
+    var transformRotate: CGFloat? = nil
     var configParagraphSpacing: CGFloat = 0
     var configLineSpacing: CGFloat = 0
     var configLetterSpacing: CGFloat = 0
