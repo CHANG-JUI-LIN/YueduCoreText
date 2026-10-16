@@ -178,17 +178,23 @@ final class BrowserLayoutDocument {
         }
         let contentWidth = max(1, containerSize.width - config.contentInsets.left - config.contentInsets.right)
         let contentHeight = max(1, containerSize.height - config.contentInsets.top - config.contentInsets.bottom)
+        // Viewport units resolve against the laid-out coordinate system, which
+        // vertical layout transposes — same base as `containerWidth` below.
+        let viewportWidth = config.writingMode == .horizontal ? contentWidth : contentHeight
+        let viewportHeight = fragmentHeight ?? (config.writingMode == .horizontal ? contentHeight : contentWidth)
         metrics.time("layout") {
             if performLayout { _ = BlockLayout.layOut(
                 root: rootBox,
-                containerWidth: config.writingMode == .horizontal ? contentWidth : contentHeight,
+                containerWidth: viewportWidth,
                 rootFontSize: config.rootFontSize,
                 writingMode: .horizontal,
                 textWritingMode: config.writingMode,
                 sourceText: sourceText.text,
                 fontResolver: config.fontResolver,
                 cjkTypographyStyle: config.cjkTypographyStyle,
-                fragmentHeight: fragmentHeight
+                fragmentHeight: fragmentHeight,
+                viewportHeight: viewportHeight,
+                viewportWidth: viewportWidth
             ) }
         }
         if let fragmentHeight,

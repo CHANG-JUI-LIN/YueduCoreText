@@ -91,7 +91,8 @@ private extension CSSLength {
         let value: CGFloat
         switch self {
         case .px(let candidate), .pt(let candidate), .em(let candidate),
-             .rem(let candidate), .percent(let candidate):
+             .rem(let candidate), .percent(let candidate),
+             .vh(let candidate), .vw(let candidate):
             value = candidate
         case .auto:
             return nil
