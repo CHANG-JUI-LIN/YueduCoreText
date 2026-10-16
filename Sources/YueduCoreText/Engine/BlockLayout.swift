@@ -262,7 +262,8 @@ enum BlockLayout {
             box.inlineRuns = resolveInlineReplacedSizes(
                 box.inlineRuns,
                 containingInlineSize: box.contentSize.width,
-                rootFontSize: rootFontSize
+                rootFontSize: rootFontSize,
+                fragmentHeight: fragmentHeight
             )
             let inlineFormattingSize = box.contentSize.width
             // FloatContext retains every placed float for sibling clearance.
@@ -545,16 +546,24 @@ enum BlockLayout {
     private static func resolveInlineReplacedSizes(
         _ runs: [InlineRun],
         containingInlineSize: CGFloat,
-        rootFontSize: CGFloat
+        rootFontSize: CGFloat,
+        fragmentHeight: CGFloat? = nil
     ) -> [InlineRun] {
         runs.map { run in
             guard let atomic = run.atomic else { return run }
-            let usedSize = resolveReplacedSize(
+            var usedSize = resolveReplacedSize(
                 intrinsic: atomic.image.size,
                 style: run.style,
                 containerWidth: containingInlineSize,
                 rootFontSize: rootFontSize
             )
+            // An inline image taller than a full fragment must scale here, not
+            // in PageWalker: line breaking, alignment, and line metrics all read
+            // the used size, and a later shrink would leave them stale.
+            if let fragmentHeight, usedSize.height > fragmentHeight {
+                let scale = fragmentHeight / usedSize.height
+                usedSize = CGSize(width: max(1, usedSize.width * scale), height: fragmentHeight)
+            }
             guard usedSize != atomic.usedSize else { return run }
             var resolved = InlineRun(
                 text: run.text,
