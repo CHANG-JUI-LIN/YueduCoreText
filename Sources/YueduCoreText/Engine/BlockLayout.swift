@@ -354,8 +354,16 @@ enum BlockLayout {
         }
 
         box.contentSize.height = max(0, totalHeight)
-        if case .px(let fixed) = box.style.height {
-            box.contentSize.height = fixed
+        // Percentage heights stay auto: normal-flow layout has no definite
+        // containing-block height to resolve them against.
+        if case .percent = box.style.height {
+        } else if let used = CSSLengthResolver.resolve(
+            box.style.height,
+            emBase: box.style.fontSize,
+            remBase: rootFontSize,
+            percentBase: 0
+        ) {
+            box.contentSize.height = max(0, used)
         }
         if let minimum = box.style.minHeight, case .percent = minimum {
             // An indefinite block-height percentage computes to zero here.
