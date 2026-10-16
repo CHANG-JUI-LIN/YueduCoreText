@@ -31,6 +31,27 @@ struct BrowserSyntheticBoldTests {
         let offset = try #require((attrs[BrowserTextAttributes.syntheticBoldOffset] as? NSNumber)?.doubleValue)
         #expect(abs(offset - 20.0 / 36.0) < 0.001)
         #expect(attrs[.strokeWidth] == nil)
+        // The advance grows by the same offset so the second pass has room.
+        let kern = try #require((attrs[.kern] as? NSNumber)?.doubleValue)
+        #expect(abs(kern - 20.0 / 36.0) < 0.001)
+    }
+
+    @Test func syntheticBoldWidensAdvancesForLayout() async throws {
+        let font = try #require(UIFont(name: "Zapfino", size: 17))
+        let resolver: ([String], Int, Bool, CGFloat) -> UIFont? = { families, _, _, size in
+            families.contains("Zapfino") ? font.withSize(size) : nil
+        }
+        let css = "body { font-family: Zapfino; margin: 0; padding: 0; line-height: 1; } p { margin: 0; }"
+        let (pages, _) = try await BrowserLayoutTestSupport.layout(
+            "<html><body><p><b>BBBB</b></p><p>BBBB</p></body></html>",
+            cssTexts: [css], width: 375, height: 800, fontResolver: resolver
+        )
+        let texts = BrowserLayoutTestSupport.allTextFragments(pages)
+        #expect(texts.count == 2)
+        let offset = 17.0 / 36.0
+        let diff = texts[0].rect.rawValue.width - texts[1].rect.rawValue.width
+        // Four glyphs each grow by the offset (Core Text may drop the trailing one).
+        #expect(diff > 3 * offset && diff < 4.5 * offset)
     }
 
     @Test func boldCapableFontGetsNoMarker() throws {
