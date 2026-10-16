@@ -13,6 +13,54 @@ public enum TextSourceMapping: Equatable {
     case annotation(shapedRange: NSRange)
 }
 
+/// A paint-time 2D transform (CSS `transform`), applied at draw time only.
+/// Layout, pagination and hit-testing all use the untransformed rects; only
+/// drawing concatenates it. Carriers hold it in their own coordinate space:
+/// steps in document coordinates, fragments/items in page-canvas coordinates.
+public struct PaintTransform: Equatable, Sendable {
+    public let matrix: CGAffineTransform
+
+    public init(matrix: CGAffineTransform) {
+        self.matrix = matrix
+    }
+
+    /// Rotate `degrees` about `center` — the shape CSS `rotate()` produces.
+    public init(rotatingDegrees degrees: CGFloat, about center: CGPoint) {
+        // CGAffineTransform.concatenating applies the RECEIVER first: the
+        // pivot chain reads translate(-c) → rotate → translate(+c).
+        matrix = CGAffineTransform(translationX: -center.x, y: -center.y)
+            .concatenating(CGAffineTransform(rotationAngle: degrees * .pi / 180))
+            .concatenating(CGAffineTransform(translationX: center.x, y: center.y))
+    }
+
+    /// The receiver applied first, then `other` — parent transforms compose
+    /// outside their descendant's.
+    public func concatenating(_ other: PaintTransform) -> PaintTransform {
+        PaintTransform(matrix: matrix.concatenating(other.matrix))
+    }
+
+    /// The transform after the carrier moved by (dx, dy) in its own space —
+    /// a change of basis, not a pre-multiplied translation: the rotated box
+    /// lands exactly (dx, dy) away from where it was.
+    public func offsetBy(dx: CGFloat, dy: CGFloat) -> PaintTransform {
+        rebased(by: CGPoint(x: dx, y: dy))
+    }
+
+    /// The same transform expressed for a carrier translated by `t`
+    /// (document → page-canvas coordinates).
+    public func rebased(by t: CGPoint) -> PaintTransform {
+        PaintTransform(
+            matrix: CGAffineTransform(translationX: -t.x, y: -t.y)
+                .concatenating(matrix)
+                .concatenating(CGAffineTransform(translationX: t.x, y: t.y))
+        )
+    }
+
+    public static func == (lhs: PaintTransform, rhs: PaintTransform) -> Bool {
+        lhs.matrix == rhs.matrix
+    }
+}
+
 /// Page-local fragment: `rect` is PAGE CANVAS-local (viewport coordinates,
 /// origin = viewport top-left). Selection/annotation additionally keeps the
 /// DOCUMENT-absolute rect so ranges stay meaningful across pages/relayouts.
@@ -37,6 +85,7 @@ public struct TextFragment {
     /// walker emits it in the line's canonical axes; `LogicalFlow.page` keeps it
     /// horizontal and centres it in the cell.
     var isCombinedUpright = false
+    var paintTransform: PaintTransform? = nil
 
     public init(
         sourceRange: NSRange,
@@ -129,6 +178,8 @@ public struct FillFragment {
         self.decorationID = decorationID
         self.isBackgroundPaint = isBackgroundPaint
     }
+
+    var paintTransform: PaintTransform? = nil
 }
 
 public struct ImageFragment {
@@ -174,6 +225,8 @@ public struct ImageFragment {
         self.alt = alt
         self.isBackgroundPaint = isBackgroundPaint
     }
+
+    var paintTransform: PaintTransform? = nil
 }
 
 public indirect enum Fragment {
@@ -244,6 +297,8 @@ struct PageWalker {
         let renderedTextOverride: String?
         var isCombinedUpright = false
         var lineSerial: Int? = nil
+        /// Rotation about the owning box's center, in DOCUMENT coordinates.
+        var rotation: PaintTransform? = nil
     }
 
     struct StepRuby {
@@ -253,6 +308,7 @@ struct PageWalker {
         let originX: CGFloat
         let writingMode: ReaderWritingMode
         var lineSerial: Int? = nil
+        var rotation: PaintTransform? = nil
     }
 
     struct StepFill {
@@ -265,6 +321,7 @@ struct PageWalker {
         let borderRight: BorderEdge
         let nodeID: Int
         let writingMode: ReaderWritingMode
+        var rotation: PaintTransform? = nil
     }
 
     struct StepFillEnd {
@@ -288,6 +345,7 @@ struct PageWalker {
         var trailingLineExtent: CGFloat = 0
         /// The line box an inline image sits on, or the block image's own line.
         var lineSerial: Int? = nil
+        var rotation: PaintTransform? = nil
     }
 
     private struct BoxFrame {
@@ -295,6 +353,9 @@ struct PageWalker {
         let contentOrigin: CGPoint
         let borderX: CGFloat
         let borderY: CGFloat
+        /// The composed transform of the nearest transformed ancestor chain,
+        /// in DOCUMENT coordinates.
+        let rotation: PaintTransform?
         var childIndex = 0
         var lineIndex = 0
         var runIndex = 0
@@ -532,7 +593,8 @@ struct PageWalker {
                         borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderColor),
                         borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderColor),
                         nodeID: frame.box.debugNodeID,
-                        writingMode: writingMode
+                        writingMode: writingMode,
+                        rotation: frame.rotation
                     ))
                 }
                 // A box with a border but no background still emits its full
@@ -550,7 +612,8 @@ struct PageWalker {
                         borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderColor),
                         borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderColor),
                         nodeID: frame.box.debugNodeID,
-                        writingMode: writingMode
+                        writingMode: writingMode,
+                        rotation: frame.rotation
                     ))
                 }
                 continue
@@ -568,7 +631,7 @@ struct PageWalker {
                 // only ever accumulates across boxes entered back-to-back with
                 // nothing emitted between them.
                 adjoiningBlockStartMargin += LogicalGeometry.blockStart(edge: child.margins, mode: writingMode)
-                stack.append(Self.makeFrame(child, contentOrigin: childOrigin))
+                stack.append(Self.makeFrame(child, contentOrigin: childOrigin, parentRotation: parent.rotation))
                 continue
             }
             if let attachment = stack[index].box.imageAttachment,
@@ -596,7 +659,8 @@ struct PageWalker {
                     writingMode: writingMode,
                     rect: rect,
                     alt: nil,
-                    lineSerial: lineSerialCounter
+                    lineSerial: lineSerialCounter,
+                    rotation: frame.rotation
                 ))
             }
             if stack[index].lineIndex < stack[index].box.lines.count {
@@ -624,7 +688,8 @@ struct PageWalker {
                                     borderBottom: Self.edge(style.borderBottomWidth, style.borderBottomStyle, style.borderColor),
                                     borderLeft: decoration.paintsStartEdge ? Self.edge(style.borderLeftWidth, style.borderLeftStyle, style.borderColor) : .zero,
                                     borderRight: decoration.paintsEndEdge ? Self.edge(style.borderRightWidth, style.borderRightStyle, style.borderColor) : .zero,
-                                    nodeID: decoration.owner.nodeID, writingMode: writingMode
+                                    nodeID: decoration.owner.nodeID, writingMode: writingMode,
+                                    rotation: frame.rotation
                                 )
                             },
                             lineSerial: currentLineSerial
@@ -648,7 +713,8 @@ struct PageWalker {
                             ruby: ruby,
                             originX: frame.contentOrigin.x + line.contentX + run.x,
                             writingMode: writingMode,
-                            lineSerial: currentLineSerial
+                            lineSerial: currentLineSerial,
+                            rotation: frame.rotation
                         ))
                     }
                     if let combined = run.combined {
@@ -673,7 +739,8 @@ struct PageWalker {
                                 location: 0, length: CTLineGetStringRange(combined.line).length)),
                             renderedTextOverride: nil,
                             isCombinedUpright: true,
-                            lineSerial: currentLineSerial
+                            lineSerial: currentLineSerial,
+                            rotation: frame.rotation
                         ))
                     }
                     if let atomic = run.atomic {
@@ -714,7 +781,8 @@ struct PageWalker {
                             rect: rect,
                             alt: nil,
                             trailingLineExtent: endsLine ? max(0, lineBottom - rect.maxY) : 0,
-                            lineSerial: currentLineSerial
+                            lineSerial: currentLineSerial,
+                            rotation: frame.rotation
                         ))
                     }
                     let rect = DocumentRect(rawValue: CGRect(
@@ -735,7 +803,8 @@ struct PageWalker {
                         ctLine: line.ctLine,
                         sourceMapping: .linear(shapedRange: run.shapedRange ?? run.sourceRange),
                         renderedTextOverride: nil,
-                        lineSerial: currentLineSerial
+                        lineSerial: currentLineSerial,
+                        rotation: frame.rotation
                     ))
                 }
                 stack[index].lineIndex += 1
@@ -940,15 +1009,33 @@ struct PageWalker {
         }
         for fill in step.fills {
             let document = DocumentRect(rawValue: fill.rect.rawValue.offsetBy(dx: 0, dy: flowShift))
-            appendToCurrentPage(.fill(FillFragment(
+            var fragment = FillFragment(
                 rect: canvasRect(forDocument: document, pageIndex: currentIndex),
                 documentRect: fill.rect, color: fill.color, cornerRadius: fill.cornerRadius,
                 borderTop: fill.borderTop, borderBottom: fill.borderBottom,
                 borderLeft: fill.borderLeft, borderRight: fill.borderRight,
                 nodeID: fill.nodeID, writingMode: fill.writingMode
-            )), lineSerial: step.lineSerial)
+            )
+            fragment.paintTransform = pageTransform(fill.rotation, displacementY: flowShift, pageIndex: currentIndex)
+            appendToCurrentPage(.fill(fragment), lineSerial: step.lineSerial)
         }
         return flushed
+    }
+
+    /// Re-expresses a step's document-space transform for the page canvas,
+    /// applying the same document-space displacement the fragment's rect
+    /// received, then the document → page translation.
+    private func pageTransform(
+        _ rotation: PaintTransform?,
+        displacementY: CGFloat,
+        pageIndex: Int
+    ) -> PaintTransform? {
+        guard let rotation else { return nil }
+        return rotation
+            .rebased(by: CGPoint(
+                x: contentInsets.left,
+                y: displacementY - CGFloat(pageIndex) * pageHeight + contentInsets.top
+            ))
     }
 
     private mutating func placeText(_ step: StepText) -> PageFragments? {
@@ -971,6 +1058,7 @@ struct PageWalker {
                 renderedTextOverride: step.renderedTextOverride
             )
             fragment.isCombinedUpright = step.isCombinedUpright
+            fragment.paintTransform = pageTransform(step.rotation, displacementY: 0, pageIndex: 0)
             appendToCurrentPage(.text(fragment), lineSerial: step.lineSerial)
             return nil
         }
@@ -1009,6 +1097,11 @@ struct PageWalker {
             renderedTextOverride: step.renderedTextOverride
         )
         fragment.isCombinedUpright = step.isCombinedUpright
+        fragment.paintTransform = pageTransform(
+            step.rotation,
+            displacementY: adjustedDocY - step.rect.minY,
+            pageIndex: currentIndex
+        )
         appendToCurrentPage(.text(fragment), lineSerial: step.lineSerial)
         return flushed
     }
@@ -1054,7 +1147,7 @@ struct PageWalker {
                 height: ruby.base.ascent + ruby.base.descent
             ))
             let canvas = canvasRect(forDocument: document, pageIndex: pageIndex)
-            return .text(TextFragment(
+            var fragment = TextFragment(
                 sourceRange: piece.sourceRange,
                 nodeID: piece.nodeID,
                 linkTarget: piece.linkTarget,
@@ -1067,7 +1160,9 @@ struct PageWalker {
                 ctLine: ruby.base.line,
                 sourceMapping: .linear(shapedRange: piece.shapedRange),
                 renderedTextOverride: nil
-            ))
+            )
+            fragment.paintTransform = pageTransform(step.rotation, displacementY: displacementY, pageIndex: pageIndex)
+            return .text(fragment)
         }
 
         let annotationBaseline = baseBaseline + ruby.annotationBaselineOffset
@@ -1079,7 +1174,7 @@ struct PageWalker {
                 height: ruby.annotation.ascent + ruby.annotation.descent
             ))
             let canvas = canvasRect(forDocument: document, pageIndex: pageIndex)
-            return .text(TextFragment(
+            var fragment = TextFragment(
                 sourceRange: ruby.unit.sourceRange,
                 nodeID: piece.nodeID,
                 linkTarget: piece.linkTarget ?? ruby.unit.linkTarget,
@@ -1092,14 +1187,16 @@ struct PageWalker {
                 ctLine: ruby.annotation.line,
                 sourceMapping: ruby.annotation.pieces.count == 1 ? .wholeRange : .annotation(shapedRange: piece.shapedRange),
                 renderedTextOverride: piece.text
-            ))
+            )
+            fragment.paintTransform = pageTransform(step.rotation, displacementY: displacementY, pageIndex: pageIndex)
+            return .text(fragment)
         })
         return .group(children)
     }
 
     private mutating func placeFill(_ step: StepFill) -> PageFragments? {
         if isContinuous {
-            appendToCurrentPage(.fill(FillFragment(
+            var fragment = FillFragment(
                 rect: canvasRect(forDocument: step.rect, pageIndex: 0),
                 documentRect: step.rect,
                 color: step.color,
@@ -1108,7 +1205,9 @@ struct PageWalker {
                 borderLeft: step.borderLeft, borderRight: step.borderRight,
                 nodeID: step.nodeID,
                 writingMode: step.writingMode
-            )), lineSerial: nil)
+            )
+            fragment.paintTransform = pageTransform(step.rotation, displacementY: 0, pageIndex: 0)
+            appendToCurrentPage(.fill(fragment), lineSerial: nil)
             return nil
         }
         let shiftedStartY = step.rect.minY + flowShift
@@ -1238,7 +1337,7 @@ struct PageWalker {
             width: decoration.step.rect.width,
             height: fragmentEnd - fragmentStart
         ))
-        return FillFragment(
+        var fragment = FillFragment(
             rect: canvasRect(forDocument: document, pageIndex: pageIndex),
             documentRect: document,
             color: decoration.step.color,
@@ -1252,6 +1351,12 @@ struct PageWalker {
             fragmentPosition: position,
             decorationID: decoration.id
         )
+        fragment.paintTransform = pageTransform(
+            decoration.step.rotation,
+            displacementY: decoration.startY - decoration.step.rect.minY,
+            pageIndex: pageIndex
+        )
+        return fragment
     }
 
     private mutating func placeImage(_ step: StepImage) -> PageFragments? {
@@ -1261,7 +1366,7 @@ struct PageWalker {
             // there is nothing to fit it to, and block layout already resolved
             // the used size against the container width. An image that still
             // overflows overflows — which is what a browser does too.
-            appendToCurrentPage(.image(ImageFragment(
+            var fragment = ImageFragment(
                 source: step.source,
                 image: step.image,
                 sourceRange: step.sourceRange,
@@ -1271,7 +1376,9 @@ struct PageWalker {
                 rect: canvasRect(forDocument: step.rect, pageIndex: 0),
                 documentRect: step.rect,
                 alt: step.alt
-            )), lineSerial: step.lineSerial)
+            )
+            fragment.paintTransform = pageTransform(step.rotation, displacementY: 0, pageIndex: 0)
+            appendToCurrentPage(.image(fragment), lineSerial: step.lineSerial)
             return nil
         }
         let shiftedY = step.rect.minY + flowShift
@@ -1349,7 +1456,7 @@ struct PageWalker {
         }
         let adjustedDoc = DocumentRect(rawValue: adjustedDocRect)
         let canvas = canvasRect(forDocument: adjustedDoc, pageIndex: currentIndex)
-        appendToCurrentPage(.image(ImageFragment(
+        var fragment = ImageFragment(
             source: step.source,
             image: step.image,
             sourceRange: step.sourceRange,
@@ -1359,7 +1466,13 @@ struct PageWalker {
             rect: canvas,
             documentRect: step.rect,
             alt: step.alt
-        )), lineSerial: step.lineSerial)
+        )
+        fragment.paintTransform = pageTransform(
+            step.rotation,
+            displacementY: adjustedDocRect.minY - step.rect.minY,
+            pageIndex: currentIndex
+        )
+        appendToCurrentPage(.image(fragment), lineSerial: step.lineSerial)
         return flushed
     }
 
@@ -1485,12 +1598,26 @@ struct PageWalker {
         }
     }
 
-    private static func makeFrame(_ box: BlockBox, contentOrigin: CGPoint) -> BoxFrame {
-        BoxFrame(
+    private static func makeFrame(_ box: BlockBox, contentOrigin: CGPoint, parentRotation: PaintTransform? = nil) -> BoxFrame {
+        let borderX = contentOrigin.x - box.borders.left - box.padding.left
+        let borderY = contentOrigin.y - box.borders.top - box.padding.top
+        var rotation = parentRotation
+        if let degrees = box.style.transformRotate {
+            let own = PaintTransform(
+                rotatingDegrees: degrees,
+                about: CGPoint(
+                    x: borderX + box.frame.width / 2,
+                    y: borderY + box.frame.height / 2
+                )
+            )
+            rotation = rotation.map { own.concatenating($0) } ?? own
+        }
+        return BoxFrame(
             box: box,
             contentOrigin: contentOrigin,
-            borderX: contentOrigin.x - box.borders.left - box.padding.left,
-            borderY: contentOrigin.y - box.borders.top - box.padding.top
+            borderX: borderX,
+            borderY: borderY,
+            rotation: rotation
         )
     }
 }
@@ -1534,13 +1661,14 @@ extension TextFragment {
             renderedTextOverride: renderedTextOverride
         )
         moved.isCombinedUpright = isCombinedUpright
+        moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: dy)
         return moved
     }
 }
 
 extension ImageFragment {
     func offsetBy(dy: CGFloat) -> ImageFragment {
-        ImageFragment(
+        var moved = ImageFragment(
             source: source,
             image: image,
             sourceRange: sourceRange,
@@ -1552,12 +1680,14 @@ extension ImageFragment {
             alt: alt,
             isBackgroundPaint: isBackgroundPaint
         )
+        moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: dy)
+        return moved
     }
 }
 
 extension FillFragment {
     func with(rect: PageLocalRect) -> FillFragment {
-        FillFragment(
+        var moved = FillFragment(
             rect: rect,
             documentRect: documentRect,
             color: color,
@@ -1572,5 +1702,7 @@ extension FillFragment {
             decorationID: decorationID,
             isBackgroundPaint: isBackgroundPaint
         )
+        moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: rect.rawValue.minY - self.rect.rawValue.minY)
+        return moved
     }
 }
