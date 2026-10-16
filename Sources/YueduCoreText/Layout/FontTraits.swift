@@ -2,7 +2,6 @@ import CoreText
 import UIKit
 
 public enum FontTraits {
-    private static let syntheticBoldStrokeWidth = -2.5 as NSNumber
     public static func syntheticBoldAttributes(
         for font: UIFont,
         isBoldRequested: Bool
@@ -11,7 +10,9 @@ public enum FontTraits {
               !font.fontDescriptor.symbolicTraits.contains(.traitBold),
               !supportsVariableWeight(font)
         else { return [:] }
-        return [.strokeWidth: syntheticBoldStrokeWidth]
+        // A uniform stroke thickens horizontal strokes as well, which reads
+        // far heavier on CJK than WebKit's horizontal-offset double draw.
+        return [BrowserTextAttributes.syntheticBoldOffset: font.pointSize / 36 as NSNumber]
     }
 
     public static func boldVersion(of font: UIFont, size: CGFloat) -> UIFont {

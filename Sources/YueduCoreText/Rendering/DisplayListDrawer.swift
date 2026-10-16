@@ -317,6 +317,22 @@ public enum DisplayListDrawer {
             textDecoration?(line, string, context)
         } else {
             CTLineDraw(line, context)
+            var syntheticBoldOffset: CGFloat = 0
+            string.enumerateAttribute(
+                BrowserTextAttributes.syntheticBoldOffset,
+                in: NSRange(location: 0, length: string.length)
+            ) { value, _, stop in
+                if let offset = (value as? NSNumber)?.doubleValue, offset > 0 {
+                    syntheticBoldOffset = offset
+                    stop.pointee = true
+                }
+            }
+            // The synthetic-bold marker calls for a second pass offset along
+            // the inline axis.
+            if syntheticBoldOffset > 0 {
+                context.textPosition = CGPoint(x: syntheticBoldOffset, y: 0)
+                CTLineDraw(line, context)
+            }
         }
         context.restoreGState()
     }
