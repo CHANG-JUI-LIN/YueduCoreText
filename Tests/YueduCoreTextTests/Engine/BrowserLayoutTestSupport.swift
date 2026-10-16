@@ -12,12 +12,14 @@ enum BrowserLayoutTestSupport {
         width: CGFloat = 300,
         height: CGFloat = 400,
         rootFontSize: CGFloat = 17,
-        imageLoader: ((String) -> UIImage?)? = nil
+        imageLoader: ((String) -> UIImage?)? = nil,
+        fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil
     ) async throws -> (pages: [PageFragments], doc: BrowserLayoutDocument) {
-        let config = BrowserLayoutConfig(
+        var config = BrowserLayoutConfig(
             renderWidth: width, renderHeight: height, rootFontSize: rootFontSize,
             fontFamilies: ["PingFangSC-Regular"], textColor: .black, backgroundColor: .white
         )
+        config.fontResolver = fontResolver
         let doc = BrowserLayoutDocument(
             html: html, cssTexts: cssTexts, config: config, imageLoader: imageLoader
         )

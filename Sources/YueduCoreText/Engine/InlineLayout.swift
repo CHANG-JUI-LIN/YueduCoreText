@@ -872,9 +872,16 @@ enum InlineLayout {
         if style.configLetterSpacing != 0 {
             attributes[.kern] = style.configLetterSpacing
         }
-        attributes.merge(FontTraits.syntheticBoldAttributes(
+        let syntheticBold = FontTraits.syntheticBoldAttributes(
             for: font, isBoldRequested: style.configBold || style.fontWeight >= 600
-        )) { _, new in new }
+        )
+        attributes.merge(syntheticBold) { _, new in new }
+        // The offset second pass needs room: WebKit grows each glyph's advance
+        // by the same amount so it does not overlap the next glyph.
+        if let offset = (syntheticBold[BrowserTextAttributes.syntheticBoldOffset] as? NSNumber)?.doubleValue {
+            let kern = (attributes[.kern] as? NSNumber)?.doubleValue ?? 0
+            attributes[.kern] = (kern + offset) as NSNumber
+        }
         return attributes
     }
 
