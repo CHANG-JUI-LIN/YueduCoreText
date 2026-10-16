@@ -165,6 +165,17 @@ enum BoxTreeBuilder {
             }
             let line = CTLineCreateWithAttributedString(attributed)
             boxStyle.width = .px(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        } else if boxStyle.isFloated, boxStyle.width == .auto, config.writingMode == .horizontal {
+            // CSS §10.3.5 shrink-to-fit: the float needs a definite used width
+            // before layout, measured from its own content.
+            let available = max(
+                0,
+                containerWidth - horizontalExtras(of: boxStyle, percentBase: containerWidth, config: config)
+            )
+            boxStyle.width = .px(shrinkToFitWidth(
+                kids: kids, trailingInline: visibleRuns(pendingInline),
+                available: available, config: config
+            ))
         }
         let box = BlockBox(style: boxStyle, boxType: .block, children: kids)
         Self.attachDebugIdentity(box, node: node)
@@ -191,6 +202,84 @@ enum BoxTreeBuilder {
             return min(max(resolved ?? parentWidth, 0), parentWidth)
         }
         return parentWidth
+    }
+
+    // MARK: - Shrink-to-fit (CSS 2.1 §10.3.5)
+
+    /// Preferred (max-content) width of a width:auto float, clamped to the
+    /// available width. The preferred-minimum side of the formula only
+    /// diverges for unbreakable content wider than the page; clamping there is
+    /// the non-overflowing reading, so it is not measured separately.
+    private static func shrinkToFitWidth(
+        kids: [BlockBox],
+        trailingInline: [InlineRun],
+        available: CGFloat,
+        config: BrowserLayoutConfig
+    ) -> CGFloat {
+        let own = maxInlineWidth(trailingInline, config: config)
+        let inner = max(own, kids.map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0)
+        return min(max(inner, 0), available)
+    }
+
+    /// A child box's margin-box contribution to its parent's preferred width.
+    private static func preferredOuterWidth(of box: BlockBox, available: CGFloat, config: BrowserLayoutConfig) -> CGFloat {
+        let style = box.style
+        let extras = horizontalExtras(of: style, percentBase: available, config: config)
+        if let attachment = box.imageAttachment {
+            return attachment.usedSize.width + extras
+        }
+        if let explicit = CSSLengthResolver.resolve(style.width, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) {
+            return max(explicit, 0) + extras
+        }
+        var indent: CGFloat = 0
+        if box.ownsFirstFormattedLine, case .length(let length) = style.textIndent {
+            indent = CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) ?? 0
+        }
+        let own = maxInlineWidth(box.inlineRuns, indent: indent, config: config)
+        let kids = box.children.map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0
+        return max(own, kids) + extras
+    }
+
+    /// The widest single line the runs form without wrapping: hard breaks end
+    /// a line, and the first formatted line carries the box's text-indent.
+    private static func maxInlineWidth(_ runs: [InlineRun], indent: CGFloat = 0, config: BrowserLayoutConfig) -> CGFloat {
+        var maxWidth: CGFloat = 0
+        var segment = NSMutableAttributedString()
+        var isFirstSegment = true
+        func flushSegment() {
+            guard segment.length > 0 else { return }
+            let line = CTLineCreateWithAttributedString(segment)
+            var width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+            if isFirstSegment { width += indent }
+            isFirstSegment = false
+            maxWidth = max(maxWidth, width)
+            segment = NSMutableAttributedString()
+        }
+        for run in runs {
+            if run.isHardBreak {
+                flushSegment()
+                continue
+            }
+            if let atomic = run.atomic {
+                flushSegment()
+                maxWidth = max(maxWidth, atomic.usedSize.width)
+                continue
+            }
+            segment.append(NSAttributedString(string: run.text, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))
+        }
+        flushSegment()
+        return maxWidth
+    }
+
+    private static func horizontalExtras(of style: ComputedStyle, percentBase: CGFloat, config: BrowserLayoutConfig) -> CGFloat {
+        func resolve(_ length: CSSLength?) -> CGFloat {
+            length.flatMap {
+                CSSLengthResolver.resolve($0, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: percentBase)
+            } ?? 0
+        }
+        return resolve(style.paddingLeft) + resolve(style.paddingRight)
+            + style.borderLeftWidth + style.borderRightWidth
+            + resolve(style.marginLeft) + resolve(style.marginRight)
     }
 
     // MARK: - Inline gathering
