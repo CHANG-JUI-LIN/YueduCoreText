@@ -94,6 +94,10 @@ enum CSSClear: Equatable {
     case none, left, right, both
 }
 
+enum CSSVerticalAlign: Equatable {
+    case baseline, sup, sub
+}
+
 struct ComputedStyle: Equatable {
     var display: CSSDisplay = .block
     var isHidden = false
@@ -106,6 +110,13 @@ struct ComputedStyle: Equatable {
     var cssFloat: CSSFloat = .none
     /// Used `clear`. Same strict rule.
     var cssClear: CSSClear = .none
+    var verticalAlign: CSSVerticalAlign = .baseline
+
+    /// Resolved super/sub baseline shift (0 for baseline). CSS 2.1 §10.8.1
+    /// leaves the amount UA-defined; the value is computed from the PARENT
+    /// box's font-size, never this element's own — see the vertical-align
+    /// handling in ComputedStyleTreeBuilder.
+    var verticalAlignOffset: CGFloat = 0
 
     var isFloated: Bool {
         cssFloat == .left || cssFloat == .right
