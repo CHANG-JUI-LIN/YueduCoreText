@@ -2,6 +2,19 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.10.1] - 2026-10-16
+
+Documentation: what a host must hand `BrowserChapterDocument.evaluate(_:configuration:writingMode:)`.
+
+### Documentation
+
+- The configuration parameter is `sending`, so the configuration must be disconnected. A configuration returned by an actor-isolated method is not, because the closures that method forms (`fontResolver`, `textTransform`, `onDiagnostic`) belong to its actor. Swift 6 rejects that call with "sending 'configuration' risks causing data races", and marking the method `-> sending` is refused as well. Build the configuration in a nonisolated function from Sendable inputs, with `@Sendable` resolvers. The 0.10.0 migration note and the integration guide's example now say so.
+- An evaluation kept in an actor-isolated property belongs to that actor, even after it is removed, and can no longer be sent. Hand it from `evaluate` straight to the code that lays it out.
+
+### Compatibility
+
+- No code changes; 0.10.0 and 0.10.1 build and lay out identically.
+
 ## [0.10.0] - 2026-10-16
 
 A chapter's document and evaluation move between isolation domains (Yuedu Reader's Swift 6 concurrency cleanup).
@@ -18,6 +31,7 @@ A chapter's document and evaluation move between isolation domains (Yuedu Reader
 ### Migration
 
 - A host that moved them out of `Task.detached` through an `@unchecked Sendable` box can drop the box: `let document = try await BrowserChapterDocument.parse(input: input)`, read `document.bodyInlineStyle` if it needs it, then `let evaluation = await BrowserChapterDocument.evaluate(document, configuration: configuration)`. After that call, reach the document and the configuration only through the evaluation.
+- The configuration passed to `evaluate` must be disconnected (see 0.10.1). One returned by an actor-isolated method is not: build it in a nonisolated function from Sendable inputs, with `@Sendable` resolvers.
 - The new functions run at the caller's task priority, where `Task.detached(priority:)` set its own.
 
 ### Compatibility
