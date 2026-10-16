@@ -10,6 +10,8 @@ public enum CSSLength: Equatable, Sendable {
     case em(CGFloat)
     case rem(CGFloat)
     case percent(CGFloat)   // 0.0…1.0 of the containing block
+    case vh(CGFloat)        // 0.0…1.0 of the viewport height
+    case vw(CGFloat)        // 0.0…1.0 of the viewport width
     case auto
 }
 
@@ -29,6 +31,14 @@ public enum CSSLengthResolver {
         if s.hasSuffix("%") {
             guard let v = Double(s.dropLast()) else { return nil }
             return .percent(CGFloat(v) / 100)
+        }
+        if s.hasSuffix("vh") {
+            guard let v = Double(s.dropLast(2)) else { return nil }
+            return .vh(CGFloat(v) / 100)
+        }
+        if s.hasSuffix("vw") {
+            guard let v = Double(s.dropLast(2)) else { return nil }
+            return .vw(CGFloat(v) / 100)
         }
         if s.hasSuffix("px") {
             guard let v = Double(s.dropLast(2)) else { return nil }
@@ -52,13 +62,24 @@ public enum CSSLengthResolver {
 
     /// Resolves a length to points against the given bases. Returns nil for `.auto`.
     /// `percentBase` is the containing-block width for margins/padding/width.
-    public static func resolve(_ length: CSSLength, emBase: CGFloat, remBase: CGFloat, percentBase: CGFloat) -> CGFloat? {
+    /// `vh`/`vw` resolve only where the caller knows the viewport size; elsewhere
+    /// they fall back to nil (the property's initial value), like `calc()`.
+    public static func resolve(
+        _ length: CSSLength,
+        emBase: CGFloat,
+        remBase: CGFloat,
+        percentBase: CGFloat,
+        viewportHeight: CGFloat? = nil,
+        viewportWidth: CGFloat? = nil
+    ) -> CGFloat? {
         switch length {
         case .px(let v): return v
         case .pt(let v): return v * 96.0 / 72.0
         case .em(let v): return v * emBase
         case .rem(let v): return v * remBase
         case .percent(let v): return v * percentBase
+        case .vh(let v): return viewportHeight.map { v * $0 }
+        case .vw(let v): return viewportWidth.map { v * $0 }
         case .auto: return nil
         }
     }
