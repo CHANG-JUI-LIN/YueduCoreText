@@ -8,7 +8,7 @@
 
 适合需要自行控制绘制和交互的原生文档或阅读界面。你的 App 提供资源、承载界面；包负责解析、计算样式、排版、分页与绘制。
 
-[0.9.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.9.0) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
+[0.10.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.10.0) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
 
 ## 环境要求与安装
 
@@ -16,14 +16,14 @@
 - HTML/CSS 引擎从 **0.3.0** 开始提供。0.2.1 及更早版本只有原有工具 API。
 - 主产品依赖 `YueduCoreTextTypography` 与 **SwiftSoup 2.13.7**。
 
-在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.9.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.9.0**。
+在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.10.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.10.0**。
 
 如果使用 Swift Package，将以下内容加入 `Package.dependencies`：
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.9.0")
+    .upToNextMinor(from: "0.10.0")
 )
 ```
 
@@ -143,6 +143,8 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 
 ## 支持范围
 
+0.10.0 让章节的解析与评估结果跨隔离域移交：`BrowserChapterDocument.parse(input:)` 与 `BrowserChapterDocument.evaluate(_:configuration:writingMode:)` 不在调用方的 actor 上执行，并以 `sending` 交回 document 与 evaluation。两个类型仍不是 Sendable，因为它们持有章节的 DOM 与宿主配置里的闭包。
+
 0.9.0 支持底部对齐：开启 `BrowserLayoutConfig.bottomJustify` 后，横排页面若因下一行文字放不下而结束，剩余空间会平均分给各行间距，让最后一行贴齐内容区底边。页面的 fragments 直接带着移动后的几何。
 
 0.8.0 支持 CSS 逻辑属性（`margin-inline-start`、`padding-block-end`、`inline-size`、`max-inline-size` 等），按 `BrowserLayoutConfig.writingMode` 对应到物理边，同一份样式表在横排与竖排都正确。因此书写方向成为 cascade 的输入：方向改变时要重新评估章节。
@@ -201,7 +203,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.9.0 获取。
+示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.10.0 获取。
 
 CI 在 iOS Simulator 运行包与只使用 public API 的独立 consumer 测试，并保留 `.xcresult` 产物；已验证的版本、工具链与结果请见 [CI 运行记录](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions)。本文档不宣称真机性能。
 

@@ -14,7 +14,7 @@ and the optional workspace described below are not needed by other apps.
 `Examples/StandaloneConsumer` is a separate library/test package that imports only
 public APIs. Its local path dependency supports development in this repository.
 To use the published release in your own consumer, declare the GitHub URL with
-`.upToNextMinor(from: "0.9.0")` and link the `YueduCoreText` product.
+`.upToNextMinor(from: "0.10.0")` and link the `YueduCoreText` product.
 
 ## Execution contract
 
@@ -54,8 +54,24 @@ size, families, colors, line height, spacing, bold, alignment). After admission 
 may add geometry, a font resolver captured after font preparation, or a diagnostic sink
 through `rebound(to:)`; a configuration with different cascade inputs is refused
 (`accepts(_:)` is false, the session initializers throw) and needs a new evaluation.
-The document and evaluation hold the DOM and are not Sendable: build, evaluate and
-hand off from one executor at a time, and drop them once the layout has taken them.
+The document and evaluation are not Sendable. The document holds the DOM, which
+SwiftSoup indexes while it is read, so two threads must never read it at once; the
+evaluation holds the document and the configuration's closures, which belong to the
+host. Use them on one executor at a time and drop them once the layout has taken them.
+They move between isolation domains as `sending` values: `BrowserChapterDocument.parse(input:)`
+and `BrowserChapterDocument.evaluate(_:configuration:writingMode:)` run on the global
+concurrent executor and hand the result to the caller, so a main-actor host needs no
+wrapper to parse and evaluate off the main thread:
+
+```swift
+let document = try await BrowserChapterDocument.parse(input: input)
+let configuration = makeConfiguration(fontScale: document.bodyInlineStyle)
+let evaluation = await BrowserChapterDocument.evaluate(document, configuration: configuration)
+// From here on, reach the document and the configuration only through `evaluation`.
+```
+
+A document and every evaluation made from it (`rebound(to:)` included) share the DOM,
+so the compiler moves them as one value.
 
 ## Adapter and drawing boundary
 
@@ -71,7 +87,7 @@ Lexbor remains experimental in the Reader test target; it is not a package depen
 
 ## Remote integration
 
-Use https://github.com/CHANG-JUI-LIN/YueduCoreText with a minimum version of 0.9.0.
+Use https://github.com/CHANG-JUI-LIN/YueduCoreText with a minimum version of 0.10.0.
 Reader's normal Yuedu-Reader.xcodeproj resolves that published dependency; the sibling
 workspace is optional for engine development. Normal remote verification must use the
 project without the local override and must inspect the resolved version and revision.

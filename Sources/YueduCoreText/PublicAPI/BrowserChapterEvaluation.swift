@@ -7,9 +7,15 @@ import UIKit
 /// Admission (`evaluate`) and layout (a session built from the evaluation) used to
 /// parse the chapter independently — the scanner once, the frontend again for the
 /// session, and the host a third time for the body's font-scale policy. This holds
-/// the one parse they now share. It keeps the DOM for the cascade, so it is not
-/// Sendable: build it, evaluate it and hand the evaluation to a session from one
-/// executor at a time.
+/// the one parse they now share.
+///
+/// Not Sendable: it keeps the DOM for the cascade, and SwiftSoup writes the DOM's
+/// indexes while it is read, so two threads must never read it at once. It moves
+/// between isolation domains instead. `parse(input:)` and
+/// `evaluate(_:configuration:writingMode:)` run off the caller's actor and hand back a
+/// value nothing else references (`sending`); the compiler refuses a transfer while
+/// the sender still holds the value. A document and the evaluations made from it share
+/// the DOM, so they move together.
 public final class BrowserChapterDocument {
     public let input: CSSFrontendInput
     let parsed: ParsedChapter
@@ -25,6 +31,26 @@ public final class BrowserChapterDocument {
         self.input = input
         var metrics = LayoutMetrics()
         parsed = try CurrentCSSFrontend.parse(input: input, metrics: &metrics)
+    }
+
+    /// Parses `input` on the global concurrent executor and hands the document to the
+    /// caller's isolation domain. Same result as `init(input:)`, without blocking the
+    /// caller's actor.
+    public static func parse(input: CSSFrontendInput) async throws -> sending BrowserChapterDocument {
+        try BrowserChapterDocument(input: input)
+    }
+
+    /// Evaluates `document` on the global concurrent executor and hands the evaluation
+    /// to the caller's isolation domain. Same result as `document.evaluate(…)`.
+    ///
+    /// The document and the configuration move into the evaluation (it keeps both), so
+    /// the caller must not use either afterwards except through the evaluation. The
+    /// configuration's closures move with it: the session built from the evaluation
+    /// calls them on whichever executor it runs on.
+    public static func evaluate(_ document: sending BrowserChapterDocument,
+                                configuration: sending BrowserLayoutConfig,
+                                writingMode: ReaderWritingMode? = nil) async -> sending BrowserChapterEvaluation {
+        document.evaluate(configuration: configuration, writingMode: writingMode)
     }
 
     /// Styles the chapter for `configuration` and judges it for the browser engine.
@@ -55,6 +81,11 @@ public final class BrowserChapterDocument {
 /// A chapter styled for one configuration, with the browser engine's verdict on it.
 /// Hand it to `HTMLLayoutDocument(evaluation:)` or `BrowserLayoutSession(evaluation:)`
 /// so layout starts from this style tree instead of parsing the chapter again.
+///
+/// Not Sendable: it keeps its document (and the DOM) and a configuration whose
+/// closures belong to the host. It is used on one executor at a time and moves between
+/// isolation domains as `sending`, together with its document and with every
+/// evaluation `rebound(to:)` made from it, which share them.
 public final class BrowserChapterEvaluation {
     public let document: BrowserChapterDocument
     /// The configuration the style tree was computed for.

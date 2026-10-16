@@ -3,7 +3,7 @@ import Foundation
 /// Value-only input shared by Current and Lexbor frontends. Resource loading
 /// remains outside the frontend; each stylesheet carries enough identity to
 /// preserve authored order and diagnose a differential later in the migration.
-public struct CSSFrontendInput {
+public struct CSSFrontendInput: Sendable {
     /// The exact existing production sheet order; the frontend and admission scanner share it.
     public var productionStylesheetTexts: [String] {
         if hasAuthoredStylesheetOrder { return activeAuthorStylesheets.map(\.text) }
@@ -49,8 +49,8 @@ public struct CSSFrontendInput {
     }
 }
 
-public struct AuthorStylesheet: Equatable {
-    public enum Source: Equatable {
+public struct AuthorStylesheet: Equatable, Sendable {
+    public enum Source: Equatable, Sendable {
         case inline(nodeOrdinal: Int)
         case linked(href: String)
     }
@@ -95,17 +95,17 @@ public struct AuthorStylesheet: Equatable {
     }
 }
 
-public struct StylesheetIdentity: Hashable, Codable {
+public struct StylesheetIdentity: Hashable, Codable, Sendable {
     public init(sourceOrder: Int, label: String) { self.sourceOrder = sourceOrder; self.label = label }
     public let sourceOrder: Int
     public let label: String
 }
 
-public struct CSSFrontendDiagnostic: Equatable {
+public struct CSSFrontendDiagnostic: Equatable, Sendable {
     public init(stage: Stage, stylesheet: StylesheetIdentity?, semanticPath: String?, property: String?, message: String) {
         self.stage = stage; self.stylesheet = stylesheet; self.semanticPath = semanticPath; self.property = property; self.message = message
     }
-    public enum Stage: Equatable {
+    public enum Stage: Equatable, Sendable {
         case html
         case css
         case selector
