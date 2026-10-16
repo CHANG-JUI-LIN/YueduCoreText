@@ -645,13 +645,41 @@ enum BoxTreeBuilder {
             return
         }
         kids.append(BlockBox(
-            style: style,
+            style: anonymousBlockStyle(inheriting: style),
             boxType: .anonymous,
             inlineRuns: visible,
             ownsFirstFormattedLine: !assignedFirstInlineContext
         ))
         assignedFirstInlineContext = true
         runs = []
+    }
+
+    /// Anonymous boxes inherit only the inheritable properties (CSS 2.1
+    /// §9.2.1.1). Passing the parent style through verbatim leaks `float`,
+    /// margins and sizing into the wrapper: a leaked float turns it into an
+    /// occlusion that shoves following siblings' line bands below itself.
+    private static func anonymousBlockStyle(inheriting style: ComputedStyle) -> ComputedStyle {
+        var style = style
+        style.display = .block
+        style.cssFloat = .none
+        style.cssClear = .none
+        style.marginTop = .px(0); style.marginRight = .px(0)
+        style.marginBottom = .px(0); style.marginLeft = .px(0)
+        style.paddingTop = .px(0); style.paddingRight = .px(0)
+        style.paddingBottom = .px(0); style.paddingLeft = .px(0)
+        style.width = .auto; style.height = .auto
+        style.minWidth = nil; style.maxWidth = nil
+        style.minHeight = nil; style.maxHeight = nil
+        style.borderTopWidth = 0; style.borderRightWidth = 0
+        style.borderBottomWidth = 0; style.borderLeftWidth = 0
+        style.pendingBorderTopWidth = nil; style.pendingBorderRightWidth = nil
+        style.pendingBorderBottomWidth = nil; style.pendingBorderLeftWidth = nil
+        style.borderTopStyle = .solid; style.borderRightStyle = .solid
+        style.borderBottomStyle = .solid; style.borderLeftStyle = .solid
+        style.borderColor = nil
+        style.borderRadius = 0; style.pendingBorderRadius = nil
+        style.backgroundColor = nil; style.backgroundImage = nil
+        return style
     }
 
     private static func visibleRuns(_ runs: [InlineRun]) -> [InlineRun] {
