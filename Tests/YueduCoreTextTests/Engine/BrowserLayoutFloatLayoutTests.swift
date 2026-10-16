@@ -548,17 +548,16 @@ struct BrowserLayoutFloatLayoutTests {
         #expect(pBox.lines[0].contentX == 200)
     }
 
-    // MARK: - 14. Unsupported width:auto fallback in scanner
+    // MARK: - 14. Non-replaced width:auto float is supported in scanner (shrink-to-fit)
 
-    @Test func unsupportedWidthAutoFallbackInScanner() {
+    @Test func autoWidthFloatIsSupportedInScanner() {
         let html = """
         <html><body>
         <div style="float: left;">Text inside float without width</div>
         </body></html>
         """
         let res = BrowserLayoutCapabilityScanner.scan(html: html, cssTexts: [])
-        #expect(!res.supported, "Non-replaced float with width:auto must be rejected for fallback")
-        #expect(res.unsupportedFeatures.contains(.float))
+        #expect(res.supported, "width:auto floats get a shrink-to-fit used width")
     }
 
     // MARK: - 15. Replaced <img> float without explicit width is supported in scanner
