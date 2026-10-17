@@ -85,9 +85,11 @@ struct SharedEvaluationEquivalenceTests {
         let html = "<html><body><p class=\"a\">x</p><p class=\"b\">y</p></body></html>"
         let css = ".b { width: calc(100% - 2em) } .a { position: sticky !important; display: table }"
         Self.expectSameVerdict(Self.input(html, css: [css]), "important + order")
-        // Rule order, then declaration order within a rule, normal before important.
+        // Rule order, then declaration order within a rule, normal before
+        // important. `display: table` is in the supported subset; a table whose
+        // children are bare text is rejected structurally instead.
         #expect(BrowserLayoutCapabilityScanner.scan(input: Self.input(html, css: [css])).unsupportedFeatures
-                == [.calcOrModernFunctions, .unknownBlockDisplay, .positioned])
+                == [.calcOrModernFunctions, .positioned, .table])
     }
 
     @Test func mediaQueriesInInlineSheetsAreJudgedUnderAuthoredOrder() {
