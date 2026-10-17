@@ -13,7 +13,19 @@ struct EdgeSizes: Equatable {
     var vertical: CGFloat { top + bottom }
 }
 
-enum CSSDisplay: Equatable { case block, inline, inlineBlock, none }
+enum CSSDisplay: Equatable {
+    case block, inline, inlineBlock, none
+    case table, tableRowGroup, tableHeaderGroup, tableFooterGroup, tableRow, tableCell
+
+    /// Roles inside a table box (everything but the table box itself). A cell is
+    /// a block container; groups and rows are pure structure.
+    var isTableInternal: Bool {
+        switch self {
+        case .tableRowGroup, .tableHeaderGroup, .tableFooterGroup, .tableRow, .tableCell: return true
+        default: return false
+        }
+    }
+}
 
 enum WhiteSpaceMode: Equatable {
     case normal
@@ -94,6 +106,17 @@ enum CSSClear: Equatable {
     case none, left, right, both
 }
 
+enum CSSVerticalAlign: Equatable {
+    /// Table-cell alignment values; `baseline` is the initial value.
+    case baseline, top, middle, bottom
+}
+
+/// CSS 2.1 §17.6. Only the separated model is implemented; collapse is an
+/// admission rejection, so layout never sees it.
+enum CSSBorderCollapse: Equatable {
+    case separate, collapse
+}
+
 struct ComputedStyle: Equatable {
     var display: CSSDisplay = .block
     var isHidden = false
@@ -106,6 +129,15 @@ struct ComputedStyle: Equatable {
     var cssFloat: CSSFloat = .none
     /// Used `clear`. Same strict rule.
     var cssClear: CSSClear = .none
+    var verticalAlign: CSSVerticalAlign = .baseline
+
+    /// Table `border-collapse`; layout only ever runs on `.separate`.
+    var borderCollapse: CSSBorderCollapse = .separate
+    /// `border-spacing` horizontal/vertical. nil = the UA default (2px), applied
+    /// to tables by `UserAgentStyle`; kept as lengths because em resolves
+    /// against the table's font size at layout time.
+    var borderSpacingHorizontal: CSSLength? = nil
+    var borderSpacingVertical: CSSLength? = nil
 
     var isFloated: Bool {
         cssFloat == .left || cssFloat == .right
@@ -285,9 +317,27 @@ enum UserAgentStyle {
         switch tag {
         case "html", "body", "div", "section", "article", "header", "footer",
              "main", "aside", "nav", "blockquote", "figure", "figcaption",
-             "table", "thead", "tbody", "tfoot", "tr", "td", "th", "ul", "ol",
+             "ul", "ol",
              "li", "dl", "dt", "dd", "hr", "pre", "address", "form", "fieldset":
             style.display = .block
+        case "table":
+            style.display = .table
+            // HTML UA default (WebKit html.css): separated borders, 2px spacing.
+            style.borderSpacingHorizontal = .px(2)
+            style.borderSpacingVertical = .px(2)
+        case "thead":
+            style.display = .tableHeaderGroup
+        case "tbody":
+            style.display = .tableRowGroup
+        case "tfoot":
+            style.display = .tableFooterGroup
+        case "tr":
+            style.display = .tableRow
+            // HTML UA: rows are middle-aligned and cells inherit that alignment.
+            style.verticalAlign = .middle
+        case "td", "th":
+            style.display = .tableCell
+            if tag == "th" { style.fontWeight = 700; style.textAlign = .center }
         case "span", "a", "em", "i", "strong", "b", "u", "s", "small", "code",
              "q", "cite", "mark", "time", "sub", "sup", "abbr", "label", "br",
              "ruby", "rt", "rp", "rb":

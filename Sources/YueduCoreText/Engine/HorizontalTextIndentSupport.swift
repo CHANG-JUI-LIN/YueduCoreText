@@ -32,7 +32,7 @@ enum HorizontalTextIndentSupport {
     ) {
         guard !foundUnsupported else { return }
 
-        if node.style.display == .block,
+        if (node.style.display == .block || node.style.display == .tableCell),
            ownsInlineFormattingContent(node.children, whiteSpace: node.style.whiteSpace) {
             switch node.style.textIndent {
             case .unsupported:

@@ -541,6 +541,12 @@ extension ComputedStyle {
         paddingRight = ua.paddingRight
         paddingBottom = ua.paddingBottom
         paddingLeft = ua.paddingLeft
+        // Non-inherited table roles: the UA gives rows middle alignment and
+        // tables the separated-borders defaults.
+        verticalAlign = ua.verticalAlign
+        borderCollapse = ua.borderCollapse
+        borderSpacingHorizontal = ua.borderSpacingHorizontal
+        borderSpacingVertical = ua.borderSpacingVertical
         // `white-space` is inherited; a UA default (only `<pre>`) overrides it.
         if ua.whiteSpace != .normal { whiteSpace = ua.whiteSpace }
         if ua.fontSize != 17 { fontSize = ua.fontSize }
@@ -601,6 +607,14 @@ enum ComputedStylePropertyApplier {
             case "block": style.display = .block
             case "inline": style.display = .inline
             case "inline-block": style.display = .inlineBlock
+            case "table": style.display = .table
+            case "table-row-group": style.display = .tableRowGroup
+            case "table-header-group": style.display = .tableHeaderGroup
+            case "table-footer-group": style.display = .tableFooterGroup
+            case "table-row": style.display = .tableRow
+            case "table-cell": style.display = .tableCell
+            // inline-table and the column/caption roles stay unparsed: the
+            // admission scanner rejects them from the raw declaration.
             default: break
             }
         case "color":
@@ -620,6 +634,36 @@ enum ComputedStylePropertyApplier {
             case "right": style.cssClear = .right
             case "both": style.cssClear = .both
             default: break
+            }
+        case "vertical-align":
+            // Only the table-cell alignment values are in the subset; super/sub
+            // and length values degrade to baseline instead of rejecting the
+            // chapter.
+            switch value {
+            case "baseline":
+                style.verticalAlign = .baseline
+            case "top":
+                style.verticalAlign = .top
+            case "middle":
+                style.verticalAlign = .middle
+            case "bottom":
+                style.verticalAlign = .bottom
+            default: break
+            }
+        case "border-collapse":
+            switch value {
+            case "collapse": style.borderCollapse = .collapse
+            case "separate": style.borderCollapse = .separate
+            default: break
+            }
+        case "border-spacing":
+            let parts = value.split(separator: " ").map(String.init).map { CSSLengthResolver.parse($0) }
+            switch parts.count {
+            case 1:
+                if let v = parts[0] { style.borderSpacingHorizontal = v; style.borderSpacingVertical = v }
+            default:
+                if let h = parts.first { style.borderSpacingHorizontal = h }
+                if let v = parts.dropFirst().first { style.borderSpacingVertical = v }
             }
         case "background-image":
             if let source = parseBackgroundImageSource(preserved) {

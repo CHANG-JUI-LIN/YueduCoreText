@@ -135,7 +135,7 @@ enum BrowserChapterAdmission {
             if BrowserLayoutCapabilityScanner.cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
         }
 
-        // DOM-level checks (script, MathML, SVG semantics, table in markup).
+        // DOM-level checks (script, MathML, SVG semantics).
         let doc = parsed.document
         func hasAny(_ selector: String) -> Bool {
             ((try? doc.select(selector).isEmpty()) ?? true) == false
@@ -145,9 +145,6 @@ enum BrowserChapterAdmission {
         }
         if hasAny("math") {
             reasons.append(.mathML)
-        }
-        if hasAny("table, thead, tbody, tr, td, th, colgroup") {
-            reasons.append(.table)
         }
         let svgs = (try? doc.select("svg").array()) ?? []
         if svgs.contains(where: {
@@ -222,10 +219,16 @@ enum BrowserChapterAdmission {
                 reasons.append(.verticalWritingMode)
             }
             BrowserLayoutCapabilityScanner.validateFloats(in: styleTree, hasFloatedAncestor: false, reasons: &reasons)
+            // Table structure is judged on the resolved style tree: display
+            // roles, not tag names, decide what counts as a table (author CSS
+            // can assign table roles to divs, and stray cells must fall back).
+            reasons.append(contentsOf: TableSupport.validate(root: styleTree, writingMode: writingMode))
             textIndentUsage = HorizontalTextIndentSupport.usage(in: styleTree)
             if textIndentUsage == .unsupported {
                 reasons.append(.textIndent)
             }
+        } else if hasAny("table, thead, tbody, tfoot, tr, td, th") {
+            reasons.append(.table)
         }
 
         return BrowserLayoutCapabilityResult(
