@@ -199,12 +199,17 @@ enum TableLayout {
     }
 
     /// `vertical-align` is not inherited, so the UA chain (rows middle, cells
-    /// `inherit`) is resolved structurally: the cell's own non-baseline value,
+    /// `inherit`) is resolved structurally: the cell's own top/middle/bottom,
     /// else the row's, else middle. An authored `baseline` on a cell therefore
     /// renders as middle — first-baseline row alignment is outside the subset.
+    /// `super`/`sub` act as `baseline` on a cell (CSS 2.1 §17.5.3).
     private static func alignment(of cell: BlockBox, row: BlockBox) -> CSSVerticalAlign {
-        if cell.style.verticalAlign != .baseline { return cell.style.verticalAlign }
-        if row.style.verticalAlign != .baseline { return row.style.verticalAlign }
+        for align in [cell.style.verticalAlign, row.style.verticalAlign] {
+            switch align {
+            case .top, .middle, .bottom: return align
+            case .baseline, .sup, .sub: continue
+            }
+        }
         return .middle
     }
 

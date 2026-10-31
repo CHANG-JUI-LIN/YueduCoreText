@@ -1008,6 +1008,9 @@ enum BoxTreeBuilder {
         style.borderColor = nil
         style.borderRadius = 0; style.pendingBorderRadius = nil
         style.backgroundColor = nil; style.backgroundImage = nil
+        // The parent's rotation already turns this box with it; keeping the
+        // declaration would rotate the wrapper a second time about its own center.
+        style.transformRotate = nil
         return style
     }
 
