@@ -17,7 +17,10 @@ enum BrowserReaderTextStyling {
         var pieces: [Piece] = []
         func collect(_ box: BlockBox) {
             for run in box.inlineRuns {
-                if let ruby = run.ruby {
+                if let unit = run.inlineBlock {
+                    // Its own block container: rules see its text as its own paragraphs.
+                    collect(unit)
+                } else if let ruby = run.ruby {
                     pieces += ruby.base.map {
                         Piece(range: $0.sourceRange, style: $0.style, owner: ObjectIdentifier(box))
                     }
@@ -73,6 +76,7 @@ enum BrowserReaderTextStyling {
                 box.inlineRuns[index].attributedSource = snapshot
             }
             box.children.forEach(install)
+            box.inlineBlockBoxes.forEach(install)
         }
         install(root)
     }

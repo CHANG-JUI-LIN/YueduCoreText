@@ -114,12 +114,12 @@ enum LogicalFlow {
 }
 
 /// Initial vertical scope: normal-flow text, ruby and authored 縦中横. Replaced
-/// elements, floats and constrained block-axis dimensions need their own vertical
-/// acceptance coverage before admission. Consumers receive a fact, never an empty page.
+/// elements, floats, inline-blocks and constrained block-axis dimensions need their
+/// own vertical acceptance coverage before admission. Consumers receive a fact, never an empty page.
 enum VerticalTextSupport {
     static func accepts(_ node: ComputedStyleNode, inRuby: Bool = false) -> Bool {
         if ["img", "svg", "video", "audio", "table"].contains(node.tag) || node.style.isFloated
-            || node.style.maxWidth != nil { return false }
+            || node.style.display == .inlineBlock || node.style.maxWidth != nil { return false }
         switch node.style.width {
         case .auto, .px: break
         default: return false

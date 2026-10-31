@@ -108,7 +108,9 @@ enum BrowserLayoutSemanticContent {
         }
         func walk(_ box: BlockBox) {
             for run in box.inlineRuns {
-                if let ruby = run.ruby {
+                if let unit = run.inlineBlock {
+                    walk(unit)
+                } else if let ruby = run.ruby {
                     for piece in ruby.base { record(piece.sourceRange, nodeID: piece.nodeID) }
                     let reading = ruby.annotation.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !reading.isEmpty {

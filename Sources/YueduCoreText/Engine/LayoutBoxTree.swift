@@ -66,6 +66,9 @@ struct LineRun {
     let atomic: AtomicInline?         // non-nil = replaced element run (image)
     let ruby: RubyBox?
     let combined: CombinedUprightBox?
+    /// An inline-block (CSS 2.1 §9.2.2): the run is the laid-out box, placed
+    /// whole on this line. Its `sourceRange` spans the box's own content.
+    let inlineBlock: BlockBox?
     var inlineDecorations: [InlineDecoration] = []
     var isDecorationEdge = false
 
@@ -80,7 +83,8 @@ struct LineRun {
         linkTarget: String?,
         atomic: AtomicInline?,
         ruby: RubyBox? = nil,
-        combined: CombinedUprightBox? = nil
+        combined: CombinedUprightBox? = nil,
+        inlineBlock: BlockBox? = nil
     ) {
         self.sourceRange = sourceRange
         self.shapedRange = shapedRange ?? sourceRange
@@ -93,7 +97,11 @@ struct LineRun {
         self.atomic = atomic
         self.ruby = ruby
         self.combined = combined
+        self.inlineBlock = inlineBlock
     }
+
+    /// One unbreakable unit on its line rather than a slice of shaped text.
+    var isAtomicUnit: Bool { atomic != nil || ruby != nil || combined != nil || inlineBlock != nil }
 }
 
 struct LayoutLine {
@@ -165,6 +173,13 @@ final class BlockBox {
     /// already distributed); on a cell box, its column span.
     var tableColumnMaxContent: [CGFloat]? = nil
     var tableColspan: Int = 1
+    /// This box is an inline-block's content, laid out on its parent's line
+    /// (`InlineRun.inlineBlock`) instead of in the parent's block flow.
+    var isInlineBlock = false
+    /// An auto-width inline-block's max-content width (content box), measured
+    /// by BoxTreeBuilder, which has the fonts. BlockLayout clamps it to the
+    /// containing block it is laid out in (shrink-to-fit, CSS 2.1 §10.3.9).
+    var shrinkToFitContentWidth: CGFloat? = nil
 
     var isFloated: Bool {
         style.cssFloat == .left || style.cssFloat == .right
@@ -188,6 +203,34 @@ final class BlockBox {
 
     /// Border-box width (content + padding + border).
     var borderBoxWidth: CGFloat { padding.horizontal + borders.horizontal + contentSize.width }
+
+    /// The inline-blocks on this box's lines, for walks that must reach every
+    /// box: they are not in `children`.
+    var inlineBlockBoxes: [BlockBox] { inlineRuns.compactMap(\.inlineBlock) }
+
+    /// The baseline of the last in-flow line box inside this box, from its
+    /// border-box top; nil when there is none. An inline-block sits on it
+    /// (CSS 2.1 §10.8.1).
+    var lastLineBaseline: CGFloat? {
+        let inset = borders.top + padding.top
+        if let line = lines.last { return inset + line.baseline }
+        for child in children.reversed() where !child.isFloated {
+            if let baseline = child.lastLineBaseline { return inset + child.frame.minY + baseline }
+        }
+        return nil
+    }
+
+    /// A laid-out inline-block as an atomic inline: its margin box, split at
+    /// the baseline it puts on its line. With no line box inside, the bottom
+    /// margin edge is the baseline (§10.8.1). A `vertical-align` shift raises
+    /// the box. Line shaping and painting both read this, so the box is drawn
+    /// exactly where the line made room for it.
+    func atomicInlineMetrics(verticalAlignOffset: CGFloat) -> (width: CGFloat, ascent: CGFloat, descent: CGFloat) {
+        let height = margins.top + frame.height + margins.bottom
+        let ascent = lastLineBaseline.map { margins.top + $0 } ?? height
+        return (max(0, margins.left + frame.width + margins.right),
+                ascent + verticalAlignOffset, height - ascent - verticalAlignOffset)
+    }
 }
 
 struct LayoutContext {

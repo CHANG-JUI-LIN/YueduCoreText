@@ -54,19 +54,27 @@ final class BrowserViewportLayoutState {
 
     /// Paint resources have the same lifetime as the retained layout lines,
     /// including ruby lines which are distinct from their containing CTLine.
+    /// An inline-block on a retained line keeps every line inside it: they are
+    /// laid out whole with the box and drawn whenever its line is.
     var retainedDrawingLineIDs: Set<ObjectIdentifier> {
         var result = Set<ObjectIdentifier>()
-        for entry in entries.values {
-            for line in entry.retained.values {
-                if let ctLine = line.ctLine { result.insert(ObjectIdentifier(ctLine)) }
-                for run in line.runs {
-                    if let ruby = run.ruby {
-                        result.insert(ObjectIdentifier(ruby.base.line))
-                        result.insert(ObjectIdentifier(ruby.annotation.line))
-                    }
-                    if let combined = run.combined { result.insert(ObjectIdentifier(combined.line)) }
+        func insert(_ line: LayoutLine) {
+            if let ctLine = line.ctLine { result.insert(ObjectIdentifier(ctLine)) }
+            for run in line.runs {
+                if let ruby = run.ruby {
+                    result.insert(ObjectIdentifier(ruby.base.line))
+                    result.insert(ObjectIdentifier(ruby.annotation.line))
                 }
+                if let combined = run.combined { result.insert(ObjectIdentifier(combined.line)) }
+                if let unit = run.inlineBlock { insertAll(unit) }
             }
+        }
+        func insertAll(_ box: BlockBox) {
+            box.lines.forEach(insert)
+            box.children.forEach(insertAll)
+        }
+        for entry in entries.values {
+            entry.retained.values.forEach(insert)
         }
         return result
     }
@@ -115,7 +123,11 @@ final class BrowserViewportLayoutState {
         return true
     }
 
-    func lines(for box: BlockBox, context: InlineFormattingContext) -> [LayoutLine] {
+    /// `prepareRuns` lays out what shaping reads from the runs (the boxes of
+    /// inline-blocks). It runs only when this box's lines are shaped afresh,
+    /// so a geometry pass costs the demanded paragraphs, not every
+    /// inline-block in the chapter.
+    func lines(for box: BlockBox, context: InlineFormattingContext, prepareRuns: () -> Void) -> [LayoutLine] {
         let id = ObjectIdentifier(box)
         let entry = entries[id] ?? Entry()
         entries[id] = entry
@@ -158,6 +170,7 @@ final class BrowserViewportLayoutState {
         let needed = forceComplete || containsTarget || resolveFloatExtent || (old != nil && y <= viewport.maxY && y + entry.height >= viewport.minY)
         guard needed else { return [] }
         if entry.cursor == nil {
+            prepareRuns()
             _ = InlineLayout.layoutLines(runs: box.inlineRuns, context: context) { entry.cursor = $0 }
         }
         guard let cursor = entry.cursor else { entry.complete = true; entry.height = 0; return [] }

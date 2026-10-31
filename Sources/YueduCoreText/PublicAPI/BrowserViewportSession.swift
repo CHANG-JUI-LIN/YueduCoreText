@@ -9,7 +9,7 @@ import CoreText
 /// implementation, not an NSTextLayoutManager adapter. Cache bounds and CSS
 /// dependency handling below are our policies, not claims about TextKit internals.
 public final class BrowserViewportSession {
-    private let pipeline: BrowserLayoutDocument.BrowserLayoutPipelineResult
+    let pipeline: BrowserLayoutDocument.BrowserLayoutPipelineResult
     private let config: BrowserLayoutConfig
     private let imageLoader: (String) -> UIImage?
     private let state = BrowserViewportLayoutState()

@@ -118,8 +118,9 @@ struct BrowserBlockInInlineTests {
     }
 
     /// The chat-bubble shape: an inline-block holding a paragraph, with
-    /// whitespace around it. Splitting it must not leave an empty bubble above
-    /// or below the message.
+    /// whitespace around it. It is no inline box to split: the paragraph is
+    /// laid out inside it (BrowserInlineBlockTests), inset by its border and
+    /// padding, under one box and no empty piece above or below.
     @Test func inlineBlockHoldingABlockDrawsNoEmptyPieces() async throws {
         let result = try await Self.layout("""
             <div><div style="display:inline-block;background-color:#ccc;\
@@ -129,8 +130,11 @@ struct BrowserBlockInInlineTests {
             """)
         #expect(result.text == "msg")
         let msg = try #require(result.rects["msg"])
-        #expect(msg.minY < 0.01)
-        #expect(!result.fills.contains { $0.maxY <= msg.minY + 0.01 || $0.minY >= msg.maxY - 0.01 })
+        #expect(abs(msg.minX - 11) < 0.01)
+        #expect(abs(msg.minY - 1) < 0.01)
+        #expect(result.fills.count == 1)
+        let box = try #require(result.fills.first)
+        #expect(abs(box.minY) < 0.01 && abs(box.maxY - msg.maxY - 1) < 0.01)
     }
 
     /// An id on the split inline box resolves to where its content starts,

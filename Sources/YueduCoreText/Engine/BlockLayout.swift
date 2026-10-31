@@ -221,9 +221,9 @@ enum BlockLayout {
                 } else if !hasInFlowChild
                             && cursorBlock == 0
                             && child.style.cssClear == .none
-                            // Floats establish a BFC, so their margins never
-                            // collapse with children's (CSS 2.1 §8.3.1).
-                            && !box.style.isFloated
+                            // Floats and inline-blocks establish a BFC, so their
+                            // margins never collapse with children's (CSS 2.1 §8.3.1).
+                            && !box.style.isFloated && !box.isInlineBlock
                             && LogicalGeometry.blockStart(edge: box.borders, mode: writingMode) == 0
                             && LogicalGeometry.blockStart(edge: box.padding, mode: writingMode) == 0 {
                     collapsedTop = childMarginBlockStart
@@ -314,6 +314,31 @@ enum BlockLayout {
         }
 
         if !box.inlineRuns.isEmpty {
+            // An inline-block is sized and laid out before its line is shaped:
+            // the line breaker reserves its margin box, and it sits on the
+            // baseline of its own last line. Its contents form their own
+            // formatting context, so no float of this one reaches inside.
+            // Always complete, as viewport layout demands lines only of boxes
+            // in the block flow; the walker reaches these through their line.
+            // Scroll mode lays them out only when this box's lines are shaped.
+            let containingWidth = box.contentSize.width
+            let layOutInlineBlocks = {
+                for unit in box.inlineBlockBoxes {
+                    layOut(
+                        root: unit,
+                        containerWidth: containingWidth,
+                        rootFontSize: rootFontSize,
+                        writingMode: writingMode,
+                        textWritingMode: textWritingMode,
+                        floatContext: nil,
+                        sourceText: sourceText,
+                        fontResolver: fontResolver,
+                        cjkTypographyStyle: cjkTypographyStyle,
+                        fragmentHeight: fragmentHeight,
+                        viewportHeight: viewportHeight, viewportWidth: viewportWidth
+                    )
+                }
+            }
             // Replaced used values and line breaking share the same final
             // containing-block content width. BoxTreeBuilder may carry a
             // provisional size for intrinsic discovery, but it is never the
@@ -374,8 +399,9 @@ enum BlockLayout {
                 cjkTypographyStyle: cjkTypographyStyle
             )
             if let viewport {
-                box.lines = viewport.lines(for: box, context: context)
+                box.lines = viewport.lines(for: box, context: context, prepareRuns: layOutInlineBlocks)
             } else {
+                layOutInlineBlocks()
                 box.lines = InlineLayout.layoutLines(runs: box.inlineRuns, context: context)
             }
         }
@@ -383,7 +409,10 @@ enum BlockLayout {
         assert(viewport != nil || box.inlineRuns.isEmpty || !box.lines.isEmpty)
         #endif
 
-        if box.lines.isEmpty, let last = previousBlockEndMargin,
+        // The last child's block-end margin leaves through a margin-less end,
+        // except out of an inline-block, whose margins never collapse with its
+        // children's (CSS 2.1 §8.3.1).
+        if box.lines.isEmpty, !box.isInlineBlock, let last = previousBlockEndMargin,
            LogicalGeometry.blockEnd(edge: box.borders, mode: writingMode) == 0,
            LogicalGeometry.blockEnd(edge: box.padding, mode: writingMode) == 0 {
             cursorBlock -= last
@@ -557,8 +586,16 @@ enum BlockLayout {
             case .auto:
                 let left = ml ?? 0
                 let right = mr ?? 0
-                s.contentWidth = max(containerWidth - marginTotalPad - left - right, 0)
-                fillsAvailableWidth = true
+                let available = max(containerWidth - marginTotalPad - left - right, 0)
+                if let preferred = box.shrinkToFitContentWidth {
+                    // An inline-block shrinks to fit (CSS 2.1 §10.3.9): its
+                    // content's widest line, at most what the line can give it.
+                    s.contentWidth = min(preferred, available)
+                    fillsAvailableWidth = false
+                } else {
+                    s.contentWidth = available
+                    fillsAvailableWidth = true
+                }
             default:
                 let width = resolve(style.width, style: style, ctx: ctx) ?? containerWidth
                 s.contentWidth = min(max(width, 0), containerWidth)
@@ -583,7 +620,8 @@ enum BlockLayout {
         let maxWidthConstrainedAuto = fillsAvailableWidth
             && maxWidth.map { s.contentWidth <= $0 + 0.001 } != nil
             && s.contentWidth + marginTotalPad + (ml ?? 0) + (mr ?? 0) < containerWidth - 0.001
-        if box.isFloated || (fillsAvailableWidth && !maxWidthConstrainedAuto) {
+        // Auto margins are zero on floats and inline-blocks (§10.3.5, §10.3.9).
+        if box.isFloated || box.isInlineBlock || (fillsAvailableWidth && !maxWidthConstrainedAuto) {
             s.margins.left = ml ?? 0
             s.margins.right = mr ?? 0
         } else {

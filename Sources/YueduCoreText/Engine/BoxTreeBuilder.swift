@@ -55,7 +55,7 @@ enum BoxTreeBuilder {
 
     /// DEBUG-only: links each box to its parent for ancestry diagnostics.
     static func linkParents(_ box: BlockBox) {
-        for child in box.children {
+        for child in box.children + box.inlineBlockBoxes {
             child.parentBox = box
             linkParents(child)
         }
@@ -142,6 +142,13 @@ enum BoxTreeBuilder {
                         sourceText: &sourceText, anchors: &anchors,
                         imageLoader: imageLoader, boxCount: &boxCount
                     ))
+                } else if formsAtomicInline(elementNode.style) {
+                    appendInlineBlockRun(
+                        elementNode, to: &pendingInline, config: config,
+                        containerWidth: containerWidth,
+                        sourceText: &sourceText, anchors: &anchors, anchorStack: &anchorStack,
+                        imageLoader: imageLoader, boxCount: &boxCount
+                    )
                 } else if elementNode.style.display == .none {
                     continue
                 } else {
@@ -150,9 +157,11 @@ enum BoxTreeBuilder {
                     // the block joins this container's children, in document order.
                     collectInline(
                         elementNode, into: &pendingInline, config: config,
+                        containerWidth: containerWidth,
                         sourceText: &sourceText, anchors: &anchors,
-                        anchorStack: &anchorStack, imageLoader: imageLoader
-                    ) { block, runs, sourceText, anchors, pendingAnchors in
+                        anchorStack: &anchorStack, imageLoader: imageLoader,
+                        boxCount: &boxCount
+                    ) { block, runs, sourceText, anchors, pendingAnchors, boxCount in
                         flushGroup(
                             &runs,
                             style: node.style,
@@ -247,6 +256,15 @@ enum BoxTreeBuilder {
         style.display == .table || style.display == .block
     }
 
+    /// An inline-block: a block container of its own, placed on the line as one
+    /// atomic box (CSS 2.1 §9.2.2). img/svg/canvas carry the same display from
+    /// the UA sheet but are replaced elements, handled before this is asked;
+    /// a floated inline-block is a float. Horizontal only: admission sends
+    /// vertical chapters holding one to the legacy engine.
+    private static func formsAtomicInline(_ style: ComputedStyle) -> Bool {
+        style.display == .inlineBlock && !style.isFloated
+    }
+
     private static func buildOwnBox(
         for node: ComputedStyleNode,
         config: BrowserLayoutConfig,
@@ -287,7 +305,7 @@ enum BoxTreeBuilder {
         available: CGFloat,
         config: BrowserLayoutConfig
     ) -> CGFloat {
-        let own = maxInlineWidth(trailingInline, config: config)
+        let own = maxInlineWidth(trailingInline, available: available, config: config)
         let inner = max(own, kids.map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0)
         return min(max(inner, 0), available)
     }
@@ -302,29 +320,41 @@ enum BoxTreeBuilder {
         if let explicit = CSSLengthResolver.resolve(style.width, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) {
             return max(explicit, 0) + extras
         }
+        return maxContentWidth(of: box, available: available, config: config) + extras
+    }
+
+    /// A box's max-content width, content box only: its widest unwrapped line
+    /// or its widest child's margin box.
+    private static func maxContentWidth(of box: BlockBox, available: CGFloat, config: BrowserLayoutConfig) -> CGFloat {
+        let style = box.style
         var indent: CGFloat = 0
         if box.ownsFirstFormattedLine, case .length(let length) = style.textIndent {
             indent = CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) ?? 0
         }
-        let own = maxInlineWidth(box.inlineRuns, indent: indent, config: config)
+        let own = maxInlineWidth(box.inlineRuns, indent: indent, available: available, config: config)
         let kids = box.children.map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0
-        return max(own, kids) + extras
+        return max(own, kids)
     }
 
     /// The widest single line the runs form without wrapping: hard breaks end
     /// a line, and the first formatted line carries the box's text-indent.
-    private static func maxInlineWidth(_ runs: [InlineRun], indent: CGFloat = 0, config: BrowserLayoutConfig) -> CGFloat {
+    private static func maxInlineWidth(
+        _ runs: [InlineRun], indent: CGFloat = 0, available: CGFloat, config: BrowserLayoutConfig
+    ) -> CGFloat {
         var maxWidth: CGFloat = 0
         var segment = NSMutableAttributedString()
+        // Inline-blocks on the line being measured: they share it with the text.
+        var segmentBoxes: CGFloat = 0
         var isFirstSegment = true
         func flushSegment() {
-            guard segment.length > 0 else { return }
+            guard segment.length > 0 || segmentBoxes > 0 else { return }
             let line = CTLineCreateWithAttributedString(segment)
-            var width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+            var width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + segmentBoxes
             if isFirstSegment { width += indent }
             isFirstSegment = false
             maxWidth = max(maxWidth, width)
             segment = NSMutableAttributedString()
+            segmentBoxes = 0
         }
         for run in runs {
             if run.isHardBreak {
@@ -334,6 +364,10 @@ enum BoxTreeBuilder {
             if let atomic = run.atomic {
                 flushSegment()
                 maxWidth = max(maxWidth, atomic.usedSize.width)
+                continue
+            }
+            if let unit = run.inlineBlock {
+                segmentBoxes += preferredOuterWidth(of: unit, available: available, config: config)
                 continue
             }
             segment.append(NSAttributedString(string: run.text, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))
@@ -525,7 +559,7 @@ enum BoxTreeBuilder {
         if box.ownsFirstFormattedLine, case .length(let length) = style.textIndent {
             indent = CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) ?? 0
         }
-        let own = maxInlineWidth(box.inlineRuns, indent: indent, config: config)
+        let own = maxInlineWidth(box.inlineRuns, indent: indent, available: available, config: config)
         let kids = box.children.map { tableCellMaxContentWidth(of: $0, available: available, config: config) }.max() ?? 0
         return max(own, kids) + extras
     }
@@ -590,17 +624,20 @@ enum BoxTreeBuilder {
         _ runs: inout [InlineRun],
         _ sourceText: inout SourceTextBuilder,
         _ anchors: inout [String: Int],
-        _ anchorStack: inout [String]
+        _ anchorStack: inout [String],
+        _ boxCount: inout Int
     ) -> Void
 
     private static func collectInline(
         _ node: ComputedStyleNode,
         into runs: inout [InlineRun],
         config: BrowserLayoutConfig,
+        containerWidth: CGFloat,
         sourceText: inout SourceTextBuilder,
         anchors: inout [String: Int],
         anchorStack: inout [String],
         imageLoader: (String) -> UIImage?,
+        boxCount: inout Int,
         hoist: BlockHoist
     ) {
         var localStack = anchorStack
@@ -621,10 +658,11 @@ enum BoxTreeBuilder {
             runs: inout [InlineRun],
             sourceText: inout SourceTextBuilder,
             anchors: inout [String: Int],
-            anchorStack: inout [String]
+            anchorStack: inout [String],
+            boxCount: inout Int
         ) {
             closePiece(closesBox: false, runs: &runs, sourceEnd: sourceText.currentOffset)
-            hoist(block, &runs, &sourceText, &anchors, &anchorStack)
+            hoist(block, &runs, &sourceText, &anchors, &anchorStack, &boxCount)
             firstRun = runs.count
             sourceStart = sourceText.currentOffset
         }
@@ -666,15 +704,23 @@ enum BoxTreeBuilder {
                     )
                 } else if splitsInlineBox(elementNode.style) {
                     split(elementNode, runs: &runs, sourceText: &sourceText,
-                          anchors: &anchors, anchorStack: &localStack)
+                          anchors: &anchors, anchorStack: &localStack, boxCount: &boxCount)
+                } else if formsAtomicInline(elementNode.style) {
+                    appendInlineBlockRun(
+                        elementNode, to: &runs, config: config,
+                        containerWidth: containerWidth,
+                        sourceText: &sourceText, anchors: &anchors, anchorStack: &localStack,
+                        imageLoader: imageLoader, boxCount: &boxCount
+                    )
                 } else if elementNode.style.display == .none {
                     continue
                 } else {
                     collectInline(
                         elementNode, into: &runs, config: config,
+                        containerWidth: containerWidth,
                         sourceText: &sourceText, anchors: &anchors,
                         anchorStack: &localStack, imageLoader: imageLoader,
-                        hoist: split
+                        boxCount: &boxCount, hoist: split
                     )
                 }
             }
@@ -790,6 +836,42 @@ enum BoxTreeBuilder {
                 runs.append(InlineRun(text: segment.text, style: style, sourceRange: part, nodeID: nodeID, linkTarget: link))
             }
         }
+    }
+
+    /// Builds an inline-block's content as its own block container and puts it
+    /// on the line as one run. The content's text joins the chapter source in
+    /// document order like any other, so the run's range spans it: an offset
+    /// inside the box (an anchor, a search hit, a reading position) resolves to
+    /// the line the box sits on.
+    private static func appendInlineBlockRun(
+        _ node: ComputedStyleNode,
+        to runs: inout [InlineRun],
+        config: BrowserLayoutConfig,
+        containerWidth: CGFloat,
+        sourceText: inout SourceTextBuilder,
+        anchors: inout [String: Int],
+        anchorStack: inout [String],
+        imageLoader: (String) -> UIImage?,
+        boxCount: inout Int
+    ) {
+        assert(config.writingMode == .horizontal, "admission keeps vertical inline-blocks on the legacy engine")
+        // Ids waiting for content, and the box's own (it may hold no text), bind where the box starts.
+        registerAnchors(&anchorStack, ownID: node.anchorID, anchors: &anchors, at: sourceText.currentOffset)
+        let start = sourceText.currentOffset
+        let box = buildOwnBox(
+            for: node, config: config, containerWidth: containerWidth,
+            sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader, boxCount: &boxCount
+        )
+        box.isInlineBlock = true
+        if case .auto = node.style.width {
+            box.shrinkToFitContentWidth = maxContentWidth(of: box, available: containerWidth, config: config)
+        }
+        runs.append(InlineRun(
+            text: "\u{FFFC}", style: node.style,
+            sourceRange: NSRange(location: start, length: sourceText.currentOffset - start),
+            nodeID: node.nodeID, linkTarget: node.linkTarget,
+            inlineBlock: box
+        ))
     }
 
     private static func appendRubyRun(
@@ -1116,7 +1198,7 @@ enum BoxTreeBuilder {
     /// means shaping escaped the InlineLayout call owned by BlockLayout.
     private static func assertUnformatted(_ box: BlockBox) {
         assert(box.lines.isEmpty, "BoxTreeBuilder must not create LayoutLine values")
-        for child in box.children {
+        for child in box.children + box.inlineBlockBoxes {
             assertUnformatted(child)
         }
     }
@@ -1127,7 +1209,7 @@ extension BoxTreeBuilder {
     /// Total block-box count in a tree (lifecycle accounting).
     static func countBoxes(in box: BlockBox) -> Int {
         var count = 1
-        for child in box.children {
+        for child in box.children + box.inlineBlockBoxes {
             count += countBoxes(in: child)
         }
         return count

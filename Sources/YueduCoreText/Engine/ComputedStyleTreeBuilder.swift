@@ -295,7 +295,9 @@ final class ComputedStyleTreeBuilder {
                 switch child {
                 case .text(let value): result += value
                 case .element(let node):
-                    if node.style.display == .block || node.style.isFloated || ["img", "br", "ruby"].contains(node.tag) { return result }
+                    // An inline-block is atomic: its text is not on this line.
+                    if [.block, .inlineBlock].contains(node.style.display) || node.style.isFloated
+                        || ["img", "br", "ruby"].contains(node.tag) { return result }
                     result += text(node.children)
                 }
             }

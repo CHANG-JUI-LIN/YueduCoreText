@@ -262,7 +262,7 @@ struct PageWalker {
     /// Document-space step emitted by `nextStep` (BEFORE paging).
     enum Step {
         case inlineLineStart(StepInlineLineStart)
-        case floatBoundary(StepFloat)
+        case monolith(StepMonolith)
         case fill(StepFill)
         case fillEnd(StepFillEnd)
         case text(StepText)
@@ -277,10 +277,15 @@ struct PageWalker {
         var lineSerial: Int? = nil
     }
 
-    struct StepFloat {
+    /// A box that pagination keeps whole when it fits a page: a float (its
+    /// margin box), or the line box holding an inline-block.
+    struct StepMonolith {
         let marginRect: DocumentRect
         let nodeID: Int
-        let isReplaced: Bool
+        /// The line box's height when this is an inline-block's line: the page
+        /// it leaves ends because its column is full, as when a text line moves.
+        /// Nil for a float.
+        var overflowLineHeight: CGFloat? = nil
     }
 
     struct StepText {
@@ -322,6 +327,8 @@ struct PageWalker {
         let nodeID: Int
         let writingMode: ReaderWritingMode
         var rotation: PaintTransform? = nil
+        /// Set inside an inline-block: its box belongs to the line it sits on.
+        var lineSerial: Int? = nil
     }
 
     struct StepFillEnd {
@@ -368,6 +375,12 @@ struct PageWalker {
         /// The root (html/body) frame. Its background belongs to the CANVAS,
         /// not to the box — see the paint guard in `nextStep`.
         var isRoot = false
+        /// An inline-block's frame, until its line box has been offered to
+        /// pagination as one piece.
+        var pendingLineBox: DocumentRect? = nil
+        /// Inside an inline-block, every line is part of the line the box sits
+        /// on and shares its serial, so 底部對齊 moves the box as one line.
+        var sharedLineSerial: Int? = nil
     }
 
     /// Page block extent in DOCUMENT space (the content flow page height).
@@ -553,16 +566,20 @@ struct PageWalker {
                     width: frame.box.frame.width,
                     height: frame.box.frame.height
                 )
-                return .floatBoundary(StepFloat(
+                return .monolith(StepMonolith(
                     marginRect: DocumentRect(rawValue: CGRect(
                         x: borderRect.minX - frame.box.margins.left,
                         y: borderRect.minY - frame.box.margins.top,
                         width: borderRect.width + frame.box.margins.horizontal,
                         height: borderRect.height + frame.box.margins.vertical
                     )),
-                    nodeID: frame.box.debugNodeID,
-                    isReplaced: frame.box.imageAttachment != nil
+                    nodeID: frame.box.debugNodeID
                 ))
+            }
+            if let lineBox = stack[index].pendingLineBox {
+                stack[index].pendingLineBox = nil
+                return .monolith(StepMonolith(marginRect: lineBox, nodeID: stack[index].box.debugNodeID,
+                                              overflowLineHeight: lineBox.height))
             }
             if !stack[index].fillsEmitted {
                 stack[index].fillsEmitted = true
@@ -594,7 +611,8 @@ struct PageWalker {
                         borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderColor),
                         nodeID: frame.box.debugNodeID,
                         writingMode: writingMode,
-                        rotation: frame.rotation
+                        rotation: frame.rotation,
+                        lineSerial: frame.sharedLineSerial
                     ))
                 }
                 // A box with a border but no background still emits its full
@@ -613,7 +631,8 @@ struct PageWalker {
                         borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderColor),
                         nodeID: frame.box.debugNodeID,
                         writingMode: writingMode,
-                        rotation: frame.rotation
+                        rotation: frame.rotation,
+                        lineSerial: frame.sharedLineSerial
                     ))
                 }
                 continue
@@ -631,14 +650,22 @@ struct PageWalker {
                 // only ever accumulates across boxes entered back-to-back with
                 // nothing emitted between them.
                 adjoiningBlockStartMargin += LogicalGeometry.blockStart(edge: child.margins, mode: writingMode)
-                stack.append(Self.makeFrame(child, contentOrigin: childOrigin, parentRotation: parent.rotation))
+                var childFrame = Self.makeFrame(child, contentOrigin: childOrigin, parentRotation: parent.rotation)
+                childFrame.sharedLineSerial = parent.sharedLineSerial
+                stack.append(childFrame)
                 continue
             }
             if let attachment = stack[index].box.imageAttachment,
                !stack[index].imageEmitted {
                 stack[index].imageEmitted = true
-                lineSerialCounter += 1
-                blockImageLineSerials.insert(lineSerialCounter)
+                let serial: Int
+                if let shared = stack[index].sharedLineSerial {
+                    serial = shared
+                } else {
+                    lineSerialCounter += 1
+                    serial = lineSerialCounter
+                    blockImageLineSerials.insert(serial)
+                }
                 let frame = stack[index]
                 let rect = DocumentRect(rawValue: CGRect(
                     x: frame.contentOrigin.x,
@@ -659,7 +686,7 @@ struct PageWalker {
                     writingMode: writingMode,
                     rect: rect,
                     alt: nil,
-                    lineSerial: lineSerialCounter,
+                    lineSerial: serial,
                     rotation: frame.rotation
                 ))
             }
@@ -667,8 +694,12 @@ struct PageWalker {
                 let line = stack[index].box.lines[stack[index].lineIndex]
                 if !stack[index].inlineDecorationsEmitted {
                     stack[index].inlineDecorationsEmitted = true
-                    lineSerialCounter += 1
-                    currentLineSerial = lineSerialCounter
+                    if let shared = stack[index].sharedLineSerial {
+                        currentLineSerial = shared
+                    } else {
+                        lineSerialCounter += 1
+                        currentLineSerial = lineSerialCounter
+                    }
                     if !line.inlineDecorations.isEmpty {
                         let frame = stack[index]
                         return .inlineLineStart(StepInlineLineStart(
@@ -701,6 +732,26 @@ struct PageWalker {
                     stack[index].runIndex += 1
                     if run.isDecorationEdge { continue }
                     let frame = stack[index]
+                    if let unit = run.inlineBlock {
+                        // The box's margin box sits on the line's baseline at its
+                        // own (§10.8.1); its content is walked like any box's,
+                        // as part of this line.
+                        let metrics = unit.atomicInlineMetrics(verticalAlignOffset: run.style.verticalAlignOffset)
+                        let marginTop = frame.contentOrigin.y + line.baseline - metrics.ascent
+                        var unitFrame = Self.makeFrame(unit, contentOrigin: CGPoint(
+                            x: frame.contentOrigin.x + line.contentX + run.x
+                                + unit.margins.left + unit.borders.left + unit.padding.left,
+                            y: marginTop + unit.margins.top + unit.borders.top + unit.padding.top
+                        ), parentRotation: frame.rotation)
+                        unitFrame.sharedLineSerial = currentLineSerial
+                        unitFrame.pendingLineBox = DocumentRect(rawValue: CGRect(
+                            x: frame.contentOrigin.x + line.contentX,
+                            y: frame.contentOrigin.y + line.top,
+                            width: frame.box.contentSize.width, height: line.height
+                        ))
+                        stack.append(unitFrame)
+                        continue
+                    }
                     if let ruby = run.ruby {
                         return .ruby(StepRuby(
                             placementRect: DocumentRect(rawValue: CGRect(
@@ -768,7 +819,7 @@ struct PageWalker {
                         BrowserLayoutDeviceDiagnostic.summary(walkLine)
                         #endif
                         let endsLine = !line.runs[frame.runIndex...].contains {
-                            !$0.isDecorationEdge && ($0.atomic != nil || $0.ruby != nil || $0.combined != nil || $0.width > 0.001)
+                            !$0.isDecorationEdge && ($0.isAtomicUnit || $0.width > 0.001)
                         }
                         let lineBottom = frame.contentOrigin.y + line.top + line.height
                         return .image(StepImage(
@@ -843,8 +894,8 @@ struct PageWalker {
         switch step {
         case .inlineLineStart(let line):
             return placeInlineLineStart(line)
-        case .floatBoundary(let marker):
-            return placeFloatBoundary(marker)
+        case .monolith(let marker):
+            return placeMonolith(marker)
         case .fill(let frag):
             return placeFill(frag)
         case .fillEnd(let end):
@@ -863,7 +914,12 @@ struct PageWalker {
     /// relocates the complete float and every following sibling together.
     /// Oversized replaced floats stay on the generic image scale-to-fit path;
     /// non-replaced oversized/complex floats are rejected by the scanner.
-    private mutating func placeFloatBoundary(_ step: StepFloat) -> PageFragments? {
+    ///
+    /// The line box of an inline-block is placed the same way, so a box that
+    /// fits a page is never cut in two. One taller than a page cannot move
+    /// whole; its lines then break across pages like any block's (a poem set
+    /// in an inline-block to centre it can run for pages).
+    private mutating func placeMonolith(_ step: StepMonolith) -> PageFragments? {
         guard !isContinuous else { return nil }
 
         let shiftedY = step.marginRect.minY + flowShift
@@ -875,7 +931,7 @@ struct PageWalker {
             let movedY = CGFloat(target) * pageHeight
             flowShift += movedY - shiftedY
         }
-        return advanceToPage(target)
+        return advanceToPage(target, overflowLineHeight: step.overflowLineHeight)
     }
 
     /// Walks until the next page completes. Returns the page, or nil when the
@@ -941,7 +997,8 @@ struct PageWalker {
     }
 
     /// - Parameter overflowLineHeight: the line box height of the text line (or ruby,
-    ///   or a line's inline decorations) moving to `target` because it no longer fits —
+    ///   a line's inline decorations, or the line an inline-block sits on) moving to
+    ///   `target` because it no longer fits —
     ///   the page ends because its column is full of text, the one case 底部對齊
     ///   stretches. nil when an image, a float or a box start leaves the page.
     private mutating func advanceToPage(_ target: Int, overflowLineHeight: CGFloat? = nil) -> PageFragments? {
@@ -1207,7 +1264,7 @@ struct PageWalker {
                 writingMode: step.writingMode
             )
             fragment.paintTransform = pageTransform(step.rotation, displacementY: 0, pageIndex: 0)
-            appendToCurrentPage(.fill(fragment), lineSerial: nil)
+            appendToCurrentPage(.fill(fragment), lineSerial: step.lineSerial)
             return nil
         }
         let shiftedStartY = step.rect.minY + flowShift
@@ -1304,7 +1361,7 @@ struct PageWalker {
         }) {
             currentPage[existing] = .fill(fragment)
         } else {
-            appendToCurrentPage(.fill(fragment), lineSerial: nil)
+            appendToCurrentPage(.fill(fragment), lineSerial: decoration.step.lineSerial)
         }
     }
 
@@ -1539,7 +1596,18 @@ struct PageWalker {
 
         return currentPage.enumerated().map { index, fragment in
             if let serial = currentPageLineSerials[index], let line = lineOrdinal[serial] {
-                return Self.offset(fragment, dy: step * CGFloat(line))
+                let dy = step * CGFloat(line)
+                // An inline-block taller than a page moves with its line, but
+                // the slice running on past this page keeps its end on the
+                // content bottom, like a block decoration's.
+                if case .fill(let fill) = fragment,
+                   fill.fragmentPosition == .first || fill.fragmentPosition == .middle {
+                    var rect = fill.rect.rawValue
+                    rect.origin.y += dy
+                    rect.size.height = max(0, rect.height - dy)
+                    return .fill(fill.with(rect: PageLocalRect(rawValue: rect)))
+                }
+                return Self.offset(fragment, dy: dy)
             }
             // A block decoration spans lines: its top follows the first line it
             // holds and its bottom the last; a slice running on past this page

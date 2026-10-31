@@ -216,6 +216,7 @@ final class BrowserLayoutDocument {
                         message:"box=\(box.frame) content=\(box.contentSize) margin=\(box.margins) padding=\(box.padding) x=\(line.contentX) baseline=\(line.baseline) height=\(line.height); \(fonts)"))
                 }
                 box.children.forEach(trace)
+                box.inlineBlockBoxes.forEach(trace)
             }
             trace(rootBox)
         }
@@ -267,7 +268,7 @@ final class BrowserLayoutDocument {
            box.frame.height + box.margins.vertical > fragmentHeight + 0.001 {
             return box
         }
-        for child in box.children {
+        for child in box.children + box.inlineBlockBoxes {
             if let match = firstOversizedNonReplacedFloat(
                 in: child,
                 fragmentHeight: fragmentHeight
