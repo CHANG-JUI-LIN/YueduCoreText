@@ -209,6 +209,9 @@ enum BlockLayout {
                 } else if !hasInFlowChild
                             && cursorBlock == 0
                             && child.style.cssClear == .none
+                            // Floats establish a BFC, so their margins never
+                            // collapse with children's (CSS 2.1 §8.3.1).
+                            && !box.style.isFloated
                             && LogicalGeometry.blockStart(edge: box.borders, mode: writingMode) == 0
                             && LogicalGeometry.blockStart(edge: box.padding, mode: writingMode) == 0 {
                     collapsedTop = childMarginBlockStart
