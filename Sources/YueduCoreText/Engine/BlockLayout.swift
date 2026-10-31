@@ -28,6 +28,7 @@ enum BlockLayout {
         textWritingMode: ReaderWritingMode? = nil,
         floatContext: FloatContext? = nil,
         blockOffsetY: CGFloat = 0,
+        inlineOffsetX: CGFloat = 0,
         sourceText: String = "",
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
         cjkTypographyStyle: CJKTypographyStyle? = nil,
@@ -86,12 +87,22 @@ enum BlockLayout {
         // Frame is physical; its width is the inline-axis extent of the box.
         box.frame = ParentLocalRect(rawValue: CGRect(x: 0, y: 0, width: sides.borderBoxWidth, height: 0))
 
-        // Create or inherit FloatContext (only for horizontal writing mode in Phase 4B)
+        // Create or inherit FloatContext (only for horizontal writing mode in Phase 4B).
+        // An inherited context keeps the creating box's x axis; a context born
+        // here starts a fresh axis at this box's content origin.
         let fc: FloatContext?
+        let fcInlineOffsetX: CGFloat
         if writingMode == .horizontal {
-            fc = floatContext ?? FloatContext(containerWidth: sides.contentWidth)
+            if let inherited = floatContext {
+                fc = inherited
+                fcInlineOffsetX = inlineOffsetX
+            } else {
+                fc = FloatContext(containerWidth: sides.contentWidth)
+                fcInlineOffsetX = 0
+            }
         } else {
             fc = nil
+            fcInlineOffsetX = 0
         }
 
         var cursorBlock: CGFloat = 0   // content-box-relative, along block axis
@@ -163,6 +174,7 @@ enum BlockLayout {
                     marginBoxSize: marginBoxSize,
                     margins: child.margins,
                     startY: blockOffsetY + cursorBlock,
+                    inlineRange: fcInlineOffsetX ..< (fcInlineOffsetX + box.contentSize.width),
                     nodeID: child.debugNodeID,
                     clear: child.style.cssClear
                 )
@@ -229,6 +241,9 @@ enum BlockLayout {
                     textWritingMode: textWritingMode,
                     floatContext: fc,
                     blockOffsetY: childBlockOffsetY,
+                    inlineOffsetX: fcInlineOffsetX + child.logicalInlineOrigin
+                        + LogicalGeometry.inlineStart(edge: child.borders, mode: writingMode)
+                        + LogicalGeometry.inlineStart(edge: child.padding, mode: writingMode),
                     sourceText: sourceText,
                     fontResolver: fontResolver,
                     cjkTypographyStyle: cjkTypographyStyle,
@@ -337,6 +352,7 @@ enum BlockLayout {
                 fontResolver: fontResolver,
                 floatContext: relevantFloatContext,
                 blockOffsetY: blockOffsetY,
+                inlineOffsetX: fcInlineOffsetX,
                 firstLineConstraint: firstLineConstraint,
                 paragraphStyle: box.style,
                 fontCache: viewport?.fontCache,
