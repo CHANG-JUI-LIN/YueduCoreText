@@ -318,6 +318,7 @@ final class ComputedStyleTreeBuilder {
             for rule in matched { cascadeApply(rule.declarations, order: rule.declarationOrder, to: &value, ctx: ctx) }
             for rule in matched { cascadeApply(rule.importantDeclarations, order: rule.declarationOrder, to: &value, ctx: ctx) }
             value.finalizeLineHeight(rootFontSize: rootFontSize)
+            value.finalizeLetterSpacing(rootFontSize: rootFontSize)
             return value
         }
         func split(_ children: [StyleTreeChild], remaining: inout Int) -> ([StyleTreeChild], [StyleTreeChild]) {
@@ -466,6 +467,7 @@ final class ComputedStyleTreeBuilder {
             }
         }
         style.finalizeLineHeight(rootFontSize: rootFontSize)
+        style.finalizeLetterSpacing(rootFontSize: rootFontSize)
         style.finalizeBorderLengths(rootFontSize: rootFontSize)
         if let report = readerConfig.onDiagnostic {
             let path = Self.diagnosticPath(element)
@@ -712,6 +714,17 @@ enum ComputedStylePropertyApplier {
                 style.lineHeight = nil
                 style.lineHeightMultiplier = nil
                 style.pendingLineHeightLength = length
+            }
+        case "letter-spacing":
+            if value == "inherit" || value == "unset" {
+                style.letterSpacing = ctx.parent.letterSpacing
+                style.pendingLetterSpacingLength = nil
+            } else if value == "normal" || value == "initial" {
+                style.letterSpacing = 0
+                style.pendingLetterSpacingLength = nil
+            } else if let length = CSSLengthResolver.parse(value) {
+                style.letterSpacing = nil
+                style.pendingLetterSpacingLength = length
             }
         case "white-space":
             switch value {

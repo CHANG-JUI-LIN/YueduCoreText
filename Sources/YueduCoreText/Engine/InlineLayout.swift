@@ -882,8 +882,11 @@ enum InlineLayout {
             attributes[TextBreakingAttributes.language] = language
             attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language
         }
-        if style.configLetterSpacing != 0 {
-            attributes[.kern] = style.configLetterSpacing
+        // An authored letter-spacing declaration wins over the reader default
+        // (configLetterSpacing), as inherited values lose to specified ones.
+        let tracking = style.letterSpacing ?? style.configLetterSpacing
+        if tracking != 0 {
+            attributes[.kern] = tracking
         }
         let syntheticBold = FontTraits.syntheticBoldAttributes(
             for: font, isBoldRequested: style.configBold || style.fontWeight >= 600
