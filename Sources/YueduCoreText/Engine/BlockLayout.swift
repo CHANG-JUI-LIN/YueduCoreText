@@ -187,10 +187,13 @@ enum BlockLayout {
                 let childMarginBlockEnd = LogicalGeometry.blockEnd(edge: child.margins, mode: writingMode)
                 let childMarginInlineStart = LogicalGeometry.inlineStart(edge: child.margins, mode: writingMode)
                 let collapsedTop: CGFloat
+                var marginFoldedIntoParent = false
+                var marginCollapseBase: CGFloat?
 
                 if let prev = previousBlockEndMargin {
                     collapsedTop = Margins.collapse(prev, childMarginBlockStart)
                     child.logicalBlockOrigin = cursorBlock - prev + collapsedTop
+                    marginCollapseBase = prev
                 } else if !hasInFlowChild
                             && cursorBlock == 0
                             && child.style.cssClear == .none
@@ -199,6 +202,7 @@ enum BlockLayout {
                     collapsedTop = childMarginBlockStart
                     child.logicalBlockOrigin = 0
                     box.margins.top = max(box.margins.top, collapsedTop)
+                    marginFoldedIntoParent = true
                 } else {
                     collapsedTop = childMarginBlockStart
                     child.logicalBlockOrigin = cursorBlock + childMarginBlockStart
@@ -231,6 +235,23 @@ enum BlockLayout {
                     fragmentHeight: fragmentHeight,
                     viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
                 )
+
+                // A first-child fold inside the child's own layout grows its
+                // block-start margin only after this level consumed it; the
+                // grown margin must be re-accounted the way it was consumed or
+                // fold chains through margin-less ancestors drop it (CSS 2.1 §8.3.1).
+                let grownMarginBlockStart = LogicalGeometry.blockStart(edge: child.margins, mode: writingMode)
+                if grownMarginBlockStart != childMarginBlockStart {
+                    if marginFoldedIntoParent {
+                        box.margins.top = max(box.margins.top, grownMarginBlockStart)
+                    } else if let base = marginCollapseBase {
+                        child.logicalBlockOrigin +=
+                            Margins.collapse(base, grownMarginBlockStart)
+                            - Margins.collapse(base, childMarginBlockStart)
+                    } else {
+                        child.logicalBlockOrigin += grownMarginBlockStart - childMarginBlockStart
+                    }
+                }
 
                 let borderBoxBlockExtent = LogicalGeometry.blockAxisExtent(child.borders, mode: writingMode)
                     + LogicalGeometry.blockAxisExtent(child.padding, mode: writingMode)
