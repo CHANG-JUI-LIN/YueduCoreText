@@ -186,8 +186,14 @@ final class BlockBox {
 struct LayoutContext {
     let rootFontSize: CGFloat
     let percentBase: CGFloat
-    init(rootFontSize: CGFloat, percentBase: CGFloat) {
+    /// Resolution bases for `vh`/`vw` units; nil resolves them to the
+    /// property's initial value (they never guess a geometry).
+    var viewportHeight: CGFloat? = nil
+    var viewportWidth: CGFloat? = nil
+    init(rootFontSize: CGFloat, percentBase: CGFloat, viewportHeight: CGFloat? = nil, viewportWidth: CGFloat? = nil) {
         self.rootFontSize = rootFontSize
         self.percentBase = percentBase
+        self.viewportHeight = viewportHeight
+        self.viewportWidth = viewportWidth
     }
 }

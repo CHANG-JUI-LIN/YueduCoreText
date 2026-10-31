@@ -32,6 +32,8 @@ enum BlockLayout {
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
         cjkTypographyStyle: CJKTypographyStyle? = nil,
         fragmentHeight: CGFloat? = nil,
+        viewportHeight: CGFloat? = nil,
+        viewportWidth: CGFloat? = nil,
         viewport: BrowserViewportLayoutState? = nil
     ) -> CGFloat {
         // Retained as a source-compatible call-site parameter while Phase 4E0
@@ -41,7 +43,9 @@ enum BlockLayout {
         resolveBlockReplacedSize(
             in: box,
             containingInlineSize: containerWidth,
-            rootFontSize: rootFontSize
+            rootFontSize: rootFontSize,
+            viewportHeight: viewportHeight,
+            viewportWidth: viewportWidth
         )
         var sides = resolveSides(box, containerWidth: containerWidth, rootFontSize: rootFontSize, writingMode: writingMode)
         // Paged replaced-element fit policy is resolved before float exclusion
@@ -101,7 +105,9 @@ enum BlockLayout {
             resolveBlockReplacedSize(
                 in: child,
                 containingInlineSize: box.contentSize.width,
-                rootFontSize: rootFontSize
+                rootFontSize: rootFontSize,
+                viewportHeight: viewportHeight,
+                viewportWidth: viewportWidth
             )
             let childSides = resolveSides(
                 child,
@@ -140,7 +146,8 @@ enum BlockLayout {
                     sourceText: sourceText,
                     fontResolver: fontResolver,
                     cjkTypographyStyle: cjkTypographyStyle,
-                    fragmentHeight: fragmentHeight, viewport: viewport
+                    fragmentHeight: fragmentHeight,
+                    viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
                 )
 
                 let borderBoxBlockExtent = child.borders.vertical + child.padding.vertical + childContentHeight
@@ -221,7 +228,8 @@ enum BlockLayout {
                     sourceText: sourceText,
                     fontResolver: fontResolver,
                     cjkTypographyStyle: cjkTypographyStyle,
-                    fragmentHeight: fragmentHeight, viewport: viewport
+                    fragmentHeight: fragmentHeight,
+                    viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
                 )
 
                 let borderBoxBlockExtent = LogicalGeometry.blockAxisExtent(child.borders, mode: writingMode)
@@ -263,7 +271,9 @@ enum BlockLayout {
                 box.inlineRuns,
                 containingInlineSize: box.contentSize.width,
                 rootFontSize: rootFontSize,
-                fragmentHeight: fragmentHeight
+                fragmentHeight: fragmentHeight,
+                viewportHeight: viewportHeight,
+                viewportWidth: viewportWidth
             )
             let inlineFormattingSize = box.contentSize.width
             // FloatContext retains every placed float for sibling clearance.
@@ -383,9 +393,14 @@ enum BlockLayout {
         style: ComputedStyle,
         containerWidth: CGFloat,
         rootFontSize: CGFloat,
-        containerHeight: CGFloat? = nil
+        containerHeight: CGFloat? = nil,
+        viewportHeight: CGFloat? = nil,
+        viewportWidth: CGFloat? = nil
     ) -> CGSize {
-        let ctx = LayoutContext(rootFontSize: rootFontSize, percentBase: containerWidth)
+        let ctx = LayoutContext(
+            rootFontSize: rootFontSize, percentBase: containerWidth,
+            viewportHeight: viewportHeight, viewportWidth: viewportWidth
+        )
         let widthSpec = resolve(style.width, style: style, ctx: ctx)
         // CSS percentage heights use a definite containing-block HEIGHT, never
         // its inline width. Normal-flow BrowserLayout currently has no definite
@@ -397,6 +412,12 @@ enum BlockLayout {
             heightSpec = resolve(style.height, style: style, ctx: ctx)
         }
         let maxWidth = style.maxWidth.flatMap { resolve($0, style: style, ctx: ctx) }
+        let maxHeight = style.maxHeight.flatMap { length -> CGFloat? in
+            // Percentages resolve against the containing block's height, which
+            // normal-flow layout has no definite input for — same as height.
+            if case .percent = length { return nil }
+            return resolve(length, style: style, ctx: ctx)
+        }
 
         var w: CGFloat
         var h: CGFloat
@@ -418,6 +439,11 @@ enum BlockLayout {
             let scale = maxW / w
             w = maxW
             h *= scale
+        }
+        if let maxH = maxHeight, h > maxH {
+            let scale = maxH / h
+            h = maxH
+            w *= scale
         }
         // Clamping to container width if intrinsically larger: CSS standard behavior.
         if containerWidth > 0 && w > containerWidth {
@@ -518,20 +544,27 @@ enum BlockLayout {
     }
 
     private static func resolve(_ length: CSSLength, style: ComputedStyle, ctx: LayoutContext) -> CGFloat? {
-        CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: ctx.rootFontSize, percentBase: ctx.percentBase)
+        CSSLengthResolver.resolve(
+            length, emBase: style.fontSize, remBase: ctx.rootFontSize, percentBase: ctx.percentBase,
+            viewportHeight: ctx.viewportHeight, viewportWidth: ctx.viewportWidth
+        )
     }
 
     private static func resolveBlockReplacedSize(
         in box: BlockBox,
         containingInlineSize: CGFloat,
-        rootFontSize: CGFloat
+        rootFontSize: CGFloat,
+        viewportHeight: CGFloat? = nil,
+        viewportWidth: CGFloat? = nil
     ) {
         guard let attachment = box.imageAttachment else { return }
         let usedSize = resolveReplacedSize(
             intrinsic: attachment.image.size,
             style: box.style,
             containerWidth: containingInlineSize,
-            rootFontSize: rootFontSize
+            rootFontSize: rootFontSize,
+            viewportHeight: viewportHeight,
+            viewportWidth: viewportWidth
         )
         guard usedSize != attachment.usedSize else { return }
         box.imageAttachment = AtomicInline(
@@ -547,7 +580,9 @@ enum BlockLayout {
         _ runs: [InlineRun],
         containingInlineSize: CGFloat,
         rootFontSize: CGFloat,
-        fragmentHeight: CGFloat? = nil
+        fragmentHeight: CGFloat? = nil,
+        viewportHeight: CGFloat? = nil,
+        viewportWidth: CGFloat? = nil
     ) -> [InlineRun] {
         runs.map { run in
             guard let atomic = run.atomic else { return run }
@@ -555,7 +590,9 @@ enum BlockLayout {
                 intrinsic: atomic.image.size,
                 style: run.style,
                 containerWidth: containingInlineSize,
-                rootFontSize: rootFontSize
+                rootFontSize: rootFontSize,
+                viewportHeight: viewportHeight,
+                viewportWidth: viewportWidth
             )
             // An inline image taller than a full fragment must scale here, not
             // in PageWalker: line breaking, alignment, and line metrics all read
