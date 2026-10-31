@@ -204,8 +204,11 @@ public enum BrowserLayoutCapabilityScanner {
         if k == "position" && (v.contains("absolute") || v.contains("fixed") || v.contains("sticky")) {
             return .positioned
         }
-        if k == "display" && (v.contains("table") || v.contains("flex") || v.contains("grid")) {
-            return .unknownBlockDisplay
+        if k == "display" {
+            if v.contains("flex") || v.contains("grid") { return .unknownBlockDisplay }
+            // Table roles are admitted structurally by TableSupport; the column,
+            // caption and inline-table roles are not in the subset.
+            if v.contains("table"), !TableSupport.supportedDisplayValues.contains(v) { return .table }
         }
         if k == "flex" || k == "flex-direction" || k == "flex-wrap" || k == "flex-basis"
             || k == "flex-grow" || k == "flex-shrink" || k == "justify-content"

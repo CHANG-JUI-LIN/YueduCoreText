@@ -120,7 +120,9 @@ enum BlockBoxType {
 /// `contentSize` is the content box. Margin collapsing between siblings/parents is applied
 /// during layout in `BlockLayout`.
 final class BlockBox {
-    let style: ComputedStyle
+    /// Computed at cascade time; TableLayout adjusts a cell's padding-top when
+    /// its content is middle/bottom aligned within a taller row.
+    var style: ComputedStyle
     let boxType: BlockBoxType
     var children: [BlockBox]
     /// Post-layout output. This must remain empty after BoxTreeBuilder and is
@@ -158,6 +160,11 @@ final class BlockBox {
     weak var parentBox: BlockBox?
     /// Debug-only: cached document-absolute origin (set by diagnostics).
     var documentOrigin: CGPoint = .zero
+    /// Table-only layout inputs, written by BoxTreeBuilder: on the table box,
+    /// per-column max-content widths (border-box basis, colspan deficits
+    /// already distributed); on a cell box, its column span.
+    var tableColumnMaxContent: [CGFloat]? = nil
+    var tableColspan: Int = 1
 
     var isFloated: Bool {
         style.cssFloat == .left || style.cssFloat == .right

@@ -54,7 +54,7 @@ enum ReferenceCapabilityScanner {
             if BrowserLayoutCapabilityScanner.cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
         }
 
-        // DOM-level checks (script, MathML, SVG semantics, table/float/flex in markup).
+        // DOM-level checks (script, MathML, SVG semantics).
         if let doc = try? SwiftSoup.parse(html) {
             let fullCSS = cssTexts + (includeInline ? LegacyCSSFrontendSupport.inlineStyles(in: doc) : [])
             func hasAny(_ selector: String) -> Bool {
@@ -65,9 +65,6 @@ enum ReferenceCapabilityScanner {
             }
             if hasAny("math") {
                 reasons.append(.mathML)
-            }
-            if hasAny("table, thead, tbody, tr, td, th, colgroup") {
-                reasons.append(.table)
             }
             let svgs = (try? doc.select("svg").array()) ?? []
             if svgs.contains(where: {
@@ -144,6 +141,7 @@ enum ReferenceCapabilityScanner {
                     reasons.append(.verticalWritingMode)
                 }
                 BrowserLayoutCapabilityScanner.validateFloats(in: styleTree, hasFloatedAncestor: false, reasons: &reasons)
+                reasons.append(contentsOf: TableSupport.validate(root: styleTree, writingMode: writingMode))
                 textIndentUsage = HorizontalTextIndentSupport.usage(in: styleTree)
                 if textIndentUsage == .unsupported {
                     reasons.append(.textIndent)

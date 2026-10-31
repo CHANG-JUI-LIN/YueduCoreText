@@ -129,6 +129,19 @@ enum BoxTreeBuilder {
                         anchors: &anchors,
                         anchorStack: &anchorStack
                     )
+                } else if elementNode.style.display == .table {
+                    flushGroup(
+                        &pendingInline,
+                        style: node.style,
+                        into: &kids,
+                        assignedFirstInlineContext: &assignedFirstInlineContext
+                    )
+                    kids.append(buildTable(
+                        for: elementNode, config: config,
+                        containerWidth: containerWidth,
+                        sourceText: &sourceText, anchors: &anchors,
+                        imageLoader: imageLoader, boxCount: &boxCount
+                    ))
                 } else if elementNode.style.isFloated || elementNode.style.display == .block {
                     flushGroup(
                         &pendingInline,
@@ -280,6 +293,233 @@ enum BoxTreeBuilder {
         return resolve(style.paddingLeft) + resolve(style.paddingRight)
             + style.borderLeftWidth + style.borderRightWidth
             + resolve(style.marginLeft) + resolve(style.marginRight)
+    }
+
+    // MARK: - Tables
+
+    /// Builds a table box. Row groups and rows are pure structure; cells are
+    /// ordinary block containers. Bare rows stay direct children (TableLayout
+    /// accepts them, so the CSS anonymous-row-group fixup buys nothing), and
+    /// groups are reordered per CSS 2.1 §17.2.1: header groups first, footer
+    /// groups last. Admission guarantees only supported structure reaches here.
+    ///
+    /// A `width: auto` table shrink-to-fits the columns' max-content widths.
+    /// The value is pinned here — where the font resolver is available — so the
+    /// ordinary block path sees a definite used width and can center the table
+    /// through its auto margins. The per-column bases ride on the box for
+    /// TableLayout's final distribution.
+    private static func buildTable(
+        for node: ComputedStyleNode,
+        config: BrowserLayoutConfig,
+        containerWidth: CGFloat,
+        sourceText: inout SourceTextBuilder,
+        anchors: inout [String: Int],
+        imageLoader: (String) -> UIImage?,
+        boxCount: inout Int
+    ) -> BlockBox {
+        var anchorStack: [String] = []
+        registerAnchors(&anchorStack, ownID: node.anchorID, anchors: &anchors, at: sourceText.currentOffset)
+
+        var headers: [BlockBox] = []
+        var bodies: [BlockBox] = []
+        var footers: [BlockBox] = []
+        for child in node.children {
+            guard case .element(let element) = child else { continue }
+            switch element.style.display {
+            case .tableHeaderGroup:
+                headers.append(buildTableRowGroup(
+                    for: element, config: config, containerWidth: containerWidth,
+                    sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader, boxCount: &boxCount
+                ))
+            case .tableFooterGroup:
+                footers.append(buildTableRowGroup(
+                    for: element, config: config, containerWidth: containerWidth,
+                    sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader, boxCount: &boxCount
+                ))
+            case .tableRowGroup:
+                bodies.append(buildTableRowGroup(
+                    for: element, config: config, containerWidth: containerWidth,
+                    sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader, boxCount: &boxCount
+                ))
+            case .tableRow:
+                bodies.append(buildTableRow(
+                    for: element, config: config, containerWidth: containerWidth,
+                    sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader, boxCount: &boxCount
+                ))
+            default:
+                continue
+            }
+        }
+        let groups = headers + bodies + footers
+
+        let extras = horizontalExtras(of: node.style, percentBase: containerWidth, config: config)
+        let available = max(0, containerWidth - extras)
+        let columns = measureTableColumns(groups: groups, available: available, config: config)
+
+        var boxStyle = node.style
+        if case .auto = boxStyle.width, !columns.isEmpty {
+            let spacingH = TableLayout.borderSpacing(of: boxStyle, rootFontSize: config.rootFontSize).horizontal
+            let total = spacingH * CGFloat(columns.count + 1) + columns.reduce(0, +)
+            boxStyle.width = .px(min(total, available))
+        }
+        let box = BlockBox(style: boxStyle, boxType: .block, children: groups)
+        box.tableColumnMaxContent = columns
+        Self.attachDebugIdentity(box, node: node)
+        return box
+    }
+
+    private static func buildTableRowGroup(
+        for node: ComputedStyleNode,
+        config: BrowserLayoutConfig,
+        containerWidth: CGFloat,
+        sourceText: inout SourceTextBuilder,
+        anchors: inout [String: Int],
+        imageLoader: (String) -> UIImage?,
+        boxCount: inout Int
+    ) -> BlockBox {
+        var anchorStack: [String] = []
+        registerAnchors(&anchorStack, ownID: node.anchorID, anchors: &anchors, at: sourceText.currentOffset)
+        var rows: [BlockBox] = []
+        for child in node.children {
+            guard case .element(let element) = child, element.style.display == .tableRow else { continue }
+            rows.append(buildTableRow(
+                for: element, config: config, containerWidth: containerWidth,
+                sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader, boxCount: &boxCount
+            ))
+        }
+        let box = BlockBox(style: tableStructureStyle(node.style), boxType: .block, children: rows)
+        Self.attachDebugIdentity(box, node: node)
+        return box
+    }
+
+    private static func buildTableRow(
+        for node: ComputedStyleNode,
+        config: BrowserLayoutConfig,
+        containerWidth: CGFloat,
+        sourceText: inout SourceTextBuilder,
+        anchors: inout [String: Int],
+        imageLoader: (String) -> UIImage?,
+        boxCount: inout Int
+    ) -> BlockBox {
+        var anchorStack: [String] = []
+        registerAnchors(&anchorStack, ownID: node.anchorID, anchors: &anchors, at: sourceText.currentOffset)
+        var cells: [BlockBox] = []
+        for child in node.children {
+            guard case .element(let element) = child, element.style.display == .tableCell else { continue }
+            var cellStyle = element.style
+            // Margins do not apply to table cells (CSS 2.1 §17.5).
+            cellStyle.marginTop = .px(0); cellStyle.marginRight = .px(0)
+            cellStyle.marginBottom = .px(0); cellStyle.marginLeft = .px(0)
+            let adjusted = ComputedStyleNode(
+                tag: element.tag, semanticElement: element.semanticElement,
+                style: cellStyle, children: element.children, nodeID: element.nodeID,
+                linkTarget: element.linkTarget, anchorID: element.anchorID
+            )
+            let cell = buildBlockInternal(
+                for: adjusted, config: config, containerWidth: containerWidth,
+                sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader,
+                boxCount: &boxCount
+            )
+            cell.tableColspan = tableColspan(of: element)
+            cells.append(cell)
+        }
+        let box = BlockBox(style: tableStructureStyle(node.style), boxType: .block, children: cells)
+        Self.attachDebugIdentity(box, node: node)
+        return box
+    }
+
+    /// Rows and row groups take no margins, padding or borders in the separated
+    /// model; their backgrounds survive for paint.
+    private static func tableStructureStyle(_ style: ComputedStyle) -> ComputedStyle {
+        var style = style
+        style.marginTop = .px(0); style.marginRight = .px(0)
+        style.marginBottom = .px(0); style.marginLeft = .px(0)
+        style.paddingTop = .px(0); style.paddingRight = .px(0)
+        style.paddingBottom = .px(0); style.paddingLeft = .px(0)
+        style.borderTopWidth = 0; style.borderRightWidth = 0
+        style.borderBottomWidth = 0; style.borderLeftWidth = 0
+        style.width = .auto; style.height = .auto
+        return style
+    }
+
+    private static func tableColspan(of node: ComputedStyleNode) -> Int {
+        guard let raw = node.semanticElement?.attribute("colspan"),
+              let value = Int(raw.trimmingCharacters(in: .whitespaces)) else { return 1 }
+        return max(1, value)
+    }
+
+    /// A cell's border-box max-content width: its explicit width when given,
+    /// else the widest unwrapped line of its content, plus padding and borders.
+    private static func tableCellMaxContentWidth(
+        of box: BlockBox,
+        available: CGFloat,
+        config: BrowserLayoutConfig
+    ) -> CGFloat {
+        let style = box.style
+        let extras = horizontalExtras(of: style, percentBase: available, config: config)
+        if let attachment = box.imageAttachment {
+            return attachment.usedSize.width + extras
+        }
+        if let explicit = CSSLengthResolver.resolve(style.width, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) {
+            return max(explicit, 0) + extras
+        }
+        var indent: CGFloat = 0
+        if box.ownsFirstFormattedLine, case .length(let length) = style.textIndent {
+            indent = CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) ?? 0
+        }
+        let own = maxInlineWidth(box.inlineRuns, indent: indent, config: config)
+        let kids = box.children.map { tableCellMaxContentWidth(of: $0, available: available, config: config) }.max() ?? 0
+        return max(own, kids) + extras
+    }
+
+    /// Per-column max-content widths on the cell border-box basis (CSS 2.1
+    /// §17.5.2.2 automatic layout). Single-column cells contribute their
+    /// explicit width or their measured content width; spanning cells then
+    /// distribute any deficit equally across their non-explicit columns.
+    private static func measureTableColumns(
+        groups: [BlockBox],
+        available: CGFloat,
+        config: BrowserLayoutConfig
+    ) -> [CGFloat] {
+        var rows: [BlockBox] = []
+        for group in groups {
+            if group.style.display == .tableRow {
+                rows.append(group)
+            } else {
+                rows.append(contentsOf: group.children)
+            }
+        }
+        var columnCount = 0
+        for row in rows {
+            columnCount = max(columnCount, row.children.reduce(0) { $0 + $1.tableColspan })
+        }
+        guard columnCount > 0 else { return [] }
+        var columns = [CGFloat](repeating: 0, count: columnCount)
+        var explicit = [Bool](repeating: false, count: columnCount)
+        var spanned: [(column: Int, span: Int, width: CGFloat)] = []
+        for row in rows {
+            var cursor = 0
+            for cell in row.children {
+                let span = min(cell.tableColspan, columnCount - cursor)
+                let width = tableCellMaxContentWidth(of: cell, available: available, config: config)
+                if span == 1 {
+                    columns[cursor] = max(columns[cursor], width)
+                    if case .auto = cell.style.width {} else { explicit[cursor] = true }
+                } else if span > 1 {
+                    spanned.append((cursor, span, width))
+                }
+                cursor += max(span, 1)
+            }
+        }
+        for entry in spanned.sorted(by: { $0.span < $1.span }) {
+            let current = (entry.column..<(entry.column + entry.span)).reduce(0) { $0 + columns[$1] }
+            guard entry.width > current else { continue }
+            let autoColumns = (entry.column..<(entry.column + entry.span)).filter { !explicit[$0] }
+            guard !autoColumns.isEmpty else { continue }
+            let share = (entry.width - current) / CGFloat(autoColumns.count)
+            for column in autoColumns { columns[column] += share }
+        }
+        return columns
     }
 
     // MARK: - Inline gathering

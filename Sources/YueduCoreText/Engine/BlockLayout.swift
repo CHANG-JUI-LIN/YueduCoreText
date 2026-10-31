@@ -41,6 +41,18 @@ enum BlockLayout {
         // callers are migrated. It is deliberately not a geometry input:
         // InlineFormattingContext must use this box's final content width.
         _ = inlineContainingSize
+        if box.style.display == .table, writingMode == .horizontal {
+            return TableLayout.layOut(
+                table: box,
+                containerWidth: containerWidth,
+                rootFontSize: rootFontSize,
+                sourceText: sourceText,
+                fontResolver: fontResolver,
+                cjkTypographyStyle: cjkTypographyStyle,
+                fragmentHeight: fragmentHeight,
+                viewport: viewport
+            )
+        }
         resolveBlockReplacedSize(
             in: box,
             containingInlineSize: containerWidth,
@@ -504,7 +516,7 @@ enum BlockLayout {
 
     // MARK: - Sides resolution
 
-    private struct Sides {
+    struct Sides {
         var contentWidth: CGFloat
         var borderBoxWidth: CGFloat
         var margins = EdgeSizes.zero
@@ -512,7 +524,7 @@ enum BlockLayout {
         var borders = EdgeSizes.zero
     }
 
-    private static func resolveSides(
+    static func resolveSides(
         _ box: BlockBox,
         containerWidth: CGFloat,
         rootFontSize: CGFloat,
