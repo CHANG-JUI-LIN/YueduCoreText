@@ -160,16 +160,10 @@ public enum BrowserLayoutCapabilityScanner {
         reasons: inout [UnsupportedFeature]
     ) {
         let isFloated = node.style.isFloated
-        if isFloated {
-            let isReplaced = node.tag == "img"
-                || (node.tag == "svg"
-                    && node.semanticElement.flatMap(BoxTreeBuilder.svgWrappedImageSource) != nil)
-            // Non-replaced floats with width:auto need CSS shrink-to-fit, which
-            // Phase 4B deliberately does not guess. max-width alone does not
-            // turn width:auto into a definite used width.
-            if (!isReplaced && node.tag != "::first-letter" && node.style.width == .auto) || hasFloatedAncestor {
-                reasons.append(.float)
-            }
+        // Non-replaced floats with width:auto get a shrink-to-fit used width
+        // from BoxTreeBuilder; nested floats remain unsupported.
+        if isFloated, hasFloatedAncestor {
+            reasons.append(.float)
         }
 
         for child in node.children {
