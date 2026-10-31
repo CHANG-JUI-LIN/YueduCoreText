@@ -133,7 +133,7 @@ struct ConsumerTests {
     }
 
     @Test func unsupportedIsDistinctFromEmptySuccess() throws {
-        let doc = HTMLLayoutDocument(html: "<table><tr><td>Unsupported</td></tr></table>")
+        let doc = HTMLLayoutDocument(html: "<table style='border-collapse:collapse'><tr><td>Unsupported</td></tr></table>")
         do { _ = try doc.makePageSession(); Issue.record("Unsupported table accepted") }
         catch HTMLLayoutError.unsupported(let reasons) { #expect(reasons.contains(.table)) }
     }
@@ -191,7 +191,7 @@ extension ConsumerTests {
         let vertical = BrowserLayoutConfig(writingMode: .verticalRTL)
         for html in ["<p style='float:right;width:30px'>浮動</p>",
                      "<p style='writing-mode:vertical-lr'>未支援</p>",
-                     "<p style='text-combine-upright:all'>12</p>"] {
+                     "<p style='text-combine-upright:unknown'>12</p>"] {
             do { _ = try HTMLLayoutDocument(html: html, configuration: vertical).makePageSession(); Issue.record("Unsupported vertical subset accepted") }
             catch HTMLLayoutError.unsupported(let reasons) { #expect(reasons.contains(.verticalWritingMode)) }
         }
