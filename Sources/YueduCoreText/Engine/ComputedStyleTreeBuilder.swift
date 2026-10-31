@@ -469,6 +469,12 @@ final class ComputedStyleTreeBuilder {
         style.finalizeLineHeight(rootFontSize: rootFontSize)
         style.finalizeLetterSpacing(rootFontSize: rootFontSize)
         style.finalizeBorderLengths(rootFontSize: rootFontSize)
+        // vertical-align shifts inline-level boxes only (CSS 2.1 §10.8.1): a
+        // block container or table cell never raises its own text, and a cell
+        // reads the keyword as its alignment instead.
+        if style.display != .inline, style.display != .inlineBlock {
+            style.verticalAlignOffset = 0
+        }
         if let report = readerConfig.onDiagnostic {
             let path = Self.diagnosticPath(element)
             for rule in matched {

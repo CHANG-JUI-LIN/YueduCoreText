@@ -125,4 +125,22 @@ struct BrowserPaintRotationTests {
             """)
         #expect(texts(pages).allSatisfy { $0.paintTransform == nil })
     }
+
+    @Test func anonymousBlockUnderRotatedParentRotatesOnce() async throws {
+        // "lead" sits beside a block sibling, so it is wrapped in an anonymous
+        // block. The wrapper turns with its parent and must not add its own turn.
+        let pages = try await makeLayout("""
+            <html><body style="margin: 0;">
+            <div style="width: 200px; margin-top: 100px; transform: rotate(10deg);">lead<p style="margin: 0;">para</p></div>
+            </body></html>
+            """)
+        let ordered = texts(pages).sorted { $0.sourceRange.location < $1.sourceRange.location }
+        #expect(ordered.count == 2)
+        let rad = 10 * CGFloat.pi / 180
+        for fragment in ordered {
+            let m = try #require(fragment.paintTransform).matrix
+            #expect(abs(m.a - cos(rad)) < 0.01)
+            #expect(abs(m.b - sin(rad)) < 0.01)
+        }
+    }
 }

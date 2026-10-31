@@ -103,6 +103,25 @@ struct BrowserTableLayoutTests {
         #expect(abs(visible[4].rect.rawValue.minY - 17) < 0.5)
     }
 
+    @Test func superAndSubCellsAlignLikeBaseline() async throws {
+        // On a cell, super/sub act as baseline, which this subset renders as the
+        // row's middle: they neither top-align the cell nor raise its text.
+        let css = resetCSS + "\n.sup { vertical-align: super; } .sub { vertical-align: sub; }"
+        let found = try await texts(
+            """
+            <html><body><table><tr>
+            <td>L1<br>L2</td><td class="sup">P</td><td class="sub">B</td>
+            </tr></table></body></html>
+            """,
+            css: css
+        )
+        let visible = found.filter { $0.rect.rawValue.width > 0 }
+        #expect(visible.count == 4)
+        // Row height is 2 lines = 34: a middle-aligned single line starts at 8.5.
+        #expect(abs(visible[2].rect.rawValue.minY - 8.5) < 0.75)
+        #expect(abs(visible[3].rect.rawValue.minY - 8.5) < 0.75)
+    }
+
     @Test func borderSpacingSeparatesCellsAndRows() async throws {
         let css = """
             body { margin: 0; padding: 0; line-height: 1; }

@@ -85,4 +85,15 @@ struct BrowserVerticalAlignTests {
         let growth = raisedNext.rect.rawValue.minY - plainNext.rect.rawValue.minY
         #expect(abs(growth - (20.0 / 3 + 1)) < 1)
     }
+
+    @Test func blockContainerDoesNotRaiseItsOwnText() async throws {
+        let byText = try await Self.fragments("""
+            <body style="margin:0"><p style="margin:0;line-height:1em;font-size:20px;vertical-align:super">世</p>
+            </body>
+            """)
+        // vertical-align does not apply to block containers.
+        let fragment = try #require(byText["世"])
+        let y = try #require(Self.glyphY(fragment))
+        #expect(abs(y) < 0.01)
+    }
 }
