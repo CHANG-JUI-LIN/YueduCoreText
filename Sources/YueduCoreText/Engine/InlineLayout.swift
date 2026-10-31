@@ -190,6 +190,16 @@ enum InlineLayout {
                     ))
                 }
             }
+            // Only genuine text runs shift with the text baseline; replaced
+            // and delegate-backed runs align by their own box. The vertical
+            // writing mode aligns runs to a central baseline instead, where
+            // super/sub needs a different metric and stays unsupported.
+            if context.writingMode == .horizontal, run.style.verticalAlignOffset != 0,
+               run.atomic == nil, run.ruby == nil, run.combined == nil, run.decorationEdge == nil {
+                attributed.addAttribute(
+                    .baselineOffset, value: run.style.verticalAlignOffset,
+                    range: NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
+            }
             attributedCursor += shapedLength(of: run)
         }
 
@@ -271,8 +281,11 @@ enum InlineLayout {
                             requested = max(requested ?? ink, ink)
                         }
                         let box = inlineBox(used, lineHeight: requested)
-                        above = max(above, box.above)
-                        below = max(below, box.below)
+                        // A baseline-shifted range drags its inline box along,
+                        // growing the line box on the side it shifted towards.
+                        let shift = attributes[.baselineOffset] as? CGFloat ?? 0
+                        above = max(above, box.above + shift)
+                        below = max(below, box.below - shift)
                     }
                 }
             }
