@@ -145,6 +145,18 @@ struct BrowserTableLayoutTests {
         #expect(abs(found[2].rect.rawValue.minY - (4 + 17 + 4)) < 0.5)
     }
 
+    @Test func viewportHeightsSizeCellsAndTables() async throws {
+        let bodies = [
+            "<table><tr><td style=\"height: 50vh\">A</td></tr><tr><td>B</td></tr></table>",
+            "<table style=\"height: 50vh\"><tr><td>A</td></tr></table><p style=\"margin: 0;\">B</p>",
+        ]
+        for body in bodies {
+            let found = try await texts("<html><body>\(body)</body></html>", css: resetCSS, height: 800)
+            #expect(found.count == 2)
+            #expect(abs(found[1].rect.rawValue.minY - 400) < 0.5)
+        }
+    }
+
     @Test func footerGroupRendersAfterBody() async throws {
         let (pages, doc) = try await BrowserLayoutTestSupport.layout(
             """

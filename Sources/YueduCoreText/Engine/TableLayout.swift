@@ -24,6 +24,8 @@ enum TableLayout {
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
         cjkTypographyStyle: CJKTypographyStyle? = nil,
         fragmentHeight: CGFloat? = nil,
+        viewportHeight: CGFloat? = nil,
+        viewportWidth: CGFloat? = nil,
         viewport: BrowserViewportLayoutState? = nil
     ) -> CGFloat {
         let sides = BlockLayout.resolveSides(
@@ -76,7 +78,7 @@ enum TableLayout {
                         fontResolver: fontResolver,
                         cjkTypographyStyle: cjkTypographyStyle,
                         fragmentHeight: fragmentHeight,
-                        viewport: viewport
+                        viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
                     )
                     cells.append((cell, x, width, contentHeight))
                     x += width + spacing.horizontal
@@ -86,13 +88,14 @@ enum TableLayout {
                 // Cell and row heights are minima (CSS 2.1 §17.5.3).
                 var rowHeight =
                     CSSLengthResolver.resolve(
-                        row.style.height, emBase: row.style.fontSize, remBase: rootFontSize, percentBase: 0
+                        row.style.height, emBase: row.style.fontSize, remBase: rootFontSize, percentBase: 0,
+                        viewportHeight: viewportHeight, viewportWidth: viewportWidth
                     ) ?? 0
                 for cell in cells {
                     let specified =
                         CSSLengthResolver.resolve(
                             cell.box.style.height, emBase: cell.box.style.fontSize, remBase: rootFontSize,
-                            percentBase: 0
+                            percentBase: 0, viewportHeight: viewportHeight, viewportWidth: viewportWidth
                         ) ?? 0
                     rowHeight = max(
                         rowHeight,
@@ -122,7 +125,7 @@ enum TableLayout {
                             fontResolver: fontResolver,
                             cjkTypographyStyle: cjkTypographyStyle,
                             fragmentHeight: fragmentHeight,
-                            viewport: viewport
+                            viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
                         )
                     }
                     cell.box.contentSize.height = area
@@ -163,7 +166,8 @@ enum TableLayout {
 
         box.contentSize.height = max(0, cursorY)
         if let used = CSSLengthResolver.resolve(
-            box.style.height, emBase: box.style.fontSize, remBase: rootFontSize, percentBase: 0
+            box.style.height, emBase: box.style.fontSize, remBase: rootFontSize, percentBase: 0,
+            viewportHeight: viewportHeight, viewportWidth: viewportWidth
         ) {
             box.contentSize.height = max(box.contentSize.height, used)
         }

@@ -40,6 +40,15 @@ struct BrowserBlockExplicitHeightTests {
         #expect(abs(layout.rootBox.children[1].frame.height - 40) < 0.5)
     }
 
+    @Test func vhHeightResolvesAgainstViewport() throws {
+        let layout = try makeLayout("""
+            <html><body style="margin: 0;">
+            <div style="height: 50vh;"><p style="margin: 0;">a</p></div>
+            </body></html>
+            """, height: 800)
+        #expect(abs(layout.rootBox.children[0].frame.height - 400) < 0.5)
+    }
+
     @Test func percentHeightStaysAuto() throws {
         let layout = try makeLayout("""
             <html><body style="margin: 0;">
