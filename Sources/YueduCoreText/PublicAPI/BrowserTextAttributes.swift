@@ -3,6 +3,7 @@ import Foundation
 public enum BrowserTextAttributes {
     public static let preservedForeground = NSAttributedString.Key("YDRegexHighlightOriginalAttributes")
     public static let ipaPronunciation = NSAttributedString.Key("ReaderIPAPronunciation")
+    public static let syntheticBoldOffset = NSAttributedString.Key("YDSyntheticBoldOffset")
 }
 
 public enum AuthoredPronunciation {
