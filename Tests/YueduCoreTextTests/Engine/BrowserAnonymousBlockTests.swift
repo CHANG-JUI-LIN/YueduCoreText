@@ -76,4 +76,24 @@ struct BrowserAnonymousBlockTests {
         #expect(abs(bare.minY - (a.minY + a.height)) < 0.01)
         #expect(abs(b.minY - (bare.minY + bare.height)) < 0.01)
     }
+
+    /// Text after the last block child also closes into an anonymous block.
+    /// Left on the container, its lines started at the container's top and
+    /// were painted over the first block.
+    @Test func textAfterLastBlockFollowsIt() async throws {
+        let html = """
+            <body style="margin:0">
+            <div style="font-size:10px;line-height:1">
+              <p style="margin:0">A</p>
+              tail
+            </div>
+            </body>
+            """
+        let (_, all) = try await Self.fragmentY(html, needle: "tail")
+        var byText: [String: CGRect] = [:]
+        for (text, rect) in all { byText[text] = rect }
+        let a = try #require(byText["A"], "A fragment missing")
+        let tail = try #require(byText["tail"], "tail fragment missing")
+        #expect(abs(tail.minY - (a.minY + a.height)) < 0.01)
+    }
 }

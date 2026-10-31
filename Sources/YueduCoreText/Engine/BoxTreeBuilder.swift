@@ -129,45 +129,60 @@ enum BoxTreeBuilder {
                         anchors: &anchors,
                         anchorStack: &anchorStack
                     )
-                } else if elementNode.style.display == .table {
+                } else if formsOwnBox(elementNode.style) {
                     flushGroup(
                         &pendingInline,
                         style: node.style,
                         into: &kids,
                         assignedFirstInlineContext: &assignedFirstInlineContext
                     )
-                    kids.append(buildTable(
+                    kids.append(buildOwnBox(
                         for: elementNode, config: config,
                         containerWidth: containerWidth,
                         sourceText: &sourceText, anchors: &anchors,
                         imageLoader: imageLoader, boxCount: &boxCount
                     ))
-                } else if elementNode.style.isFloated || elementNode.style.display == .block {
-                    flushGroup(
-                        &pendingInline,
-                        style: node.style,
-                        into: &kids,
-                        assignedFirstInlineContext: &assignedFirstInlineContext
-                    )
-                    let childContainer = Self.childContainerWidth(
-                        of: elementNode, parentWidth: containerWidth, config: config
-                    )
-                    kids.append(buildBlockInternal(
-                        for: elementNode, config: config,
-                        containerWidth: childContainer,
-                        sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader,
-                        boxCount: &boxCount
-                    ))
                 } else if elementNode.style.display == .none {
                     continue
                 } else {
+                    // A block inside inline content splits it (CSS 2.1 §9.2.1.1):
+                    // the inline content so far closes into an anonymous block and
+                    // the block joins this container's children, in document order.
                     collectInline(
                         elementNode, into: &pendingInline, config: config,
                         sourceText: &sourceText, anchors: &anchors,
                         anchorStack: &anchorStack, imageLoader: imageLoader
-                    )
+                    ) { block, runs, sourceText, anchors, pendingAnchors in
+                        flushGroup(
+                            &runs,
+                            style: node.style,
+                            into: &kids,
+                            assignedFirstInlineContext: &assignedFirstInlineContext
+                        )
+                        registerAnchors(&pendingAnchors, anchors: &anchors, at: sourceText.currentOffset)
+                        kids.append(buildOwnBox(
+                            for: block, config: config,
+                            containerWidth: containerWidth,
+                            sourceText: &sourceText, anchors: &anchors,
+                            imageLoader: imageLoader, boxCount: &boxCount
+                        ))
+                    }
                 }
             }
+        }
+        // A container with in-flow block children holds block boxes only (CSS
+        // 2.1 §9.2.1.1). Inline content after the last block closes into an
+        // anonymous block too; left on the container, its lines started at the
+        // container's top and were painted over the first block. Floats are
+        // out of flow and do not count: text after a drop cap stays the
+        // container's own and wraps around it.
+        if kids.contains(where: { !$0.style.isFloated }) {
+            flushGroup(
+                &pendingInline,
+                style: node.style,
+                into: &kids,
+                assignedFirstInlineContext: &assignedFirstInlineContext
+            )
         }
 
         var boxStyle = node.style
@@ -215,6 +230,49 @@ enum BoxTreeBuilder {
             return min(max(resolved ?? parentWidth, 0), parentWidth)
         }
         return parentWidth
+    }
+
+    /// Children laid out as boxes of their own, never as inline content: block
+    /// containers, tables and floats.
+    private static func formsOwnBox(_ style: ComputedStyle) -> Bool {
+        style.display == .table || style.isFloated || style.display == .block
+    }
+
+    /// Block-level boxes met inside inline content. They split it (CSS 2.1
+    /// §9.2.1.1) and are built by `buildOwnBox` like a direct child. A float
+    /// whose display is still inline is not one: floats are out of flow and
+    /// never split an inline box, and the engine has no float anchored inside
+    /// a line, so such a float stays inline text as it always has.
+    private static func splitsInlineBox(_ style: ComputedStyle) -> Bool {
+        style.display == .table || style.display == .block
+    }
+
+    private static func buildOwnBox(
+        for node: ComputedStyleNode,
+        config: BrowserLayoutConfig,
+        containerWidth: CGFloat,
+        sourceText: inout SourceTextBuilder,
+        anchors: inout [String: Int],
+        imageLoader: (String) -> UIImage?,
+        boxCount: inout Int
+    ) -> BlockBox {
+        if node.style.display == .table {
+            return buildTable(
+                for: node, config: config,
+                containerWidth: containerWidth,
+                sourceText: &sourceText, anchors: &anchors,
+                imageLoader: imageLoader, boxCount: &boxCount
+            )
+        }
+        let childContainer = Self.childContainerWidth(
+            of: node, parentWidth: containerWidth, config: config
+        )
+        return buildBlockInternal(
+            for: node, config: config,
+            containerWidth: childContainer,
+            sourceText: &sourceText, anchors: &anchors, imageLoader: imageLoader,
+            boxCount: &boxCount
+        )
     }
 
     // MARK: - Shrink-to-fit (CSS 2.1 §10.3.5)
@@ -524,6 +582,17 @@ enum BoxTreeBuilder {
 
     // MARK: - Inline gathering
 
+    /// Takes a block met inside inline content out to the enclosing block
+    /// container: closes the pending runs into an anonymous block, then builds
+    /// the block, both in document order.
+    typealias BlockHoist = (
+        _ block: ComputedStyleNode,
+        _ runs: inout [InlineRun],
+        _ sourceText: inout SourceTextBuilder,
+        _ anchors: inout [String: Int],
+        _ anchorStack: inout [String]
+    ) -> Void
+
     private static func collectInline(
         _ node: ComputedStyleNode,
         into runs: inout [InlineRun],
@@ -531,18 +600,35 @@ enum BoxTreeBuilder {
         sourceText: inout SourceTextBuilder,
         anchors: inout [String: Int],
         anchorStack: inout [String],
-        imageLoader: (String) -> UIImage?
+        imageLoader: (String) -> UIImage?,
+        hoist: BlockHoist
     ) {
         var localStack = anchorStack
         if let anchor = node.anchorID { localStack.append(anchor) }
-        let firstRun = runs.count
-        let sourceStart = sourceText.currentOffset
-        defer {
-            if runs.count > firstRun {
-                preserveInlineDecoration(node, firstRun: firstRun, sourceStart: sourceStart,
-                    sourceEnd: sourceText.currentOffset, runs: &runs)
-            }
+        // A block child splits this inline box into pieces. Each piece keeps the
+        // box's decoration; the start edge goes on the first, the end edge on the last.
+        var firstRun = runs.count
+        var sourceStart = sourceText.currentOffset
+        var opensBox = true
+        func closePiece(closesBox: Bool, runs: inout [InlineRun], sourceEnd: Int) {
+            guard runs.count > firstRun else { return }
+            preserveInlineDecoration(node, firstRun: firstRun, sourceStart: sourceStart,
+                sourceEnd: sourceEnd, runs: &runs, opensBox: opensBox, closesBox: closesBox)
+            opensBox = false
         }
+        func split(
+            _ block: ComputedStyleNode,
+            runs: inout [InlineRun],
+            sourceText: inout SourceTextBuilder,
+            anchors: inout [String: Int],
+            anchorStack: inout [String]
+        ) {
+            closePiece(closesBox: false, runs: &runs, sourceEnd: sourceText.currentOffset)
+            hoist(block, &runs, &sourceText, &anchors, &anchorStack)
+            firstRun = runs.count
+            sourceStart = sourceText.currentOffset
+        }
+        defer { closePiece(closesBox: true, runs: &runs, sourceEnd: sourceText.currentOffset) }
         for child in node.children {
             switch child {
             case .text(let raw):
@@ -578,17 +664,17 @@ enum BoxTreeBuilder {
                         anchors: &anchors,
                         anchorStack: &localStack
                     )
-                } else if elementNode.style.display == .block || elementNode.style.display == .none {
-                    // Block sibling inside inline flow (e.g. div inside span):
-                    // Phase 1.5 flattens it into its own anonymous group boundary
-                    // by closing the current group (interleaving preserved at the
-                    // nearest enclosing block level via recursion in buildBlock).
+                } else if splitsInlineBox(elementNode.style) {
+                    split(elementNode, runs: &runs, sourceText: &sourceText,
+                          anchors: &anchors, anchorStack: &localStack)
+                } else if elementNode.style.display == .none {
                     continue
                 } else {
                     collectInline(
                         elementNode, into: &runs, config: config,
                         sourceText: &sourceText, anchors: &anchors,
-                        anchorStack: &localStack, imageLoader: imageLoader
+                        anchorStack: &localStack, imageLoader: imageLoader,
+                        hoist: split
                     )
                 }
             }
@@ -597,11 +683,11 @@ enum BoxTreeBuilder {
 
     private static func preserveInlineDecoration(
         _ node: ComputedStyleNode, firstRun: Int, sourceStart: Int,
-        sourceEnd: Int, runs: inout [InlineRun]
+        sourceEnd: Int, runs: inout [InlineRun], opensBox: Bool = true, closesBox: Bool = true
     ) {
         let style = node.style
-        let startEdge = style.paddingLeft != .px(0) || style.borderLeftWidth > 0
-        let endEdge = style.paddingRight != .px(0) || style.borderRightWidth > 0
+        let startEdge = opensBox && (style.paddingLeft != .px(0) || style.borderLeftWidth > 0)
+        let endEdge = closesBox && (style.paddingRight != .px(0) || style.borderRightWidth > 0)
         let hasPaint = style.backgroundColor != nil || style.borderTopWidth > 0
             || style.borderBottomWidth > 0 || startEdge || endEdge
         guard hasPaint else { return }
