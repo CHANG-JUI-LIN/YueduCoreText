@@ -48,12 +48,15 @@ public enum DisplayListDrawer {
             case .image(let i):
                 flushText()
                 if skipAuthoredBackgroundPaint, i.isBackgroundPaint { continue }
+                context.saveGState()
+                if let rotation = i.paintTransform { context.concatenate(rotation.matrix) }
                 if let image = i.image {
                     image.draw(in: i.rect.rawValue)
                 } else {
                     UIColor.lightGray.setFill()
                     context.fill(i.rect.rawValue)
                 }
+                context.restoreGState()
             }
         }
         flushText()
@@ -62,6 +65,9 @@ public enum DisplayListDrawer {
     /// One bordered box: background (clipped to radius) + four border edges.
     private static func drawFill(_ item: DisplayFillItem, in context: CGContext) {
         let rect = item.rect.rawValue
+        context.saveGState()
+        defer { context.restoreGState() }
+        if let rotation = item.paintTransform { context.concatenate(rotation.matrix) }
         guard !rect.isEmpty else { return }
         if item.writingMode == .verticalRTL {
             // Fragment-start/end corners and border edges are logical. Reuse
@@ -302,6 +308,7 @@ public enum DisplayListDrawer {
     ) {
         guard !item.text.isEmpty else { return }
         context.saveGState()
+        if let rotation = item.paintTransform { context.concatenate(rotation.matrix) }
         if item.writingMode == .verticalRTL {
             // Core Text's vertical run matrices keep CJK upright after the
             // inline axis turns downward. Do not rotate individual characters.

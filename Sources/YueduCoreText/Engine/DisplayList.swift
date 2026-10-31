@@ -48,6 +48,9 @@ public struct DisplayTextItem {
     public let ctLine: CTLine?
     public let sourceMapping: TextSourceMapping
     public let renderedTextOverride: String?
+    /// CSS `transform: rotate()` from the nearest transformed ancestor box;
+    /// applied at draw time only. See `PaintTransform`.
+    public var paintTransform: PaintTransform? = nil
 
     /// Recover the exact attributes used by shaping instead of discarding
     /// kern, synthetic bold, and regex styles when constructing the draw list.
@@ -144,6 +147,7 @@ public struct DisplayFillItem {
     /// See `FillFragment.isBackgroundPaint` — the authored page surface, which
     /// a reader-chosen background image replaces.
     public let isBackgroundPaint: Bool
+    public var paintTransform: PaintTransform? = nil
 
     public init(
         rect: PageLocalRect,
@@ -187,6 +191,7 @@ public struct DisplayImageItem {
     public let alt: String?
     /// Painted CSS background — draws, never hit-tests. See `ImageFragment`.
     public let isBackgroundPaint: Bool
+    public var paintTransform: PaintTransform? = nil
 
     public init(
         source: String,
@@ -235,16 +240,19 @@ public struct DisplayList {
                     && a.writingMode == b.writingMode && a.font == b.font && a.color == b.color
                     && a.text == b.text && a.sourceMapping == b.sourceMapping
                     && a.renderedTextOverride == b.renderedTextOverride
+                    && a.paintTransform == b.paintTransform
             case (.fill(let a), .fill(let b)):
                 return sameRect(a.rect, b.rect) && a.color == b.color && a.cornerRadius == b.cornerRadius
                     && a.borderTop == b.borderTop && a.borderBottom == b.borderBottom
                     && a.borderLeft == b.borderLeft && a.borderRight == b.borderRight
                     && a.nodeID == b.nodeID && a.writingMode == b.writingMode
                     && a.fragmentPosition == b.fragmentPosition && a.isBackgroundPaint == b.isBackgroundPaint
+                    && a.paintTransform == b.paintTransform
             case (.image(let a), .image(let b)):
                 return a.image === b.image && a.source == b.source && sameRect(a.rect, b.rect)
                     && a.sourceRange == b.sourceRange && a.nodeID == b.nodeID && a.linkTarget == b.linkTarget
                     && a.writingMode == b.writingMode && a.alt == b.alt && a.isBackgroundPaint == b.isBackgroundPaint
+                    && a.paintTransform == b.paintTransform
             default: return false
             }
         }
@@ -278,7 +286,7 @@ public enum DisplayListBuilder {
             switch fragment {
             case .text(let t):
                 let visible = t.renderedTextOverride ?? slice(sourceText, range: t.sourceRange)
-                items.append(.text(DisplayTextItem(
+                var item = DisplayTextItem(
                     sourceRange: t.sourceRange,
                     nodeID: t.nodeID,
                     linkTarget: t.linkTarget,
@@ -291,23 +299,29 @@ public enum DisplayListBuilder {
                     ctLine: t.ctLine,
                     sourceMapping: t.sourceMapping,
                     renderedTextOverride: t.renderedTextOverride
-                )))
+                )
+                item.paintTransform = t.paintTransform
+                items.append(.text(item))
             case .fill(let f):
-                items.append(.fill(DisplayFillItem(
+                var item = DisplayFillItem(
                     rect: f.rect, color: f.color, cornerRadius: f.cornerRadius,
                     borderTop: f.borderTop, borderBottom: f.borderBottom,
                     borderLeft: f.borderLeft, borderRight: f.borderRight,
                     nodeID: f.nodeID, writingMode: f.writingMode,
                     fragmentPosition: f.fragmentPosition,
                     isBackgroundPaint: f.isBackgroundPaint
-                )))
+                )
+                item.paintTransform = f.paintTransform
+                items.append(.fill(item))
             case .image(let i):
-                items.append(.image(DisplayImageItem(
+                var item = DisplayImageItem(
                     source: i.source, image: i.image, sourceRange: i.sourceRange,
                     nodeID: i.nodeID, linkTarget: i.linkTarget,
                     writingMode: i.writingMode, rect: i.rect, alt: i.alt,
                     isBackgroundPaint: i.isBackgroundPaint
-                )))
+                )
+                item.paintTransform = i.paintTransform
+                items.append(.image(item))
             case .group(let children):
                 collect(children, into: &items, sourceText: sourceText)
             }

@@ -722,6 +722,8 @@ enum ComputedStylePropertyApplier {
             }
         case "width": if let l = CSSLengthResolver.parse(value) { style.width = l }
         case "height": if let l = CSSLengthResolver.parse(value) { style.height = l }
+        case "transform", "-webkit-transform":
+            style.transformRotate = Self.parseTransformRotate(value)
         case "min-height": style.minHeight = CSSLengthResolver.parse(value)
         case "max-height": style.maxHeight = CSSLengthResolver.parse(value)
         case "max-width": if let l = CSSLengthResolver.parse(value) { style.maxWidth = l }
@@ -837,6 +839,26 @@ enum ComputedStylePropertyApplier {
         if case .percent = length { return nil }
         if case .auto = length { return nil }
         return length
+    }
+
+    /// Degrees for a bare `rotate(<angle>)` transform — the only parsed
+    /// function. Anything else (lists, scale/translate/matrix) computes to
+    /// none rather than being half-applied.
+    fileprivate static func parseTransformRotate(_ value: String) -> CGFloat? {
+        let s = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let pattern = #"^rotate\(\s*(-?(?:\d+\.?\d*|\.\d+))(deg|rad|turn)?\s*\)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)),
+              let amountRange = Range(match.range(at: 1), in: s),
+              let amount = Double(s[amountRange]) else { return nil }
+        let unit = match.range(at: 2).location != NSNotFound
+            ? Range(match.range(at: 2), in: s).map { String(s[$0]) } : nil
+        switch unit {
+        case nil, "deg": return CGFloat(amount)
+        case "rad": return CGFloat(amount * 180 / .pi)
+        case "turn": return CGFloat(amount * 360)
+        default: return nil
+        }
     }
 
     fileprivate static func applyBorderWidthShorthand(
