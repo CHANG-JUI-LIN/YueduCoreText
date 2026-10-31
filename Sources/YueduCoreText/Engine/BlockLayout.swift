@@ -50,6 +50,8 @@ enum BlockLayout {
                 fontResolver: fontResolver,
                 cjkTypographyStyle: cjkTypographyStyle,
                 fragmentHeight: fragmentHeight,
+                viewportHeight: viewportHeight,
+                viewportWidth: viewportWidth,
                 viewport: viewport
             )
         }
@@ -453,7 +455,9 @@ enum BlockLayout {
             box.style.height,
             emBase: box.style.fontSize,
             remBase: rootFontSize,
-            percentBase: 0
+            percentBase: 0,
+            viewportHeight: viewportHeight,
+            viewportWidth: viewportWidth
         ) {
             box.contentSize.height = max(0, used)
         }
