@@ -78,26 +78,22 @@ struct ChapterEvaluationTransferTests {
         #expect(try Self.layOut(evaluation) == expected)
     }
 
-    @Test func evaluationMovesBackAndForthBetweenThreads() async throws {
-        // Off the main actor, onto it for the host's checks, then off it again for layout.
+    @MainActor @Test func evaluationMovesBackAndForthBetweenThreads() async throws {
+        // Made off the main actor, checked on it as a host would, then off it again for layout.
         let document = try await BrowserChapterDocument.parse(input: Self.input)
         let evaluation = await BrowserChapterDocument.evaluate(document, configuration: Self.configuration)
-        let checked = await Self.checkOnMainActor(evaluation)
-        let laidOut = try await Task.detached { try Self.layOut(checked) }.value
-        let expected = try await Self.reference()
+
+        // Read into locals: `#expect` wraps its argument in a closure, which would
+        // capture the evaluation into the main actor's region.
+        let onMainThread = pthread_main_np() != 0
+        let accepted = evaluation.accepts(Self.configuration)
+        #expect(onMainThread && accepted)
+
+        let laidOut = try await Task.detached { try Self.layOut(evaluation) }.value
+        let expected = try Self.reference()
 
         #expect(!laidOut.onMainThread)
         #expect(laidOut.sourceText == expected.sourceText)
         #expect(laidOut.itemCount == expected.itemCount)
-    }
-
-    @MainActor
-    private static func checkOnMainActor(_ evaluation: sending BrowserChapterEvaluation) -> sending BrowserChapterEvaluation {
-        // Read into locals: `#expect` wraps its argument in a closure, which would
-        // capture the evaluation into the main actor's region.
-        let onMainThread = pthread_main_np() != 0
-        let accepted = evaluation.accepts(configuration)
-        #expect(onMainThread && accepted)
-        return evaluation
     }
 }
