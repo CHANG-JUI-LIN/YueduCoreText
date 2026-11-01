@@ -136,6 +136,9 @@ final class BlockBox {
     var ownsFirstFormattedLine: Bool
     /// Non-nil when this box IS a replaced element (block-level image).
     var imageAttachment: AtomicInline? = nil
+    /// Where that image sits in the chapter's source text: a place, no extent, as for an
+    /// inline image's run.
+    var imageSourceOffset = 0
     /// Border-box rect in PARENT content-local coordinates (Phase 2C contract).
     var frame: ParentLocalRect = .zero
     var contentSize = CGSize.zero

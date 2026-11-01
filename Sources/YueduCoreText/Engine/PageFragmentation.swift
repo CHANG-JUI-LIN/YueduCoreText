@@ -586,7 +586,10 @@ struct PageWalker {
                 return .image(StepImage(
                     source: attachment.source,
                     image: attachment.image,
-                    sourceRange: NSRange(location: 0, length: 0),
+                    // Its place in the source, as an inline image's run carries. A fixed 0
+                    // put every block image at the chapter's start: its page claimed the
+                    // chapter's first position, in paged and in scroll mode alike.
+                    sourceRange: NSRange(location: frame.box.imageSourceOffset, length: 0),
                     // A block-level replaced element has no line run, so the
                     // attachment is the ONLY carrier of its DOM identity. These
                     // were hardcoded to `-1`/`nil`, which erased the ancestor
@@ -830,25 +833,7 @@ struct PageWalker {
 
     /// Source range of the last completed page (for offset-targeted layout).
     func sourceRange(ofPage page: PageFragments, sourceText: String) -> NSRange {
-        let ns = sourceText as NSString
-        var minLocation = ns.length
-        var maxEnd = 0
-        func walk(_ fragments: [Fragment]) {
-            for fragment in fragments {
-                switch fragment {
-                case .text(let t):
-                    if t.sourceRange.length > 0 {
-                        minLocation = min(minLocation, t.sourceRange.location)
-                        maxEnd = max(maxEnd, t.sourceRange.location + t.sourceRange.length)
-                    }
-                case .group(let children): walk(children)
-                default: break
-                }
-            }
-        }
-        walk(page.fragments)
-        guard maxEnd > minLocation else { return NSRange(location: minLocation, length: 0) }
-        return NSRange(location: minLocation, length: maxEnd - minLocation)
+        BrowserPageGeometry.sourceRange(of: page, sourceText: sourceText)
     }
 
     // MARK: - Paging rules (single source of truth with the batch path)
@@ -1286,10 +1271,19 @@ struct PageWalker {
         // 2. Does not fit remainder but fits a full page → move whole to next.
         // 3. Intrinsic size EXCEEDS a full page → scale to fit (aspect kept),
         //    never split into fragments.
-        // Cases 2 and 3 change the block space the image consumes, so both feed
+        // 4. The page it starts has nothing on it yet → never moves; scaled into the
+        //    room the page has left, below.
+        // Cases 2–4 change the block space the image consumes, so all feed
         // `flowShift` — the following content moves with the image.
         let contentWidth = max(1, pageRect.width - contentInsets.left - contentInsets.right)
-        if step.rect.height <= pageHeight, pageLocalY + step.rect.height > pageHeight + 0.001 {
+        // CSS Fragmentation §4.4: no break between a page's start and its first content.
+        // Moved, the image leaves behind a page with nothing on it but the space above
+        // it — 剑来's full-page maps sit 8pt down, under the body margin, and each one
+        // was preceded by a blank page.
+        let startsBlankPage = target > currentIndex || !currentPageHasInk
+        if startsBlankPage {
+            // Case 4: placed after `discardMarginAdjoiningBreak` settles its position.
+        } else if step.rect.height <= pageHeight, pageLocalY + step.rect.height > pageHeight + 0.001 {
             // Case 2: move to next page.
             target += 1
             adjustedDocY = CGFloat(target) * pageHeight
@@ -1337,6 +1331,16 @@ struct PageWalker {
         #endif
         let flushed = advanceToPage(target)
         adjustedDocRect.origin.y = discardMarginAdjoiningBreak(adjustedDocY, target: target)
+        if startsBlankPage {
+            // Case 4: what is left of the page once a margin adjoining the break is gone.
+            let room = CGFloat(target + 1) * pageHeight - adjustedDocRect.minY
+            let scale = min(1, contentWidth / step.rect.width, room / step.rect.height)
+            if scale < 1 {
+                let newH = max(1, step.rect.height * scale)
+                flowShift -= step.rect.height - newH
+                adjustedDocRect.size = CGSize(width: max(1, step.rect.width * scale), height: newH)
+            }
+        }
         // The band of the image's line box below the image (parent strut
         // descent) belongs to the same unsplittable line. Carried past the
         // bottom of this page it made the next page-tall image miss its page,

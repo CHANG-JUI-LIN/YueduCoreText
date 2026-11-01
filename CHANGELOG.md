@@ -2,6 +2,24 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.10.2] - 2026-11-01
+
+Pages of pictures: no blank page in front of a full-page picture, and a picture page no longer reports the chapter's end as its position.
+
+### Fixed
+
+- A picture that does not fit the room left on a page no longer moves to the next page when nothing has been drawn on its page yet. Moving it only left that page blank — a full-page map under the 8pt body margin was preceded by an empty page. The picture stays and is scaled, aspect kept, into the room the page has left (CSS Fragmentation §4.4: no break before a fragmentainer's first content). Pages that already carry content still move it as before.
+- A page's source range counts its pictures, not only its text. A page holding nothing but pictures had no range and reported the chapter's end, so every picture page of a chapter shared one position with the page after it, and a page turn or a restore resolved to the wrong page. `BrowserPageGeometry.buildPageRanges` and the page session's offset-targeted layout now share one implementation; CSS background paint is left out, as in scroll mode.
+- A block-level picture (`display: block`, or floated) carries its place in the source text, as an inline picture does. It was always offset 0, so its page claimed the chapter's first position in paged and in scroll mode.
+
+### Compatibility
+
+- No API changes, and the source text is unchanged, so saved character offsets keep their meaning. A page that held only pictures now resolves to the place of its first picture instead of the chapter's end.
+
+### Known issues
+
+- A picture has a place in the source text but no extent. When a page of pictures is followed directly by text — an illustration between two paragraphs, where the white space between the blocks collapses away — the picture's place is the next paragraph's first character, and the two pages share one position: such a page resolves to the page after it. Telling them apart needs every picture to take up source text, which moves the offsets after it; that is planned for 0.11, with a migration for saved offsets. `ImagePagePaginationTests` records the case as a known issue.
+
 ## [0.10.1] - 2026-10-16
 
 Documentation: what a host must hand `BrowserChapterDocument.evaluate(_:configuration:writingMode:)`.
