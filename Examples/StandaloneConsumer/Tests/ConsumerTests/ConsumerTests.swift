@@ -79,9 +79,10 @@ struct ConsumerTests {
         #expect(session.anchorOffsets["start"] == 0)
         let ranges = BrowserPageGeometry.buildPageRanges(session.completedPages, sourceText: session.sourceText)
         #expect(ranges.first?.location == 0)
-        #expect(ranges.filter { $0.length > 0 }.last.map(NSMaxRange) == (session.sourceText as NSString).length - 1)
+        // The picture is the last character: each picture takes one U+FFFC of the source text.
+        #expect(ranges.filter { $0.length > 0 }.last.map(NSMaxRange) == (session.sourceText as NSString).length)
         // The collapsed final space stays in sourceText but is trimmed from the shaped last line.
-        #expect((session.sourceText as NSString).substring(from: (session.sourceText as NSString).length - 1) == " ")
+        #expect((session.sourceText as NSString).substring(from: (session.sourceText as NSString).length - 2) == " \u{FFFC}")
         let list = DisplayListBuilder.build(for: first, sourceText: session.sourceText)
         let rect = try #require(list.selectionRects(for: NSRange(location: 0, length: 2)).first)
         #expect(rect.width > 0)
@@ -93,7 +94,7 @@ struct ConsumerTests {
         #expect(continuous.contentSize == CGSize(width: 220, height: continuous.contentHeight))
         #expect(continuous.displayList.items.contains { if case .image(let item) = $0 { return item.image != nil && item.rect.width == 20 }; return false })
         let exampleFlow = try makeContinuousExample(image: image)
-        #expect(exampleFlow.sourceText == "Hello 世界")
+        #expect(exampleFlow.sourceText == "Hello 世界\u{FFFC}")
         #expect(exampleFlow.contentSize.width == 320)
         #expect(exampleFlow.displayList.items.contains {
             if case .image(let item) = $0 { return item.rect.width == 120 && item.image != nil }

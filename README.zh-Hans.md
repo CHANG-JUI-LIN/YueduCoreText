@@ -8,7 +8,7 @@
 
 适合需要自行控制绘制和交互的原生文档或阅读界面。你的 App 提供资源、承载界面；包负责解析、计算样式、排版、分页与绘制。
 
-[0.10.2 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.10.2) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
+[0.11.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.11.0) · [可运行示例](Examples/StandaloneConsumer) · [进阶集成指南（英文）](docs/EngineIntegration.md) · [更新记录](CHANGELOG.md)
 
 ## 环境要求与安装
 
@@ -16,14 +16,14 @@
 - HTML/CSS 引擎从 **0.3.0** 开始提供。0.2.1 及更早版本只有原有工具 API。
 - 主产品依赖 `YueduCoreTextTypography` 与 **SwiftSoup 2.13.7**。
 
-在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.10.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.10.2**。
+在 Xcode 中选择 **File → Add Package Dependencies**，输入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，将 **YueduCoreText** 产品添加到你的 target。使用 0.11.x 时，选择 **Up to Next Minor Version**，起始版本填 **0.11.0**。
 
 如果使用 Swift Package，将以下内容加入 `Package.dependencies`：
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.10.2")
+    .upToNextMinor(from: "0.11.0")
 )
 ```
 
@@ -137,11 +137,13 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 | 锚点偏移 | `session.anchorOffsets` 或 `continuous.anchorOffsets` |
 | 每页文字范围 | `BrowserPageGeometry.buildPageRanges(_:sourceText:)` |
 
-所有文字偏移都指向经过空白折叠的 **sourceText，单位为 UTF-16**，不是 HTML 源代码偏移，也不是 Swift `String.count`。请使用 `NSString`／`NSRange` 处理。单文档示例的 `spineIndex: 0` 只是宿主提供的文档编号，不要求建立 EPUB 容器。
+所有文字偏移都指向经过空白折叠的 **sourceText，单位为 UTF-16**，不是 HTML 源代码偏移，也不是 Swift `String.count`。请使用 `NSString`／`NSRange` 处理。每张图片在 sourceText 里占一个 U+FFFC（0.11 起；`pictureOffsets` 列出它们）。单文档示例的 `spineIndex: 0` 只是宿主提供的文档编号，不要求建立 EPUB 容器。
 
 分页 display list 使用左上原点、y 轴向下的**页面坐标**；连续 display list 使用**文档坐标**；tile 查询结果使用 **tile 局部坐标**。宿主负责 view/window 坐标转换，命中测试与绘制必须使用相同坐标空间。Ruby 注音的几何信息映射到所属的正文范围。
 
 ## 支持范围
+
+0.11.0 让每张图片在 sourceText 里占一个 U+FFFC，整页图片的页面因此有自己的位置。图片之后的偏移各往后移一；对照 0.10 存下的偏移请用 `BrowserPictureOffsets.migrated(_:)` 换算一次（见[更新记录](CHANGELOG.md)）。这一版也把 inline-block 排成单一方块、支持分隔边框表格，并读取 viewport 单位、`letter-spacing`、`vertical-align: super/sub` 与 `rotate()`。
 
 0.10.0 让章节的解析与评估结果跨隔离域移交：`BrowserChapterDocument.parse(input:)` 与 `BrowserChapterDocument.evaluate(_:configuration:writingMode:)` 不在调用方的 actor 上执行，并以 `sending` 交回 document 与 evaluation。两个类型仍不是 Sendable，因为它们持有章节的 DOM 与宿主配置里的闭包。0.10.1 的文档补充：交给 `evaluate` 的配置必须是 disconnected 的值，请在 nonisolated 函数里创建，不要在 actor 隔离的方法里创建。
 
@@ -203,7 +205,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.10.2 获取。
+示例是一个附带测试的小型 library，不是现成阅读器 App。它使用 repo 内的本地包；相同 public API 也可通过已发布的 0.11.0 获取。
 
 CI 在 iOS Simulator 运行包与只使用 public API 的独立 consumer 测试，并保留 `.xcresult` 产物；已验证的版本、工具链与结果请见 [CI 运行记录](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions)。本文档不宣称真机性能。
 

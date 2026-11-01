@@ -8,7 +8,7 @@ Turn HTML/XHTML, CSS and prepared resources into paginated pages or a continuous
 
 Use it to build a native document or reading interface when you need control over drawing and interaction. Your app supplies resources and hosts the result; the package owns parsing, styling, layout, pagination and painting.
 
-[0.10.2 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.10.2) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
+[0.11.0 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.11.0) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
 
 ## Requirements and installation
 
@@ -16,14 +16,14 @@ Use it to build a native document or reading interface when you need control ove
 - The HTML/CSS engine is available from **0.3.0**. Versions through 0.2.1 provide the earlier utilities only.
 - The main product depends on `YueduCoreTextTypography` and **SwiftSoup 2.13.7**.
 
-In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.10.x, choose **Up to Next Minor Version** starting at **0.10.2**.
+In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.11.x, choose **Up to Next Minor Version** starting at **0.11.0**.
 
 For a Swift package, add this to `Package.dependencies`:
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.10.2")
+    .upToNextMinor(from: "0.11.0")
 )
 ```
 
@@ -137,11 +137,13 @@ Load resources before layout:
 | Anchor offsets | `session.anchorOffsets` or `continuous.anchorOffsets` |
 | Page text ranges | `BrowserPageGeometry.buildPageRanges(_:sourceText:)` |
 
-All text offsets address the engine's whitespace-collapsed **sourceText in UTF-16**, not raw HTML offsets or Swift `String.count`. Use `NSString`/`NSRange` when working with them. In the single-document example, `spineIndex: 0` is simply the host's document identifier; no EPUB container is required.
+All text offsets address the engine's whitespace-collapsed **sourceText in UTF-16**, not raw HTML offsets or Swift `String.count`. Use `NSString`/`NSRange` when working with them. Each picture takes one U+FFFC of the source text (since 0.11; `pictureOffsets` lists them). In the single-document example, `spineIndex: 0` is simply the host's document identifier; no EPUB container is required.
 
 Page display lists use top-left, y-down **page coordinates**. Continuous display lists use **document coordinates**. Tile results use **tile-local coordinates**. Your host converts view/window coordinates; hit testing and drawing must use the same space. Ruby annotation geometry maps to the owning base-text range.
 
 ## Supported scope
+
+Version 0.11.0 gives every picture one U+FFFC of the source text, so a page of pictures has a position of its own. Offsets after a picture move forward by one; map offsets saved against 0.10 once with `BrowserPictureOffsets.migrated(_:)` (see the [changelog](CHANGELOG.md)). It also lays out inline-blocks as atomic boxes and separated-borders tables, and reads viewport units, `letter-spacing`, `vertical-align: super/sub` and `rotate()`.
 
 Version 0.10.0 moves a chapter's parse and evaluation between isolation domains: `BrowserChapterDocument.parse(input:)` and `BrowserChapterDocument.evaluate(_:configuration:writingMode:)` run off the caller's actor and return the document and the evaluation as `sending` values. Both types stay non-Sendable, because they hold the chapter's DOM and the host's configuration closures. As 0.10.1's documentation adds, the configuration given to `evaluate` must be disconnected: build it in a nonisolated function, not in an actor-isolated method.
 
@@ -203,7 +205,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.10.2 dependency.
+The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.11.0 dependency.
 
 CI runs both the package tests and the standalone public-API consumer on iOS Simulator, and retains `.xcresult` artifacts. See [CI runs](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions) for the tested revision, toolchain and outcome. No real-device performance claim is made.
 

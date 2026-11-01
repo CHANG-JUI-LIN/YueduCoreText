@@ -2,6 +2,51 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.11.0] - Unreleased
+
+Every picture takes one character of the chapter's source text, so a page of pictures has a position of its own. This moves the offsets after a picture: a host that saved offsets against 0.10 maps them once (see Migration). Also the layout work merged since 0.10.1: inline-blocks, separated-borders tables, viewport units, letter-spacing, `vertical-align: super/sub` and `rotate()`.
+
+### Changed
+
+- **Every picture takes one U+FFFC of `sourceText`.** An `<img>` (inline, block or floated), an SVG wrapping one image, and a video's placeholder each append one U+FFFC where they stand, whether or not the image loads, so a load failure never moves the offsets after it. A CSS background takes none. Up to 0.10 a picture had a place in the source text but no extent: its place was the offset of whatever followed it. An illustration page between two paragraphs (the white space between the blocks collapses away) therefore shared the next page's position, and a page turn or a restore on it resolved to the page after it. Each picture page now resolves to itself, in paged and in scroll mode.
+- A picture's line run, page fragment and display item carry that character's range (length 1). An id on a picture resolves to its character.
+- Paragraph ranges hold text only, as before: a picture's character is never part of a paragraph that text selection extends to.
+- An inline-block is an atomic box on its line (CSS 2.1 §9.2.2). It was laid out as an ordinary inline box, so a chat bubble written as an inline-block holding a `<p>` lost its background, border, padding and rounded corners. A vertical chapter holding a non-replaced inline-block is refused by admission.
+- A block inside an inline box splits it into anonymous blocks instead of vanishing (CSS 2.1 §9.2.1.1); `<span><p>…</p></span>` used to lose the paragraph.
+
+### Added
+
+- `BrowserPictureOffsets`: a chapter's picture characters (`offsets`), and the map from offsets saved against 0.10 (`migrated(_:)` for an offset or a range) and back (`unmigrated(_:)`). Available as `BrowserLayoutSession.pictureOffsets`, `BrowserViewportChapterFacts.pictureOffsets` and `BrowserContinuousLayout.pictureOffsets`.
+- Separated-borders table layout (CSS 2.1 §17): row groups with `thead`/`tfoot` reordering, shrink-to-fit width, column sizing with colspan distribution, `border-spacing`, and cell `vertical-align`. Rowspan, nested tables, `border-collapse: collapse` and vertical tables still fall back.
+- `vh`/`vw` units, in replaced sizes and in explicit block, table-cell and table heights; CSS `max-height` on replaced elements.
+- Authored `letter-spacing`, negative values included; it wins over the reader-configured default.
+- `vertical-align: super/sub` as baseline shifts of inline and inline-block boxes, computed from the parent's font size as WebKit does.
+- Paint-time `transform: rotate()`.
+- `width: auto` floats shrink to fit.
+
+### Fixed
+
+- Floats are placed against their containing block's inline range; a floated parent keeps its first child's margin inside it; a parent's float and margins no longer leak into anonymous blocks.
+- Explicit block heights beyond px literals resolve; an inline image's used size resolves against the fragment height; first-child margin folds are re-accounted after child layout.
+- Synthetic bold uses a WebKit-style offset second pass and widens glyph advances for it.
+
+### Migration
+
+Offsets into `sourceText` (reading positions, highlights, bookmarks, anchors a host stored) saved against 0.10 or earlier point one character early for every picture before them. Map each one once, with the pictures of the layout that will read it:
+
+```swift
+let pictures = session.pictureOffsets              // after the session has laid out a page
+let offset = pictures.migrated(savedOffset)
+let highlight = pictures.migrated(savedRange)
+```
+
+An offset at a picture's 0.10 place named the text after the picture — 0.10 resolved it there — and still does. A range keeps every character it had and takes in the pictures inside it; a picture at either end stays out. Record that an offset has been mapped: mapping it twice moves it again. A host that must keep writing 0.10 offsets for older readers gets them with `unmigrated(_:)`; only an offset on a picture does not round-trip.
+
+### Compatibility
+
+- Source text, page source ranges and every offset after a picture change. Chapters with no pictures are unaffected.
+- No API is removed or renamed. `BrowserViewportChapterFacts` gained a stored property; hosts never construct it.
+
 ## [0.10.2] - 2026-11-01
 
 Pages of pictures: no blank page in front of a full-page picture, and a picture page no longer reports the chapter's end as its position.
