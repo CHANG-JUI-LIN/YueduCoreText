@@ -2,7 +2,7 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
-## [0.11.0] - Unreleased
+## [0.11.0] - 2026-11-01
 
 Every picture takes one character of the chapter's source text, so a page of pictures has a position of its own. This moves the offsets after a picture: a host that saved offsets against 0.10 maps them once (see Migration). Also the layout work merged since 0.10.1: inline-blocks, separated-borders tables, viewport units, letter-spacing, `vertical-align: super/sub` and `rotate()`.
 
