@@ -97,4 +97,19 @@ struct PictureSourceTextTests {
         #expect(document.documentY(forCharOffset: 3) >= image.rect.maxY)
         #expect(document.charOffset(atDocumentY: image.rect.midY) == 2)
     }
+
+    /// A highlight that runs across a block picture now holds the picture's character. It
+    /// still marks text only: the illustration between its two halves stays unpainted.
+    @Test("a highlight across a block picture paints the text, not the picture")
+    func highlightAcrossBlockPictureSkipsPicture() throws {
+        let result = try Self.pipeline("<p>前文</p><div><img src='a.png' style='width:100%'/></div><p>图注</p>")
+        let document = BrowserScrollDocument.make(pipeline: result, contentWidth: 300, contentInsets: .zero)
+        let image = try #require(document.displayList.items.compactMap { item -> DisplayImageItem? in
+            if case .image(let image) = item, !image.isBackgroundPaint { return image }
+            return nil
+        }.first)
+        let rects = document.displayList.selectionRects(for: NSRange(location: 1, length: 3))
+        #expect(rects.count == 2)
+        #expect(rects.allSatisfy { !$0.intersects(image.rect.rawValue.insetBy(dx: 1, dy: 1)) }, "\(rects)")
+    }
 }
