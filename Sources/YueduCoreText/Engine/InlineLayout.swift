@@ -358,10 +358,10 @@ enum InlineLayout {
                 // Source range of this slice: shift by the run's source offset.
                 let sliceLen: Int
                 let sourceOffset: Int
-                if run.atomic != nil || run.decorationEdge != nil {
+                if run.decorationEdge != nil {
                     sliceLen = 0
                     sourceOffset = run.sourceRange.location
-                } else if run.ruby != nil || run.combined != nil || run.inlineBlock != nil {
+                } else if run.atomic != nil || run.ruby != nil || run.combined != nil || run.inlineBlock != nil {
                     sliceLen = run.sourceRange.length
                     sourceOffset = run.sourceRange.location
                 } else {

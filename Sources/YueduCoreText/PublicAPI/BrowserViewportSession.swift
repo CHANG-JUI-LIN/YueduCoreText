@@ -77,7 +77,8 @@ public final class BrowserViewportSession {
     init(pipeline: BrowserLayoutDocument.BrowserLayoutPipelineResult, configuration: BrowserLayoutConfig,
          imageLoader: @escaping (String) -> UIImage?) {
         self.pipeline = pipeline; config = configuration; self.imageLoader = imageLoader
-        facts = BrowserViewportChapterFacts(sourceText: pipeline.sourceText, anchorOffsets: pipeline.anchorOffsets,
+        facts = BrowserViewportChapterFacts(sourceText: pipeline.sourceText,
+            pictureOffsets: BrowserPictureOffsets(pipeline.pictureOffsets), anchorOffsets: pipeline.anchorOffsets,
             footnotes: pipeline.footnotes, pronunciationHints: pipeline.pronunciationHints,
             mediaAttachments: pipeline.mediaAttachments,
             paragraphRanges: BrowserLayoutSemanticContent.paragraphRanges(in: pipeline.rootBox),

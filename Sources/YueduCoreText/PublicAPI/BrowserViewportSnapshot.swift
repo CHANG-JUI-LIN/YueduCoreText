@@ -4,6 +4,8 @@ import UIKit
 /// when the viewport session is created, on whichever thread creates it.
 public struct BrowserViewportChapterFacts: @unchecked Sendable {
     public let sourceText: String
+    /// The pictures' characters in `sourceText`, and the map for offsets saved before 0.11.
+    public let pictureOffsets: BrowserPictureOffsets
     public let anchorOffsets: [String: Int]
     public let footnotes: [String: String]
     public let pronunciationHints: [TTSPronunciationHint]

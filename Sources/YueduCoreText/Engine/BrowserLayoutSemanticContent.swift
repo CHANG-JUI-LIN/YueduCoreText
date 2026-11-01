@@ -10,7 +10,8 @@ enum BrowserLayoutSemanticContent {
     static func paragraphRanges(in root: BlockBox) -> [NSRange] {
         var ranges: [NSRange] = []
         func walk(_ box: BlockBox) {
-            let content = box.inlineRuns.map(\.sourceRange).filter { $0.length > 0 }
+            // A paragraph is the text selection reaches; a picture's character is not text.
+            let content = box.inlineRuns.filter { $0.atomic == nil }.map(\.sourceRange).filter { $0.length > 0 }
             if let start = content.map(\.location).min(), let end = content.map(NSMaxRange).max() {
                 ranges.append(NSRange(location: start, length: end - start))
             }

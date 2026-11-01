@@ -223,6 +223,7 @@ final class BrowserLayoutDocument {
         return BrowserLayoutPipelineResult(
             rootBox: rootBox,
             sourceText: sourceText.text,
+            pictureOffsets: sourceText.pictureOffsets,
             anchorOffsets: anchors,
             contentSize: CGSize(width: contentWidth, height: contentHeight),
             nodeCount: frontendResult.nodeCount,
@@ -239,6 +240,8 @@ final class BrowserLayoutDocument {
     struct BrowserLayoutPipelineResult {
         let rootBox: BlockBox
         let sourceText: String
+        /// Where each picture's U+FFFC sits in `sourceText`, ascending.
+        let pictureOffsets: [Int]
         let anchorOffsets: [String: Int]
         let contentSize: CGSize
         /// Style-tree node count (lifecycle accounting).

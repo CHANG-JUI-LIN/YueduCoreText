@@ -95,21 +95,19 @@ struct ImagePagePaginationTests {
     }
 
     /// An illustration page between two paragraphs, the way illustrated light novels lay
-    /// them out. The white space between the blocks collapses away, so the picture's place
-    /// is the next paragraph's first character and its page shares that page's position.
-    /// Telling them apart needs the picture to take up source text, which moves every
-    /// offset after it — saved positions and highlights included — so it is not a patch fix.
+    /// them out. The white space between the blocks collapses away; before 0.11 a picture
+    /// had a place but no extent, so its place was the next paragraph's first character and
+    /// its page shared that page's position. Each picture now takes one U+FFFC.
     @Test("an illustration page between paragraphs has a position of its own", arguments: [
         "<p>前文</p>\n<div><img src='a.webp' style='width:100%'/></div>\n<p>图注</p>",
         "<p>前文</p><div><img src='a.webp' style='width:100%'/></div><div><img src='b.webp' style='width:100%'/></div><p>图注</p>",
+        "<p>前文</p>\n<img src='a.webp' style='display:block; width:100%'/>\n<p>图注</p>",
     ])
     func illustrationPageBetweenParagraphs(body: String) async throws {
         let (pages, sourceText) = try await layout(body, picture: CGSize(width: 1080, height: 1440))
         try #require(pages.count > 2)
         #expect(pages.allSatisfy(hasInk))
-        withKnownIssue("a picture has no source extent, so its page shares the next page's position") {
-            expectPositionsRoundTrip(pages, sourceText: sourceText)
-        }
+        expectPositionsRoundTrip(pages, sourceText: sourceText)
     }
 
     @Test("block pictures between paragraphs keep the place they have in the text")

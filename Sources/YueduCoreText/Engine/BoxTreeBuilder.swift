@@ -10,6 +10,8 @@ struct SourceTextBuilder {
     // Re-bridging the growing chapter for every inline run makes content
     // preparation quadratic. UTF-16 offsets are additive, including surrogate pairs.
     private(set) var currentOffset = 0
+    /// Where each picture's U+FFFC sits, ascending.
+    private(set) var pictureOffsets: [Int] = []
 
     @discardableResult
     mutating func append(_ s: String) -> NSRange {
@@ -17,6 +19,13 @@ struct SourceTextBuilder {
         text.append(s)
         currentOffset += range.length
         return range
+    }
+
+    /// A picture's one character of source text. Every picture element takes it, drawn or
+    /// not: whether an image loads must never move the offsets after it.
+    mutating func appendPicture() -> NSRange {
+        pictureOffsets.append(currentOffset)
+        return append("\u{FFFC}")
     }
 }
 
@@ -115,7 +124,7 @@ enum BoxTreeBuilder {
                         let attachment = makeBlockImage(for: elementNode, imageLoader: imageLoader)
                         let box = BlockBox(style: elementNode.style, boxType: .block)
                         box.imageAttachment = attachment
-                        box.imageSourceOffset = sourceText.currentOffset
+                        box.imageSourceRange = sourceText.appendPicture()
                         Self.attachDebugIdentity(box, node: elementNode)
                         kids.append(box)
                     } else {
@@ -1080,12 +1089,13 @@ enum BoxTreeBuilder {
         sourceText: inout SourceTextBuilder,
         imageLoader: (String) -> UIImage?
     ) {
+        let range = sourceText.appendPicture()
         guard let image = imageLoader(source) else { return }
         let intrinsic = image.size
         guard intrinsic.width > 0, intrinsic.height > 0 else { return }
         runs.append(InlineRun(
             text: "\u{FFFC}", style: node.style,
-            sourceRange: NSRange(location: sourceText.currentOffset, length: 0),
+            sourceRange: range,
             nodeID: node.nodeID, linkTarget: node.linkTarget,
             atomic: AtomicInline(
                 source: source, image: image, usedSize: intrinsic,
@@ -1100,13 +1110,14 @@ enum BoxTreeBuilder {
         sourceText: inout SourceTextBuilder,
         imageLoader: (String) -> UIImage?
     ) {
+        let range = sourceText.appendPicture()
         let src = node.semanticElement?.attribute("src") ?? ""
         let image = imageLoader(src)
         let intrinsic = image?.size ?? .zero
         guard intrinsic.width > 0, intrinsic.height > 0, let image else { return }
         runs.append(InlineRun(
             text: "\u{FFFC}", style: node.style,
-            sourceRange: NSRange(location: sourceText.currentOffset, length: 0),
+            sourceRange: range,
             nodeID: node.nodeID, linkTarget: node.linkTarget,
             atomic: AtomicInline(
                 source: src, image: image, usedSize: intrinsic,

@@ -28,6 +28,8 @@ public final class BrowserLayoutSession {
     private var walker: PageWalker?
     private var pipeline: BrowserLayoutDocument.BrowserLayoutPipelineResult?
     public private(set) var sourceText = ""
+    /// The pictures' characters in `sourceText`, and the map for offsets saved before 0.11.
+    public private(set) var pictureOffsets = BrowserPictureOffsets([])
     public private(set) var anchorOffsets: [String: Int] = [:]
     public private(set) var completedPages: [PageFragments] = []
     public private(set) var isFinished = false
@@ -373,6 +375,7 @@ public final class BrowserLayoutSession {
         BrowserLayoutDeviceDiagnostic.summary("🔬 BROWSER_DEVICE sessionEnsure makeLayoutDone spine=\(diagnosticSpine) boxes=\(result.boxCount) content=\(result.contentSize)")
         #endif
         sourceText = result.sourceText
+        pictureOffsets = BrowserPictureOffsets(result.pictureOffsets)
         anchorOffsets = result.anchorOffsets
         pipelineNodeCount = result.nodeCount
         pipelineBoxCount = result.boxCount

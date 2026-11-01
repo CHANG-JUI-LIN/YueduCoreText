@@ -676,10 +676,10 @@ struct PageWalker {
                 return .image(StepImage(
                     source: attachment.source,
                     image: attachment.image,
-                    // Its place in the source, as an inline image's run carries. A fixed 0
-                    // put every block image at the chapter's start: its page claimed the
+                    // Its character in the source, as an inline image's run carries. A fixed
+                    // 0 put every block image at the chapter's start: its page claimed the
                     // chapter's first position, in paged and in scroll mode alike.
-                    sourceRange: NSRange(location: frame.box.imageSourceOffset, length: 0),
+                    sourceRange: frame.box.imageSourceRange,
                     // A block-level replaced element has no line run, so the
                     // attachment is the ONLY carrier of its DOM identity. These
                     // were hardcoded to `-1`/`nil`, which erased the ancestor

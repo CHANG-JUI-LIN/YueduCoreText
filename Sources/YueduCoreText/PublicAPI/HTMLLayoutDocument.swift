@@ -127,6 +127,8 @@ public final class BrowserContinuousLayout {
     public var mediaAttachments: [Int: EPUBMediaAttachment] { pipeline.mediaAttachments }
     public var pronunciationHints: [TTSPronunciationHint] { pipeline.pronunciationHints }
     public var paragraphRanges: [NSRange] { BrowserLayoutSemanticContent.paragraphRanges(in: pipeline.rootBox) }
+    /// The pictures' characters in the source text, and the map for offsets saved before 0.11.
+    public var pictureOffsets: BrowserPictureOffsets { BrowserPictureOffsets(pipeline.pictureOffsets) }
 
     init(pipeline: BrowserLayoutDocument.BrowserLayoutPipelineResult,
          configuration: BrowserLayoutConfig, imageLoader: @escaping (String) -> UIImage?) {
