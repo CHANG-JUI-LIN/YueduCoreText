@@ -3,27 +3,36 @@ import CoreText
 
 public enum BrowserPageGeometry {
     public static func buildPageRanges(_ pages: [PageFragments], sourceText: String) -> [NSRange] {
+        pages.map { sourceRange(of: $0, sourceText: sourceText) }
+    }
+
+    /// The source a page shows: its text and its pictures. A picture has a place in the
+    /// source but no extent, so a page of nothing but pictures used to have no range at
+    /// all and reported the chapter's end: every map page of a chapter, and the page after
+    /// it, became one reading position, and a page turn resolved to the wrong page or to
+    /// none. A CSS background is paint on every page, not content, and is left out —
+    /// the same rule `BrowserScrollDocument` places offsets with in scroll mode.
+    static func sourceRange(of page: PageFragments, sourceText: String) -> NSRange {
         let ns = sourceText as NSString
-        return pages.map { page in
-            var minLocation = ns.length
-            var maxEnd = 0
-            func walk(_ fragments: [Fragment]) {
-                for fragment in fragments {
-                    switch fragment {
-                    case .text(let t):
-                        if t.sourceRange.length > 0 {
-                            minLocation = min(minLocation, t.sourceRange.location)
-                            maxEnd = max(maxEnd, t.sourceRange.location + t.sourceRange.length)
-                        }
-                    case .group(let children): walk(children)
-                    default: break
-                    }
+        var minLocation = ns.length
+        var maxEnd = 0
+        func include(_ range: NSRange) {
+            minLocation = min(minLocation, range.location)
+            maxEnd = max(maxEnd, range.location + range.length)
+        }
+        func walk(_ fragments: [Fragment]) {
+            for fragment in fragments {
+                switch fragment {
+                case .text(let t) where t.sourceRange.length > 0: include(t.sourceRange)
+                case .image(let i) where !i.isBackgroundPaint: include(i.sourceRange)
+                case .group(let children): walk(children)
+                default: break
                 }
             }
-            walk(page.fragments)
-            guard maxEnd > minLocation else { return NSRange(location: minLocation, length: 0) }
-            return NSRange(location: minLocation, length: maxEnd - minLocation)
         }
+        walk(page.fragments)
+        guard maxEnd > minLocation else { return NSRange(location: minLocation, length: 0) }
+        return NSRange(location: minLocation, length: maxEnd - minLocation)
     }
 
     public static func rects(pages: [PageFragments], sourceText: String, range: NSRange) -> [(page: Int, rects: [CGRect])] {

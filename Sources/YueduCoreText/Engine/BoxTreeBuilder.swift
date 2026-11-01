@@ -115,6 +115,7 @@ enum BoxTreeBuilder {
                         let attachment = makeBlockImage(for: elementNode, imageLoader: imageLoader)
                         let box = BlockBox(style: elementNode.style, boxType: .block)
                         box.imageAttachment = attachment
+                        box.imageSourceOffset = sourceText.currentOffset
                         Self.attachDebugIdentity(box, node: elementNode)
                         kids.append(box)
                     } else {
