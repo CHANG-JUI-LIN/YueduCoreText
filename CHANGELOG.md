@@ -2,6 +2,16 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.12.0] - 2026-11-02
+
+A host can lay each document out in its own writing mode instead of once per book.
+
+### Added
+
+- `BrowserChapterDocument.principalWritingMode`: the document's principal writing mode (CSS Writing Modes 3 §8), `<body>`'s `writing-mode` inherited from `<html>`, as WebKit lays the document out; `nil` when no `writing-mode` declaration (or its `-webkit-` / `-epub-` alias) reaches either element. It follows the cascade's order (specificity, source order, the `style` attribute, `!important`), reads the SVG 1.1 spellings (`tb-rl`, `lr-tb`), ignores values the engine cannot lay out (`vertical-lr`, `sideways-lr`) as a user agent ignores an unsupported declaration, and does not look at inner elements: a vertical poem class does not make a document vertical. It reads no configuration, so a host can ask before it chooses the mode to pass to `evaluate(configuration:writingMode:)`.
+
+  The case it is for: a Calibre conversion of a vertical book appends a generated table of contents that declares no writing mode, between chapters that are `html.calibre { writing-mode: vertical-rl }`. A browser lays that page out horizontally.
+
 ## [0.11.0] - 2026-11-01
 
 Every picture takes one character of the chapter's source text, so a page of pictures has a position of its own. This moves the offsets after a picture: a host that saved offsets against 0.10 maps them once (see Migration). Also the layout work merged since 0.10.1: inline-blocks, separated-borders tables, viewport units, letter-spacing, `vertical-align: super/sub` and `rotate()`.

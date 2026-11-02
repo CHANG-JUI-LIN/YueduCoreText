@@ -105,6 +105,9 @@ final class ParsedChapter {
     var bodyInlineStyle: String {
         (try? body?.attr("style")) ?? ""
     }
+
+    /// See `PrincipalWritingMode`. Computed once: it reads the DOM, like everything here.
+    private(set) lazy var principalWritingMode: ReaderWritingMode? = PrincipalWritingMode.resolve(self)
 }
 
 /// Shared collection/parsing policy for every consumer that must agree with

@@ -14,7 +14,7 @@ and the optional workspace described below are not needed by other apps.
 `Examples/StandaloneConsumer` is a separate library/test package that imports only
 public APIs. Its local path dependency supports development in this repository.
 To use the published release in your own consumer, declare the GitHub URL with
-`.upToNextMinor(from: "0.11.0")` and link the `YueduCoreText` product.
+`.upToNextMinor(from: "0.12.0")` and link the `YueduCoreText` product.
 
 ## Execution contract
 
@@ -47,7 +47,10 @@ To use the published release in your own consumer, declare the GitHub URL with
 requests) and the style tree that `HTMLLayoutDocument(evaluation:)` or
 `BrowserLayoutSession(evaluation:)` lay out from. A host that decides the engine,
 prepares fonts and then lays out therefore parses the chapter once, not three times;
-`bodyInlineStyle` serves its font-scale policy from the same parse.
+`bodyInlineStyle` serves its font-scale policy from the same parse, and
+`principalWritingMode` (`<body>`'s `writing-mode`, inherited from `<html>`; `nil` when
+the document declares none) tells it which mode to pass to `evaluate` when it lays
+each document out in its own writing mode rather than once per book.
 
 The tree's computed values belong to the configuration's cascade inputs (root font
 size, families, colors, line height, spacing, bold, alignment). After admission a host
@@ -109,7 +112,7 @@ Lexbor remains experimental in the Reader test target; it is not a package depen
 
 ## Remote integration
 
-Use https://github.com/CHANG-JUI-LIN/YueduCoreText with a minimum version of 0.11.0.
+Use https://github.com/CHANG-JUI-LIN/YueduCoreText with a minimum version of 0.12.0.
 Reader's normal Yuedu-Reader.xcodeproj resolves that published dependency; the sibling
 workspace is optional for engine development. Normal remote verification must use the
 project without the local override and must inspect the resolved version and revision.

@@ -24,6 +24,18 @@ public final class BrowserChapterDocument {
     /// parse of its own. Empty when there is no body or no attribute.
     public var bodyInlineStyle: String { parsed.bodyInlineStyle }
 
+    /// The document's principal writing mode (CSS Writing Modes 3 §8): `<body>`'s
+    /// `writing-mode`, inherited from `<html>`, as WebKit lays the document out. `nil`
+    /// when no `writing-mode` declaration (or its `-webkit-` / `-epub-` alias) reaches
+    /// either element, so the host decides the mode of an undeclared document.
+    ///
+    /// The engine never derives the writing mode it lays out in from CSS; the host
+    /// passes one to `evaluate(configuration:writingMode:)`. This is what a host reads
+    /// to choose it per document instead of once per book. It reads the declarations
+    /// on those two elements only: a vertical rule on an inner element (a poem, a
+    /// sidebar) does not make the document vertical. Independent of any configuration.
+    public var principalWritingMode: ReaderWritingMode? { parsed.principalWritingMode }
+
     /// Parses the markup and every active stylesheet. Throws when the markup
     /// cannot be parsed at all; a document without a `<body>` still parses (its
     /// evaluation reports admission facts, a session built from it fails).
