@@ -124,6 +124,8 @@ enum BlockLayout {
         var hasInFlowChild = false
 
         for child in box.children {
+            // A caller that will discard this tree stops here (see `LayoutAbandonment`).
+            if Task.isCancelled, LayoutAbandonment.whenCancelled { break }
             // Resolve the child's used box model before positioning it. Reading
             // `child.margins` before the recursive layout left every fresh box
             // at zero, so fixed-width blocks with auto margins were pinned left.

@@ -177,7 +177,7 @@ EPUB ZIP／OPF／spine 管理、网络加载、阅读控件、手势、笔记存
 
 `BrowserLayoutConfig` 提供内容尺寸／留白、基本字号／字体、颜色、间距、默认对齐及可选的字体 resolver。Viewport、资源或配置改变后，请建立新的 document／session；结果不会自动观察 App 设置。
 
-- `makePageSession()` 与增量 session 受 **MainActor** 限制。异步取页 API 不代表会在后台执行。
+- 增量 session 只能在单一串行执行器上使用；异步取页 API 在调用者的 actor 上执行，不代表会在后台执行。要离开主线程排版，把 evaluation 交给 `BrowserPageLayoutOwner`：它在自己的 actor 上执行每一步，返回 Sendable 的页面。
 - 连续排版在调用方的 serial executor 同步执行。Document、Core Text 对象与绘制应留在其所属 executor；结果有意不声明为 `Sendable`。
 - 图片／字体 resolver 必须返回准备好的资源，不得阻塞等待异步 I/O。包没有自动网络加载器或全局文档引擎。
 - `cancel()` 会阻止后续取页并释放尚未完成的 session 状态；已生成页面仍由使用方持有。宿主 generation 改变后，要丢弃过时结果。

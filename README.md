@@ -177,7 +177,7 @@ EPUB ZIP/OPF/spine management, network loading, reader controls, gestures, notes
 
 `BrowserLayoutConfig` carries content dimensions/insets, root font size/families, colors, spacing, default alignment and an optional font resolver. Create a new document/session when the viewport, resources or configuration changes; these results do not observe app settings automatically.
 
-- `makePageSession()` and incremental sessions are **MainActor-confined**. The async page API does not promise background execution.
+- An incremental session is used on one serial executor; its async page API runs on the caller's actor and does not promise background execution. To lay out off the main thread, hand the evaluation to a `BrowserPageLayoutOwner`, which runs every step on its own actor and returns Sendable pages.
 - Continuous preparation is synchronous on the caller's serial executor. Keep the document, Core Text artifacts and drawing on their owning executor; results are intentionally not `Sendable`.
 - Image/font resolvers must return prepared resources, without waiting on asynchronous I/O. There is no automatic network loader or global document engine.
 - `cancel()` prevents subsequent page emission and releases unfinished session state. Completed pages remain owned by their consumers. Discard obsolete results when your host's generation changes.

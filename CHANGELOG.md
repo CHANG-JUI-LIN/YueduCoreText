@@ -2,6 +2,20 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.12.1] - 2026-11-03
+
+A paged chapter can be laid out off the main thread, and a cancelled layout stops part-way.
+
+### Added
+
+- `BrowserPageLayoutOwner`: an actor that owns one paged chapter's `BrowserLayoutSession` and runs every step on itself, the counterpart of `BrowserViewportLayoutOwner` for paged reading. `prepare()` builds the box tree and lays the chapter out (seconds for a chapter of a few MB, which a host running the session on the main actor spent with its UI frozen) and returns the chapter's facts as a `BrowserPageChapterFacts` value; `layoutNextPage()`, `layout(untilSourceOffset:)` and `finish()` return pages. `cancel()` stops the owner from any thread.
+- `PageFragments` is `Sendable`: a finished page is immutable, so it can cross from the owner to the thread that draws it.
+
+### Changed
+
+- `BrowserLayoutSession` is no longer `@MainActor`. It is not Sendable: use it on one serial executor. Its async steps run on the caller's actor, so existing callers are unchanged. `HTMLLayoutDocument.makePageSession(generation:)` is no longer `@MainActor` either.
+- A session step in a cancelled task stops at the next block instead of laying the rest of the chapter out first, and the session then reports `HTMLLayoutError.cancelled` and ends. Layout outside a session (the scroll viewport, batch pagination) still runs to completion when cancelled.
+
 ## [0.12.0] - 2026-11-02
 
 A host can lay each document out in its own writing mode instead of once per book.

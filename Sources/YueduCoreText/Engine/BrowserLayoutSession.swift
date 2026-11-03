@@ -11,7 +11,10 @@ import UIKit
 ///
 /// `generation` is a token owned by the caller: a session result must be
 /// discarded (not committed) when the caller's generation has advanced.
-@MainActor
+///
+/// Not Sendable: use it on one serial executor. Each async step runs on the
+/// caller's actor. A host that must not lay out on the main thread hands the
+/// session to a `BrowserPageLayoutOwner`, which runs every step on its own actor.
 public final class BrowserLayoutSession {
 
     private let input: CSSFrontendInput
@@ -25,6 +28,9 @@ public final class BrowserLayoutSession {
     public var diagnosticSpine: Int = -1
 
     private var cancelled = false
+    /// A cancellation the session's owner raises from another thread (see
+    /// `BrowserPageLayoutOwner.cancel()`); read at the same points as `cancelled`.
+    var cancellationSignal: (@Sendable () -> Bool)?
     private var walker: PageWalker?
     private var pipeline: BrowserLayoutDocument.BrowserLayoutPipelineResult?
     public private(set) var sourceText = ""
@@ -110,7 +116,13 @@ public final class BrowserLayoutSession {
 
     /// Builds the chapter pipeline and walks to the next page boundary.
     /// Returns the completed page, or nil when the chapter is exhausted.
-    public func layoutNextPage() async throws -> PageFragments? {
+    public func layoutNextPage(isolation: isolated (any Actor)? = #isolation) async throws -> PageFragments? {
+        try nextPage()
+    }
+
+    /// `layoutNextPage()` without the suspension point, for a caller already on
+    /// the session's executor.
+    func nextPage() throws -> PageFragments? {
         try checkCancellation()
         try ensureInitialized()
         guard let logicalPage = walker?.layoutNextPage() else {
@@ -311,8 +323,12 @@ public final class BrowserLayoutSession {
 
     /// Lays out pages until the page CONTAINING `sourceOffset` (in the
     /// chapter's collapsed sourceText) is complete. No-op when already past.
-    public func layout(untilSourceOffset offset: Int) async throws {
-        while let page = try await layoutNextPage() {
+    public func layout(untilSourceOffset offset: Int, isolation: isolated (any Actor)? = #isolation) async throws {
+        try layoutPages(untilSourceOffset: offset)
+    }
+
+    func layoutPages(untilSourceOffset offset: Int) throws {
+        while let page = try nextPage() {
             guard let walker else { break }
             let range = walker.sourceRange(ofPage: page, sourceText: sourceText)
             if range.length > 0, range.location + range.length > offset {
@@ -322,8 +338,12 @@ public final class BrowserLayoutSession {
     }
 
     /// Lays out every remaining page.
-    public func finish() async throws {
-        while try await layoutNextPage() != nil {}
+    public func finish(isolation: isolated (any Actor)? = #isolation) async throws {
+        try finishPages()
+    }
+
+    func finishPages() throws {
+        while try nextPage() != nil {}
         isFinished = true
         walker = nil
     }
@@ -349,7 +369,7 @@ public final class BrowserLayoutSession {
     }
 
     private func checkCancellation() throws {
-        if cancelled || Task.isCancelled { throw HTMLLayoutError.cancelled }
+        if cancelled || Task.isCancelled || cancellationSignal?() == true { throw HTMLLayoutError.cancelled }
     }
 
     // MARK: - Internals
@@ -367,10 +387,28 @@ public final class BrowserLayoutSession {
         #if DEBUG
         BrowserLayoutDeviceDiagnostic.summary("🔬 BROWSER_DEVICE sessionEnsure start spine=\(diagnosticSpine) htmlLen=\(input.html.count) cssCount=\(input.stylesheets.count)")
         #endif
-        let result = try document.makeLayout(
-            containerSize: canvasSize,
-            fragmentHeight: config.writingMode == .horizontal ? config.renderHeight : config.renderWidth
-        )
+        // A cancelled step's layout may stop part-way. Whatever it then returned or
+        // threw is about an incomplete tree, so a cancelled step reports only the
+        // cancellation and ends the session: nothing ever pages that tree.
+        let result: BrowserLayoutDocument.BrowserLayoutPipelineResult
+        do {
+            result = try LayoutAbandonment.$whenCancelled.withValue(true) {
+                try document.makeLayout(
+                    containerSize: canvasSize,
+                    fragmentHeight: config.writingMode == .horizontal ? config.renderHeight : config.renderWidth
+                )
+            }
+        } catch {
+            if Task.isCancelled {
+                cancel()
+                throw HTMLLayoutError.cancelled
+            }
+            throw error
+        }
+        if Task.isCancelled {
+            cancel()
+            throw HTMLLayoutError.cancelled
+        }
         #if DEBUG
         BrowserLayoutDeviceDiagnostic.summary("🔬 BROWSER_DEVICE sessionEnsure makeLayoutDone spine=\(diagnosticSpine) boxes=\(result.boxCount) content=\(result.contentSize)")
         #endif

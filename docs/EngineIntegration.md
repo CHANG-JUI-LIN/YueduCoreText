@@ -25,16 +25,21 @@ To use the published release in your own consumer, declare the GitHub URL with
   still handles its publication URL/font rules; the core CSS parser/cascade is unchanged.
 - HTMLLayoutDocument's convenience image lookup uses literal source first, then baseURL.
   Missing required images or failed supplied stylesheets are observable resource failures.
-- BrowserLayoutSession remains MainActor-confined. It prepares the core tree once and
-  walks page boundaries incrementally. Its generation token belongs to the consumer.
+- BrowserLayoutSession is used on one serial executor; its async steps run on the caller's
+  actor. It prepares the core tree once and walks page boundaries incrementally. Its
+  generation token belongs to the consumer. `BrowserPageLayoutOwner` runs a session on its
+  own actor and returns Sendable chapter facts and pages, so a host can keep layout off
+  the main thread.
 - Continuous preparation runs synchronously on the caller's serial executor. Layout,
-  CTLine artifacts and drawing must stay on their owning executor; results are not Sendable.
+  CTLine artifacts and drawing must stay on their owning executor; its results are not
+  Sendable. Finished pages (`PageFragments`) are the exception: immutable values whose
+  CTLines are only read, so they may cross from a layout owner to the drawing thread.
   Batch internal async APIs explicitly inherit their caller actor using Swift 6 isolation.
 - CTLine/CTFrame/CTFramesetter values are created and retained by their layout operation
-  and result owners. No detached task transports these objects. No new background queue
-  is started. Drawing uses retained layout/geometry; it does not run parsing or pagination.
+  and result owners. Only finished pages cross actors, from a layout owner to their
+  consumer. No new background queue is started. Drawing uses retained layout/geometry; it does not run parsing or pagination.
 - cancel() makes subsequent page calls throw cancellation and releases unfinished pipeline
-  state. Already emitted pages remain valid until their consumers release them. Dropping
+  state. A step in a cancelled task stops at its next block or page and ends the session. Already emitted pages remain valid until their consumers release them. Dropping
   the session releases its completed-page cache. Reader additionally guards async commits
   using its existing generation checks; task cancellation does not authorize stale results.
 - Metrics and diagnostic counters use locks; they do not own document/resource caches.

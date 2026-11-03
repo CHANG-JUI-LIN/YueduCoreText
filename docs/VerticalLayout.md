@@ -84,7 +84,8 @@ charOffset(atDocumentY:) methods remain horizontal-host helpers.
 
 ## Ownership and verification
 
-The serial-executor contract is unchanged. Page sessions are MainActor confined.
+The serial-executor contract is unchanged. A page session runs on its caller's executor
+(or on its `BrowserPageLayoutOwner`).
 Continuous preparation/results stay on the consumer's serial executor. Retained
 CTLines are used and released on that executor; results are not Sendable.
 Resources are explicitly supplied; the engine never probes files or networks.

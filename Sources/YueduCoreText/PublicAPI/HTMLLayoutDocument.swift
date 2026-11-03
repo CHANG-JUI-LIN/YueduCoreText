@@ -10,7 +10,6 @@ public enum HTMLLayoutError: Error {
 
 /// A document-owned HTML/CSS pipeline. Resources are prepared by the consumer.
 /// Use on one serial executor; results retain CTLine artifacts and are not Sendable.
-/// Paged incremental sessions retain their existing MainActor confinement.
 public final class HTMLLayoutDocument {
     private let input: CSSFrontendInput
     private let configuration: BrowserLayoutConfig
@@ -77,7 +76,6 @@ public final class HTMLLayoutDocument {
         guard result.supported else { throw HTMLLayoutError.unsupported(result.unsupportedFeatures) }
     }
 
-    @MainActor
     public func makePageSession(generation: Int = 0) throws -> BrowserLayoutSession {
         try validate()
         if let evaluation {
