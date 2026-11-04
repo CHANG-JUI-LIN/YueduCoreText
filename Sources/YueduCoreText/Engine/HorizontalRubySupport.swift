@@ -10,14 +10,23 @@ enum RubyAlignment: Equatable {
     }
 }
 
+/// `ruby-position`, and WebKit's older `-webkit-ruby-position` keywords: `before` is `over`,
+/// `after` `under`. In vertical-rl, over is the right of the base and under the left.
 enum RubyPosition: Equatable {
     case over
+    case under
     case unsupported(String)
 
     static func parse(_ raw: String) -> RubyPosition {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return value == "over" ? .over : .unsupported(value)
+        switch value {
+        case "over", "before": return .over
+        case "under", "after": return .under
+        default: return .unsupported(value)
+        }
     }
+
+    var isSupported: Bool { self == .over || self == .under }
 }
 
 enum RubyMerge: Equatable {
@@ -34,6 +43,11 @@ struct HorizontalRubyStructure {
     let ruby: ComputedStyleNode
     let baseChildren: [StyleTreeChild]
     let annotation: ComputedStyleNode
+    /// The element the base's text is styled by: an inner ruby for a nested one, else `ruby`.
+    var baseNode: ComputedStyleNode? = nil
+    /// A nested ruby's own `rt`, annotating the inner ruby: Aozora's readings on both sides of a
+    /// word, or a note over a word with ruby.
+    var outer: ComputedStyleNode? = nil
 }
 
 struct HorizontalRubyValidation {
@@ -77,20 +91,20 @@ enum HorizontalRubySupport {
     }
 
     /// Group and paired ruby use the same atomic unit in either writing mode.
-    /// Each direct rt consumes the preceding base; rb is an optional wrapper.
+    /// Each direct rt consumes the preceding base; rb is an optional wrapper. A ruby whose base is
+    /// one ruby with one rt is one unit with two annotations (`nestedStructure`). WebKit lays out
+    /// no `rtc` (iOS 27.2: its text sits on the line, as base text), so neither does this.
     static func structures(for node: ComputedStyleNode) -> [HorizontalRubyStructure]? {
-        guard node.tag == "ruby", node.style.display == .inline,
-              node.style.rubyAlign == .center, node.style.rubyPosition == .over,
-              node.style.rubyMerge == .separate,
-              !containsTag(node, names: ["ruby", "rtc"], excludingRoot: true) else { return nil }
+        guard isSupportedRuby(node), !containsTag(node, names: ["rtc"], excludingRoot: true) else { return nil }
+        if let nested = nestedStructure(for: node) { return [nested] }
+        guard !containsTag(node, names: ["ruby"], excludingRoot: true) else { return nil }
         var pending: [StyleTreeChild] = []
         var pairs: [HorizontalRubyStructure] = []
         for child in node.children {
             if child.elementNode?.tag == "rp" { continue }
             if let rt = child.elementNode, rt.tag == "rt" {
-                guard rt.style.display == .inline, !rt.style.isFloated,
-                      containsVisibleBase(pending), supportedInlineBase(pending),
-                      containsVisibleBase(rt.children), supportedInlineBase(rt.children) else { return nil }
+                guard isSupportedAnnotation(rt), containsVisibleBase(pending), supportedInlineBase(pending)
+                else { return nil }
                 pairs.append(HorizontalRubyStructure(ruby: node, baseChildren: pending, annotation: rt))
                 pending.removeAll()
             } else {
@@ -99,6 +113,32 @@ enum HorizontalRubySupport {
         }
         guard !pairs.isEmpty, !containsVisibleBase(pending) else { return nil }
         return pairs
+    }
+
+    /// `<ruby><ruby>base<rt>inner</rt></ruby><rt>outer</rt></ruby>`: the inner annotation next to
+    /// the base on its own side, the outer one on its side, beyond the inner one when the sides are
+    /// the same (measured, WKWebView iOS 27.2, the app's S001m and S001n fixtures).
+    private static func nestedStructure(for node: ComputedStyleNode) -> HorizontalRubyStructure? {
+        let children = node.children.filter { child in
+            if case .text(let text) = child { return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return child.elementNode?.tag != "rp"
+        }
+        guard children.count == 2, let inner = children[0].elementNode, inner.tag == "ruby",
+              let rt = children[1].elementNode, rt.tag == "rt", isSupportedAnnotation(rt),
+              isSupportedRuby(inner), !containsTag(inner, names: ["ruby", "rtc"], excludingRoot: true),
+              let pairs = structures(for: inner), pairs.count == 1 else { return nil }
+        return HorizontalRubyStructure(ruby: node, baseChildren: pairs[0].baseChildren, annotation: pairs[0].annotation,
+                                       baseNode: inner, outer: rt)
+    }
+
+    private static func isSupportedRuby(_ node: ComputedStyleNode) -> Bool {
+        node.tag == "ruby" && node.style.display == .inline && node.style.rubyAlign == .center
+            && node.style.rubyPosition.isSupported && node.style.rubyMerge == .separate
+    }
+
+    private static func isSupportedAnnotation(_ rt: ComputedStyleNode) -> Bool {
+        rt.style.display == .inline && !rt.style.isFloated && rt.style.rubyPosition.isSupported
+            && containsVisibleBase(rt.children) && supportedInlineBase(rt.children)
     }
 
     private static func walk(
@@ -210,5 +250,16 @@ struct RubyInlineUnit {
     let nodeID: Int
     let linkTarget: String?
     let alignment: RubyAlignment
+    /// `annotation`'s side.
     let position: RubyPosition
+    /// A nested ruby's outer annotation, and its side.
+    var outer: RubyAnnotation? = nil
+    var outerPosition: RubyPosition = .over
+
+    /// The annotation spoken as the base's reading: the one over the base (right of it), the
+    /// inner one when both or neither are. A left reading is often a gloss (刺, テフダ).
+    var reading: RubyAnnotation {
+        if let outer, position == .under, outerPosition == .over { return outer }
+        return annotation
+    }
 }

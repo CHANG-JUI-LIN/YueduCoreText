@@ -943,7 +943,7 @@ enum BoxTreeBuilder {
             if let own = node.anchorID { localAnchors.append(own) }
             collectRubyBase(
                 structure.baseChildren,
-                inheritedNode: node,
+                inheritedNode: structure.baseNode ?? node,
                 runs: &baseRuns,
                 sourceText: &sourceText,
                 anchors: &anchors,
@@ -971,11 +971,16 @@ enum BoxTreeBuilder {
                 pieces: &annotationPieces
             )
             annotationPieces = trimRubyAnnotationEdges(annotationPieces)
+            var outerPieces: [RubyAnnotationPiece] = []
+            if let outer = structure.outer {
+                collectRubyAnnotation(outer.children, inheritedNode: outer, pieces: &outerPieces)
+                outerPieces = trimRubyAnnotationEdges(outerPieces)
+            }
             let range = NSRange(
                 location: first.sourceRange.location,
                 length: NSMaxRange(last.sourceRange) - first.sourceRange.location
             )
-            let unit = RubyInlineUnit(
+            var unit = RubyInlineUnit(
                 base: pieces,
                 annotation: RubyAnnotation(
                     pieces: annotationPieces
@@ -984,8 +989,12 @@ enum BoxTreeBuilder {
                 nodeID: node.nodeID,
                 linkTarget: node.linkTarget,
                 alignment: node.style.rubyAlign,
-                position: node.style.rubyPosition
+                position: structure.annotation.style.rubyPosition
             )
+            if let outer = structure.outer {
+                unit.outer = RubyAnnotation(pieces: outerPieces)
+                unit.outerPosition = outer.style.rubyPosition
+            }
             runs.append(InlineRun(
                 text: "\u{FFFC}",
                 style: node.style,

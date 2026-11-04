@@ -1344,32 +1344,38 @@ struct PageWalker {
             return .text(fragment)
         }
 
-        let annotationBaseline = baseBaseline + ruby.annotationBaselineOffset
-        children.append(contentsOf: ruby.annotation.pieces.map { piece in
-            let document = DocumentRect(rawValue: CGRect(
-                x: step.originX + ruby.annotationOffsetX + piece.x,
-                y: annotationBaseline - ruby.annotation.ascent,
-                width: piece.width,
-                height: ruby.annotation.ascent + ruby.annotation.descent
-            ))
-            let canvas = canvasRect(forDocument: document, pageIndex: pageIndex)
-            var fragment = TextFragment(
-                sourceRange: ruby.unit.sourceRange,
-                nodeID: piece.nodeID,
-                linkTarget: piece.linkTarget ?? ruby.unit.linkTarget,
-                writingMode: step.writingMode,
-                rect: canvas,
-                documentRect: document,
-                baselineY: canvas.minY + ruby.annotation.ascent,
-                font: piece.font,
-                color: piece.style.color ?? .black,
-                ctLine: ruby.annotation.line,
-                sourceMapping: ruby.annotation.pieces.count == 1 ? .wholeRange : .annotation(shapedRange: piece.shapedRange),
-                renderedTextOverride: piece.text
-            )
-            fragment.paintTransform = pageTransform(step.rotation, displacementY: displacementY, pageIndex: pageIndex)
-            return .text(fragment)
-        })
+        var annotations = [(ruby.annotation, ruby.annotationOffsetX, ruby.annotationBaselineOffset)]
+        if let outer = ruby.outer {
+            annotations.append((outer, ruby.outerOffsetX, ruby.outerBaselineOffset))
+        }
+        for (annotation, offsetX, baselineOffset) in annotations {
+            let annotationBaseline = baseBaseline + baselineOffset
+            children.append(contentsOf: annotation.pieces.map { piece in
+                let document = DocumentRect(rawValue: CGRect(
+                    x: step.originX + offsetX + piece.x,
+                    y: annotationBaseline - annotation.ascent,
+                    width: piece.width,
+                    height: annotation.ascent + annotation.descent
+                ))
+                let canvas = canvasRect(forDocument: document, pageIndex: pageIndex)
+                var fragment = TextFragment(
+                    sourceRange: ruby.unit.sourceRange,
+                    nodeID: piece.nodeID,
+                    linkTarget: piece.linkTarget ?? ruby.unit.linkTarget,
+                    writingMode: step.writingMode,
+                    rect: canvas,
+                    documentRect: document,
+                    baselineY: canvas.minY + annotation.ascent,
+                    font: piece.font,
+                    color: piece.style.color ?? .black,
+                    ctLine: annotation.line,
+                    sourceMapping: annotation.pieces.count == 1 ? .wholeRange : .annotation(shapedRange: piece.shapedRange),
+                    renderedTextOverride: piece.text
+                )
+                fragment.paintTransform = pageTransform(step.rotation, displacementY: displacementY, pageIndex: pageIndex)
+                return .text(fragment)
+            })
+        }
         return .group(children)
     }
 

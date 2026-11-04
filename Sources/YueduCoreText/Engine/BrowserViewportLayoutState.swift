@@ -67,6 +67,7 @@ final class BrowserViewportLayoutState {
                 if let ruby = run.ruby {
                     result.insert(ObjectIdentifier(ruby.base.line))
                     result.insert(ObjectIdentifier(ruby.annotation.line))
+                    if let outer = ruby.outer { result.insert(ObjectIdentifier(outer.line)) }
                 }
                 if let combined = run.combined { result.insert(ObjectIdentifier(combined.line)) }
                 if let unit = run.inlineBlock { insertAll(unit) }

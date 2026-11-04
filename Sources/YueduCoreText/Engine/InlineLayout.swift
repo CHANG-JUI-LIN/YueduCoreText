@@ -299,18 +299,8 @@ enum InlineLayout {
         // The fonts Core Text's cascade draws `range` in when `asked` lacks
         // some of its characters.
         func fallbackFonts(for asked: UIFont, range: NSRange, language: Any?) -> [UIFont] {
-            let text = (attributed.string as NSString).substring(with: range)
-            let utf16 = Array(text.utf16)
-            var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
-            if CTFontGetGlyphsForCharacters(asked as CTFont, utf16, &glyphs, utf16.count) { return [] }
-            var attributes: [NSAttributedString.Key: Any] = [.font: asked]
-            attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language
-            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
-            return (CTLineGetGlyphRuns(line) as? [CTRun] ?? []).compactMap { run in
-                guard let font = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] else { return nil }
-                let fallback = font as! CTFont as UIFont
-                return fallback.fontName == asked.fontName ? nil : fallback
-            }
+            Self.fallbackFonts(for: asked, text: (attributed.string as NSString).substring(with: range),
+                               language: language)
         }
         // A vertical inline box at `line-height: normal`: the tallest content
         // area among its font and the ones that fall back for its text, half
@@ -428,6 +418,14 @@ enum InlineLayout {
                         above = max(above, box.above + shift)
                         below = max(below, box.below - shift)
                     }
+                }
+                // A ruby's annotations, which its placeholder leaves out: their
+                // room on a block's first line, and as CSS Ruby sizes it on the
+                // lines after (`RubyBox`).
+                if let ruby = measuredRuby[index] {
+                    let first = info.range.location == 0
+                    above = max(above, first ? ruby.ascent : ruby.followingAscent)
+                    below = max(below, first ? ruby.descent : ruby.followingDescent)
                 }
                 // Emphasis marks sit outside the run's content box on their
                 // side and grow the line to hold them, whether or not this
@@ -782,6 +780,21 @@ enum InlineLayout {
         attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
                                 value: true, range: NSRange(location: 0, length: attributed.length))
         CJKTypography.applyOrientation(to: attributed)
+    }
+
+    /// The fonts Core Text's cascade draws `text` in when `asked` lacks some of its characters.
+    static func fallbackFonts(for asked: UIFont, text: String, language: Any?) -> [UIFont] {
+        let utf16 = Array(text.utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
+        if CTFontGetGlyphsForCharacters(asked as CTFont, utf16, &glyphs, utf16.count) { return [] }
+        var attributes: [NSAttributedString.Key: Any] = [.font: asked]
+        attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        return (CTLineGetGlyphRuns(line) as? [CTRun] ?? []).compactMap { run in
+            guard let font = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] else { return nil }
+            let fallback = font as! CTFont as UIFont
+            return fallback.fontName == asked.fontName ? nil : fallback
+        }
     }
 
     /// WebKit's content area of `font`: its ascent and descent each rounded

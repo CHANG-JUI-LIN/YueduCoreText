@@ -2,6 +2,36 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.15.0] - 2026-11-04
+
+Ruby on either side of its base, and on both: `ruby-position: under` and nested ruby, as Aozora Bunko writes its 左ルビ and its readings on both sides of a word. Annotations sit, and lines grow, as WebKit sets them (measured in a WKWebView, iOS 27.2).
+
+### Added
+
+- `ruby-position: under`, and WebKit's `-webkit-ruby-position: after` (`before` is `over`): the annotation under the base, or on its left in `vertical-rl`. The property is inherited. A ruby at `under` used to be left unlaid.
+- A nested ruby, `<ruby><ruby>base<rt>inner</rt></ruby><rt>outer</rt></ruby>`, is one ruby with two annotations. The inner one sits next to the base on its own side. The outer one sits on its own side, beyond the inner one when they share a side.
+  - Only that shape is laid out: an inner ruby with one base and one `rt`, and one outer `rt`.
+  - A ruby with an `rtc` is still not laid out: WebKit lays an `rtc`'s text inline, as base text.
+- A nested ruby's pronunciation hint is the annotation over the base, or right of it: the inner one when both or neither are. A left reading is often a gloss.
+
+### Fixed
+
+- **Where annotations sit.** An annotation stands on the base's content box, each font's ascent and descent rounded up, as WebKit rounds them. In 17px PingFang at 1.5, an 8.5px annotation's baseline is 22 over the base's (19.04 before), or 16 under it. In `vertical-rl` it is 19 either side of the line's centre (12.75 before). A second annotation on the same side sits 13 further.
+- **How lines grow for ruby.**
+  - A block's first line holds the base's half-leading box and its annotations. A 1.5 line with one annotation is 38.25 tall, and 51.25 with readings on both sides.
+  - Every later line follows CSS Ruby 1 §4.4. Leading is added on the annotation's side until three such lines would not overlap. That makes a later line 38 tall with one annotation, and 63.5 with readings on both sides, since the outer annotation's leading counts the inner one's annotation too.
+  - At `line-height: normal`, the base's inline box holds the fonts its text falls back to, as a text box does.
+- A ruby's placeholder reports only the base's inline box to Core Text. The line box adds the annotations' room for the line the ruby is on.
+
+### Known issues
+
+- An annotation wider than its base does not overhang its neighbours. WebKit lets it overhang by half the annotation's font size (4.25 at 8.5px).
+- Two annotations on the same side of a later line take CSS Ruby's leading for both together, as two sides do. This is not measured.
+
+### Migration
+
+Pages and scroll heights move in books with ruby: a line with ruby is a little taller or shorter, a later line in a paragraph by a quarter point. Chapters with `ruby-position: under` or nested ruby now lay out. Offsets into `sourceText` do not change.
+
 ## [0.14.1] - 2026-11-04
 
 The emphasis-mark values are public, so an app's own text engine can read the properties and pick the characters that take a mark exactly as this one does. Nothing is laid out or drawn differently.

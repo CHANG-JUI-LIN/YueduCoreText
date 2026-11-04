@@ -8,7 +8,7 @@ Turn HTML/XHTML, CSS and prepared resources into paginated pages or a continuous
 
 Use it to build a native document or reading interface when you need control over drawing and interaction. Your app supplies resources and hosts the result; the package owns parsing, styling, layout, pagination and painting.
 
-[0.14.0 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.14.0) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
+[0.15.0 release](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.15.0) · [Runnable example](Examples/StandaloneConsumer) · [Integration guide](docs/EngineIntegration.md) · [Changelog](CHANGELOG.md)
 
 ## Requirements and installation
 
@@ -16,14 +16,14 @@ Use it to build a native document or reading interface when you need control ove
 - The HTML/CSS engine is available from **0.3.0**. Versions through 0.2.1 provide the earlier utilities only.
 - The main product depends on `YueduCoreTextTypography` and **SwiftSoup 2.13.7**.
 
-In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.14.x, choose **Up to Next Minor Version** starting at **0.14.0**.
+In Xcode, choose **File → Add Package Dependencies**, enter `https://github.com/CHANG-JUI-LIN/YueduCoreText`, and add the **YueduCoreText** product to your target. For 0.15.x, choose **Up to Next Minor Version** starting at **0.15.0**.
 
 For a Swift package, add this to `Package.dependencies`:
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.14.0")
+    .upToNextMinor(from: "0.15.0")
 )
 ```
 
@@ -143,7 +143,7 @@ Page display lists use top-left, y-down **page coordinates**. Continuous display
 
 ## Supported scope
 
-Version 0.14.0 draws `text-emphasis` marks (Aozora Bunko's 傍点 among them) in both writing modes, growing their lines to hold them. Version 0.13.0 draws list markers and follows WebKit's user-agent stylesheet for block margins, headings, `hr`, inline elements, text decorations and `q`; most chapters lay out differently (see the [changelog](CHANGELOG.md)). Version 0.12.0 adds `BrowserChapterDocument.principalWritingMode`, so a host can lay each document out in its own writing mode. Version 0.11.0 gives every picture one U+FFFC of the source text, so a page of pictures has a position of its own. Offsets after a picture move forward by one; map offsets saved against 0.10 once with `BrowserPictureOffsets.migrated(_:)` (see the [changelog](CHANGELOG.md)). It also lays out inline-blocks as atomic boxes and separated-borders tables, and reads viewport units, `letter-spacing`, `vertical-align: super/sub` and `rotate()`.
+Version 0.15.0 lays out ruby under its base (`ruby-position: under`) and nested ruby with readings on both sides, as Aozora Bunko writes them, and sets annotations and their lines as WebKit does. Version 0.14.0 draws `text-emphasis` marks (Aozora Bunko's 傍点 among them) in both writing modes, growing their lines to hold them. Version 0.13.0 draws list markers and follows WebKit's user-agent stylesheet for block margins, headings, `hr`, inline elements, text decorations and `q`; most chapters lay out differently (see the [changelog](CHANGELOG.md)). Version 0.12.0 adds `BrowserChapterDocument.principalWritingMode`, so a host can lay each document out in its own writing mode. Version 0.11.0 gives every picture one U+FFFC of the source text, so a page of pictures has a position of its own. Offsets after a picture move forward by one; map offsets saved against 0.10 once with `BrowserPictureOffsets.migrated(_:)` (see the [changelog](CHANGELOG.md)). It also lays out inline-blocks as atomic boxes and separated-borders tables, and reads viewport units, `letter-spacing`, `vertical-align: super/sub` and `rotate()`.
 
 Version 0.10.0 moves a chapter's parse and evaluation between isolation domains: `BrowserChapterDocument.parse(input:)` and `BrowserChapterDocument.evaluate(_:configuration:writingMode:)` run off the caller's actor and return the document and the evaluation as `sending` values. Both types stay non-Sendable, because they hold the chapter's DOM and the host's configuration closures. As 0.10.1's documentation adds, the configuration given to `evaluate` must be disconnected: build it in a nonisolated function, not in an actor-isolated method.
 
@@ -205,7 +205,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.14.0 dependency.
+The example is a small library with tests, not a ready-made reader app. It uses the repository's local package; the same public APIs are available in the published 0.15.0 dependency.
 
 CI runs both the package tests and the standalone public-API consumer on iOS Simulator, and retains `.xcresult` artifacts. See [CI runs](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions) for the tested revision, toolchain and outcome. No real-device performance claim is made.
 

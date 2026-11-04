@@ -23,6 +23,10 @@ struct BrowserLayoutRubySubsetTests {
             "<p><ruby><span>漢字</span><rt>かんじ</rt></ruby></p>",
             "<p><ruby>漢<rt><span>かん</span></rt></ruby></p>",
             "<p><ruby>漢<rp>(</rp><rt>かん</rt><rp>)</rp></ruby></p>",
+            "<p><ruby style='ruby-position:under'>漢<rt>かん</rt></ruby></p>",
+            "<p><ruby style='-webkit-ruby-position:after'>漢<rt>かん</rt></ruby></p>",
+            "<p><ruby style='ruby-position:under'><ruby style='ruby-position:over'>漢字<rt>かんじ</rt></ruby><rt>カンジ</rt></ruby></p>",
+            "<p><ruby><ruby>漢字<rp>(</rp><rt>かんじ</rt><rp>)</rp></ruby> <rt>ママ</rt></ruby></p>",
         ] {
             let root = try tree(body)
             #expect(HorizontalRubySupport.validate(root).isSupported)
@@ -47,6 +51,10 @@ struct BrowserLayoutRubySubsetTests {
             "<p><ruby>漢<rt>a</rt><rt>b</rt></ruby></p>",
             "<p><ruby>漢<rtc><rt>a</rt></rtc></ruby></p>",
             "<p><ruby>外<ruby>內<rt>n</rt></ruby><rt>w</rt></ruby></p>",
+            "<p><ruby><ruby>內<rt>n</rt>字<rt>z</rt></ruby><rt>w</rt></ruby></p>",
+            "<p><ruby><ruby><ruby>內<rt>n</rt></ruby><rt>m</rt></ruby><rt>w</rt></ruby></p>",
+            "<p><ruby><ruby>內<rt>n</rt></ruby><rt>w</rt><rt>x</rt></ruby></p>",
+            "<p><ruby><ruby>內<rtc><rt>n</rt></rtc></ruby><rt>w</rt></ruby></p>",
             "<p><ruby><span style='display:block'>漢</span><rt>a</rt></ruby></p>",
             "<p><ruby>漢<rt><span style='display:block'>a</span></rt></ruby></p>",
         ]
@@ -68,9 +76,9 @@ struct BrowserLayoutRubySubsetTests {
         for css in [
             "ruby { ruby-align:start }",
             "ruby { ruby-align:space-between }",
-            "ruby { ruby-position:under }",
             "ruby { ruby-position:inter-character }",
-            "ruby { -epub-ruby-position:under }",
+            "ruby { ruby-position:alternate }",
+            "ruby { -webkit-ruby-position:inter-character }",
             "ruby { ruby-merge:collapse }",
         ] {
             let root = try tree("<p><ruby>漢<rt>a</rt></ruby></p>", css: [css])
@@ -171,9 +179,71 @@ struct BrowserLayoutRubyMeasurementTests {
         let rubyLine = try #require(BrowserLayoutRubyTestProbe.lines(in: ruby.rootBox).only)
         let plainLine = try #require(BrowserLayoutRubyTestProbe.lines(in: plain.rootBox).only)
         let box = try #require(rubyLine.runs.compactMap(\.ruby).only)
-        #expect(rubyLine.ascent > plainLine.ascent)
+        // The line box: its baseline lower, for the annotation over it.
+        #expect(rubyLine.baseline > plainLine.baseline)
         #expect(box.annotationBaselineOffset + box.annotation.descent <= -box.base.ascent + 0.01)
-        #expect(box.descent == box.base.descent)
+        #expect(box.descent == max(box.base.descent, box.inlineBoxDescent))
+    }
+
+    /// An annotation under the base hangs from its content box: the line's descent grows by the
+    /// annotation's height, its ascent stays the base's inline box's.
+    @Test func underAnnotationHangsBelowBase() throws {
+        let ruby = try pipeline("<ruby style='ruby-position:under'>漢<rt>かん</rt></ruby>")
+        let plain = try pipeline("漢")
+        let rubyLine = try #require(BrowserLayoutRubyTestProbe.lines(in: ruby.rootBox).only)
+        let plainLine = try #require(BrowserLayoutRubyTestProbe.lines(in: plain.rootBox).only)
+        let box = try #require(rubyLine.runs.compactMap(\.ruby).only)
+        // The line box: its baseline where a plain line's is, the line taller below it.
+        #expect(abs(rubyLine.baseline - plainLine.baseline) < 0.01)
+        #expect(rubyLine.height - rubyLine.baseline > plainLine.height - plainLine.baseline)
+        #expect(box.ascent == max(box.base.ascent, box.inlineBoxAscent))
+        #expect(abs(box.annotationBaselineOffset - (box.base.descent + box.annotation.ascent)) < 0.01)
+        let hanging = box.base.descent + box.annotation.ascent + box.annotation.descent
+        #expect(abs(box.descent - max(hanging, box.inlineBoxDescent)) < 0.01)
+    }
+
+    /// A nested ruby's inner annotation sits next to the base, its outer one on its own side,
+    /// beyond the inner one when they share it; the widest of the three sets the advance and all
+    /// are centred.
+    @Test(arguments: [("over", "under"), ("under", "over"), ("over", "over"), ("under", "under")])
+    func nestedRubyStacksEachSideOutward(sides: (inner: String, outer: String)) throws {
+        let result = try pipeline(
+            "<ruby style='ruby-position:\(sides.outer)'><ruby style='ruby-position:\(sides.inner)'>漢字<rt>かんじ</rt></ruby>"
+                + "<rt>ながいカンジ</rt></ruby>")
+        #expect(result.sourceText == "漢字")
+        let box = try #require(BrowserLayoutRubyTestProbe.rubyBoxes(in: result.rootBox).only)
+        let outer = try #require(box.outer)
+        #expect(box.annotation.pieces.map(\.text).joined() == "かんじ" && outer.pieces.map(\.text).joined() == "ながいカンジ")
+        let base = box.base, inner = box.annotation
+        let innerHeight = inner.ascent + inner.descent, outerHeight = outer.ascent + outer.descent
+        let innerOffset = sides.inner == "over" ? -base.ascent - inner.descent : base.descent + inner.ascent
+        #expect(abs(box.annotationBaselineOffset - innerOffset) < 0.01)
+        let beyond = sides.inner == sides.outer ? innerHeight : 0
+        let outerOffset = sides.outer == "over"
+            ? -base.ascent - beyond - outer.descent : base.descent + beyond + outer.ascent
+        #expect(abs(box.outerBaselineOffset - outerOffset) < 0.01)
+        // Each side holds the base's inline box, then the outer annotation beyond it.
+        let ascent = max(base.ascent + (sides.inner == "over" ? innerHeight : 0), box.inlineBoxAscent)
+            + (sides.outer == "over" ? outerHeight : 0)
+        let descent = max(base.descent + (sides.inner == "under" ? innerHeight : 0), box.inlineBoxDescent)
+            + (sides.outer == "under" ? outerHeight : 0)
+        #expect(abs(box.ascent - ascent) < 0.01)
+        #expect(abs(box.descent - descent) < 0.01)
+        #expect(abs(box.advance - outer.width) < 0.01)
+        #expect(abs(box.outerOffsetX) < 0.01)
+        #expect(abs(box.baseOffsetX - (box.advance - base.width) / 2) < 0.01)
+        #expect(abs(box.annotationOffsetX - (box.advance - inner.width) / 2) < 0.01)
+    }
+
+    /// The reading spoken for a base is the annotation over it; a left one is often a gloss.
+    @Test func readingIsTheAnnotationOverTheBase() throws {
+        func reading(_ body: String) throws -> String {
+            try #require(BrowserLayoutRubyTestProbe.rubyUnits(in: try pipeline(body).rootBox).only).reading.text
+        }
+        #expect(try reading("<ruby style='ruby-position:under'><ruby style='ruby-position:over'>刺<rt>し</rt></ruby><rt>テフダ</rt></ruby>") == "し")
+        #expect(try reading("<ruby style='ruby-position:over'><ruby style='ruby-position:under'>刺<rt>テフダ</rt></ruby><rt>し</rt></ruby>") == "し")
+        #expect(try reading("<ruby><ruby>刺<rt>し</rt></ruby><rt>ママ</rt></ruby>") == "し")
+        #expect(try reading("<ruby style='ruby-position:under'>刺<rt>テフダ</rt></ruby>") == "テフダ")
     }
 
     @Test func lineBreakerNeverSlicesRubyBaseOrAnnotation() throws {
@@ -209,6 +279,30 @@ struct BrowserLayoutRubyFragmentTests {
         #expect(rendered.contains("漢"))
         #expect(rendered.contains("かん"))
         #expect(BrowserLayoutTestSupport.visibleText(pages, sourceText: doc.lastSourceText) == "甲漢乙")
+    }
+
+    /// Both of a nested ruby's annotations are drawn on their sides, for the base's whole range,
+    /// and neither enters the text.
+    @Test func nestedRubyEmitsBothAnnotations() async throws {
+        let (pages, doc) = try await BrowserLayoutTestSupport.layout(
+            "<html><body><p style='margin:0'>甲<ruby style='ruby-position:under'><ruby style='ruby-position:over'>漢<rt>かん</rt></ruby>"
+                + "<rt>カン</rt></ruby>乙</p></body></html>"
+        )
+        #expect(doc.lastSourceText == "甲漢乙")
+        let texts = BrowserLayoutTestSupport.allTextFragments(pages)
+        let base = try #require(texts.first { $0.renderedTextOverride == nil && $0.sourceRange == NSRange(location: 1, length: 1) })
+        let over = try #require(texts.first { $0.renderedTextOverride == "かん" })
+        let under = try #require(texts.first { $0.renderedTextOverride == "カン" })
+        #expect(over.rect.maxY <= base.rect.minY + 0.01)
+        #expect(under.rect.minY >= base.rect.maxY - 0.01)
+        #expect(over.sourceRange == base.sourceRange && under.sourceRange == base.sourceRange)
+        #expect(BrowserLayoutTestSupport.visibleText(pages, sourceText: doc.lastSourceText) == "甲漢乙")
+        let list = DisplayListBuilder.build(for: pages[0], sourceText: doc.lastSourceText)
+        let rendered = list.items.compactMap { item -> String? in
+            guard case .text(let text) = item else { return nil }
+            return text.text
+        }
+        #expect(rendered.contains("かん") && rendered.contains("カン"))
     }
 
     @Test func rubyChildrenNeverSplitAcrossPages() async throws {
