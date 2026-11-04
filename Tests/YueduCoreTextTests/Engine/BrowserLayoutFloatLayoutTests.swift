@@ -386,6 +386,8 @@ struct BrowserLayoutFloatLayoutTests {
     @Test func explicitLineBandHeightDrivesFloatExclusion() {
         var style = ComputedStyle(fontSize: 16, fontFamilies: ["PingFangSC-Regular"])
         style.color = .black
+        // The text inherits its block's line-height, as every run does.
+        style.lineHeight = 20
         let text = "A line whose measured CoreText box crosses a float that starts at y 21."
         let run = InlineRun(
             text: text,

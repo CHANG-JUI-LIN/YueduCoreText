@@ -290,21 +290,39 @@ enum InlineLayout {
                      language: Any?) -> (above: CGFloat, below: CGFloat) {
             guard requested == nil else { return inlineBox(asked, lineHeight: requested) }
             var box = inlineBox(asked, lineHeight: nil)
-            let text = (attributed.string as NSString).substring(with: range)
-            let utf16 = Array(text.utf16)
-            var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
-            if CTFontGetGlyphsForCharacters(asked as CTFont, utf16, &glyphs, utf16.count) { return box }
-            var attributes: [NSAttributedString.Key: Any] = [.font: asked]
-            attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language
-            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
-            for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
-                guard let font = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] else { continue }
-                let fallback = font as! CTFont as UIFont
-                guard fallback.fontName != asked.fontName else { continue }
+            for fallback in fallbackFonts(for: asked, range: range, language: language) {
                 let content = roundedContentExtent(fallback)
                 box = (max(box.above, content.ascent), max(box.below, content.descent))
             }
             return box
+        }
+        // The fonts Core Text's cascade draws `range` in when `asked` lacks
+        // some of its characters.
+        func fallbackFonts(for asked: UIFont, range: NSRange, language: Any?) -> [UIFont] {
+            let text = (attributed.string as NSString).substring(with: range)
+            let utf16 = Array(text.utf16)
+            var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
+            if CTFontGetGlyphsForCharacters(asked as CTFont, utf16, &glyphs, utf16.count) { return [] }
+            var attributes: [NSAttributedString.Key: Any] = [.font: asked]
+            attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+            return (CTLineGetGlyphRuns(line) as? [CTRun] ?? []).compactMap { run in
+                guard let font = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] else { return nil }
+                let fallback = font as! CTFont as UIFont
+                return fallback.fontName == asked.fontName ? nil : fallback
+            }
+        }
+        // A vertical inline box at `line-height: normal`: the tallest content
+        // area among its font and the ones that fall back for its text, half
+        // either side of the central baseline (WebKit halves each font's height
+        // about the ideographic baseline). Measured, WKWebView iOS 27.2: a plain
+        // 17px PingFang column at `normal` is 25 wide (19 + 6), a 10.625px
+        // `sup` at `normal` in it 16 (12 + 4).
+        func normalVerticalExtent(asked: UIFont, range: NSRange, language: Any?) -> CGFloat {
+            ([asked] + fallbackFonts(for: asked, range: range, language: language)).map {
+                let content = roundedContentExtent($0)
+                return content.ascent + content.descent
+            }.max() ?? 0
         }
         func lineMetrics(_ info: CoreTextLineBreaker.LineBreak) -> (height: CGFloat, baseline: CGFloat) {
             var above: CGFloat = -.greatestFiniteMagnitude
@@ -346,14 +364,22 @@ enum InlineLayout {
                 let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
                 guard part.length > 0, run.decorationEdge == nil else { continue }
                 let font = resolveFont(run.style)
-                let cssRequested = run.style.lineHeight ?? cssHeight
+                // The run's own line-height: an inline box at `normal` is sized
+                // by its fonts, not its block's line-height (CSS Inline 3 §5.2,
+                // WebKit `setLayoutBoundsForInlineBox`). Measured, WKWebView iOS
+                // 27.2, redchamber-vertical spine 92: a `sup` at `normal` in a
+                // 160% column widens it 1.06, not the 6.67 its block's would.
+                let cssRequested = run.style.lineHeight
                 if verticalTextOnly {
                     // The style's shift, not the attribute: text on its side
                     // also carries `CJKTypography`'s centring offset there.
                     let shift = run.style.verticalAlignOffset
-                    attributed.enumerateAttributes(in: part) { attributes, _, _ in
+                    attributed.enumerateAttributes(in: part) { attributes, range, _ in
                         let used = attributes[.font] as? UIFont ?? font
-                        var requested = cssRequested ?? used.pointSize
+                        let asked = attributes[CJKTypography.replacedFontAttribute] as? UIFont ?? used
+                        var requested = cssRequested ?? normalVerticalExtent(
+                            asked: asked, range: range,
+                            language: attributes[kCTLanguageAttributeName as NSAttributedString.Key])
                         if let p = attributes[.paragraphStyle] as? NSParagraphStyle, p.minimumLineHeight > 0 {
                             requested = max(requested, p.minimumLineHeight)
                         }
@@ -406,7 +432,8 @@ enum InlineLayout {
             }
             if verticalTextOnly, let root = context.paragraphStyle ?? runs.first?.style {
                 // The root inline box, in the block's font and line-height.
-                let half = (cssHeight ?? resolveFont(root).pointSize) / 2
+                let content = roundedContentExtent(resolveFont(root))
+                let half = (cssHeight ?? content.ascent + content.descent) / 2
                 above = max(above, half)
                 below = max(below, half)
             }
@@ -767,21 +794,24 @@ enum InlineLayout {
     /// `font`'s vertical metrics as WebKit takes them (`FontCoreText.cpp`,
     /// `FontBase::platformInit`): Times and Helvetica gain 15% of their height
     /// above, to match their Microsoft counterparts; the normal line spacing
-    /// is the three metrics each rounded, taken before a Hiragino face is
-    /// given 3 below for marked-text underlines. WebKit's source lists
-    /// Courier with Times and Helvetica; on iOS 27.2 it keeps its own ascent
-    /// (measured: a 17px Courier box is 13 + 5, unadjusted it is 16 + 5).
+    /// is the three metrics each rounded. Where iOS 27.2 differs from WebKit's
+    /// source, the measurement wins: the 15% is rounded up, not to nearest
+    /// (a content box in Helvetica is 11 at 8.5px, 18 at 14, 19 at 15, 20 at
+    /// 16, and Times's 19 at 16); a Hiragino face keeps its own descent, not
+    /// the 3 the source gives it for marked-text underlines (Hiragino Sans is
+    /// 10 at 8.5px, 11 at 10, 13 at 12, 17 at 16); and Courier, which the
+    /// source lists with Times and Helvetica, keeps its own ascent (a 17px
+    /// Courier box is 13 + 5, unadjusted it is 16 + 5).
     private static func webKitMetrics(_ font: UIFont) -> (ascent: CGFloat, descent: CGFloat, lineSpacing: CGFloat) {
         let ctFont = font as CTFont
         var ascent = CTFontGetAscent(ctFont)
-        var descent = CTFontGetDescent(ctFont)
+        let descent = CTFontGetDescent(ctFont)
         let lineGap = CTFontGetLeading(ctFont)
         let family = CTFontCopyFamilyName(ctFont) as String
         if ["times", "helvetica"].contains(family.lowercased()) {
-            ascent += ((ascent + descent) * 0.15).rounded()
+            ascent += ((ascent + descent) * 0.15).rounded(.up)
         }
         let lineSpacing = ascent.rounded() + descent.rounded() + lineGap.rounded()
-        if descent < 3, lineGap >= 3, family.hasPrefix("Hiragino") { descent = 3 }
         return (ascent, descent, lineSpacing)
     }
 

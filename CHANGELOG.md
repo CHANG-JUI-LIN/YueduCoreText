@@ -2,6 +2,21 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.13.2] - 2026-11-04
+
+An inline box at `line-height: normal` is sized by its own fonts, and font metrics round as WebKit rounds them on iOS (measured in a WKWebView, iOS 27.2).
+
+### Fixed
+
+- An inline element at `line-height: normal` inside a block with a line-height of its own took its block's line-height. Its box is its fonts' content area: in vertical writing the tallest of its font and the fonts that fall back for its text, half either side of the central baseline; horizontally its font's normal box with its fallbacks. A `sup` at `normal` in a 160% vertical column widened it to 33.87 where WebKit's is 28.26 (0.13.1 regression).
+- A vertical block at `line-height: normal` took its font size as its column width; it takes its font's content area (25 for 17px PingFang, where it was 17).
+- Times and Helvetica gain their 15% above rounded up, not to the nearest pixel: a Helvetica content box is 20 at 16px and 18 at 14px, where both were a pixel short.
+- A Hiragino face keeps its own descent; it was given 3 below at small sizes, a pixel too tall from 8.5px to 16px.
+
+### Migration
+
+Lines with an inline element at `line-height: normal`, vertical blocks at `normal`, and lines in Times, Helvetica or a small Hiragino face change height, so pages and scroll heights move. Offsets into `sourceText` do not.
+
 ## [0.13.1] - 2026-11-04
 
 Line boxes and the spaces at a line's edges, as WebKit sizes and places them (measured in a WKWebView, iOS 27.2). 0.13.0's rounding made both visible: a book in the system font gained half a point a line, and a centred picture between spaces moved.

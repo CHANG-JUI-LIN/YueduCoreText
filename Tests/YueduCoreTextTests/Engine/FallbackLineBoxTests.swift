@@ -87,6 +87,50 @@ struct FallbackLineBoxTests {
         }
     }
 
+    /// A `sup` at `line-height: normal` in a vertical line at 160%: its
+    /// inline box is its own `normal` one, PingFang SC's 12 + 4 at 10.625px,
+    /// about the central baseline and raised 6.67 toward the right. The
+    /// column with it gains 1.06 on its right, not the 6.67 its block's
+    /// line-height would give it. Measured, WKWebView iOS 27.2, the corpus's
+    /// redchamber-vertical (spine 92, `sup.calibre12`, in PingFang SC): 28.26
+    /// from the column before it, 27.2 to the one after.
+    @Test func aSuperscriptAtNormalKeepsItsOwnBoxInAVerticalLine() async throws {
+        let css = """
+            p { line-height: 160%; }
+            sup.c { font-size: 0.625em; line-height: normal; vertical-align: super; }
+            """
+        let layout = try await BrowserLayoutTestSupport.webKitReference(
+            "<p>\(Self.han)<sup class=\"c\">〔一〕</sup>\(Self.han)</p>", css: css, vertical: true)
+        let plain = try #require(BrowserLayoutTestSupport.fragment("這一年", in: layout))
+        let marked = try #require(BrowserLayoutTestSupport.fragment("〔一〕", in: layout))
+        let columns = BrowserLayoutTestSupport.allTextFragments(layout.pages)
+            .filter { $0.sourceRange.length > 0 }
+            .map { ($0.rect.rawValue.minX, $0.rect.rawValue.width) }
+        #expect(abs(plain.rect.rawValue.width - 27.2) <= 1.0 / 32, "plain column \(plain.rect.rawValue.width)")
+        let line = try #require(BrowserLayoutTestSupport.allTextFragments(layout.pages).first {
+            $0.sourceRange.length > 0 && abs($0.rect.rawValue.midX - marked.rect.rawValue.midX) < 20
+                && $0.font.pointSize > 16
+        })
+        #expect(abs(line.rect.rawValue.width - 28.26) <= 1.0 / 32, "sup column \(line.rect.rawValue.width); \(columns)")
+    }
+
+    /// A font's content area, its ascent and descent each rounded up: Times
+    /// and Helvetica gain 15% of their height above, itself rounded up, and a
+    /// Hiragino face keeps its own descent. Measured, WKWebView iOS 27.2 (the
+    /// app's S001i fixture, `Hg` in a span at `normal`): every expected height
+    /// is the span's box.
+    @Test(arguments: [
+        ("Helvetica", 8.5, 11), ("Helvetica", 14, 18), ("Helvetica", 15, 19), ("Helvetica", 16, 20),
+        ("Times-Roman", 16, 19),
+        ("HiraginoSans-W3", 8.5, 10), ("HiraginoSans-W3", 10, 11), ("HiraginoSans-W3", 12, 13),
+        ("HiraginoSans-W3", 16, 17),
+    ] as [(String, CGFloat, CGFloat)])
+    func contentAreasRoundAsWebKitOnIOS(name: String, size: CGFloat, height: CGFloat) throws {
+        let font = try #require(UIFont(name: name, size: size))
+        let extent = InlineLayout.roundedContentExtent(font)
+        #expect(extent.ascent + extent.descent == height, "\(name) \(size): \(extent)")
+    }
+
     /// Latin and Han mixed in Georgia at 25.5px: three lines, 76.5 tall.
     @Test func mixedLatinAndHanKeepTheirLineHeight() async throws {
         let text = "Autumn 這一年的秋天 came at once 九月一日的早晨 crisp as an apple 小小的一家人 crossing the road 走向龐大的火車站"
