@@ -89,6 +89,8 @@ public struct TextFragment {
     /// Relative to the baseline and the inline start, so moving the fragment
     /// moves them with it.
     var textDecorations: [TextDecorationPaint] = []
+    /// Relative to the baseline, as `textDecorations`.
+    var textEmphasis: TextEmphasisPaint? = nil
 
     public init(
         sourceRange: NSRange,
@@ -314,6 +316,7 @@ struct PageWalker {
         /// Rotation about the owning box's center, in DOCUMENT coordinates.
         var rotation: PaintTransform? = nil
         var textDecorations: [TextDecorationPaint] = []
+        var textEmphasis: TextEmphasisPaint? = nil
     }
 
     struct StepRuby {
@@ -324,6 +327,8 @@ struct PageWalker {
         let writingMode: ReaderWritingMode
         var lineSerial: Int? = nil
         var rotation: PaintTransform? = nil
+        /// The marks its base draws.
+        var textEmphasis: TextEmphasisPaint? = nil
     }
 
     struct StepFill {
@@ -830,7 +835,8 @@ struct PageWalker {
                             originX: frame.contentOrigin.x + line.contentX + run.x,
                             writingMode: writingMode,
                             lineSerial: currentLineSerial,
-                            rotation: frame.rotation
+                            rotation: frame.rotation,
+                            textEmphasis: run.textEmphasis
                         ))
                     }
                     if let combined = run.combined {
@@ -856,7 +862,8 @@ struct PageWalker {
                             renderedTextOverride: nil,
                             isCombinedUpright: true,
                             lineSerial: currentLineSerial,
-                            rotation: frame.rotation
+                            rotation: frame.rotation,
+                            textEmphasis: run.textEmphasis
                         ))
                     }
                     if let atomic = run.atomic {
@@ -925,7 +932,8 @@ struct PageWalker {
                         renderedTextOverride: run.generatedText,
                         lineSerial: currentLineSerial,
                         rotation: frame.rotation,
-                        textDecorations: run.textDecorations
+                        textDecorations: run.textDecorations,
+                        textEmphasis: run.textEmphasis
                     ))
                 }
                 stack[index].lineIndex += 1
@@ -1225,6 +1233,7 @@ struct PageWalker {
             )
             fragment.isCombinedUpright = step.isCombinedUpright
             fragment.textDecorations = step.textDecorations
+            fragment.textEmphasis = step.textEmphasis
             fragment.paintTransform = pageTransform(step.rotation, displacementY: 0, pageIndex: 0)
             appendToCurrentPage(.text(fragment), lineSerial: step.lineSerial)
             return nil
@@ -1265,6 +1274,7 @@ struct PageWalker {
         )
         fragment.isCombinedUpright = step.isCombinedUpright
         fragment.textDecorations = step.textDecorations
+        fragment.textEmphasis = step.textEmphasis
         fragment.paintTransform = pageTransform(
             step.rotation,
             displacementY: adjustedDocY - step.rect.minY,
@@ -1329,6 +1339,7 @@ struct PageWalker {
                 sourceMapping: .linear(shapedRange: piece.shapedRange),
                 renderedTextOverride: nil
             )
+            fragment.textEmphasis = step.textEmphasis
             fragment.paintTransform = pageTransform(step.rotation, displacementY: displacementY, pageIndex: pageIndex)
             return .text(fragment)
         }
@@ -1862,6 +1873,7 @@ extension TextFragment {
         )
         moved.isCombinedUpright = isCombinedUpright
         moved.textDecorations = textDecorations
+        moved.textEmphasis = textEmphasis
         moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: dy)
         return moved
     }

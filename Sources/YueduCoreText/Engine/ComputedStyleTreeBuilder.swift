@@ -977,6 +977,38 @@ enum ComputedStylePropertyApplier {
             case "initial": style.textUnderlinePosition = TextUnderlinePosition()
             default: if let parsed = TextDecorationValue.underlinePosition(value) { style.textUnderlinePosition = parsed }
             }
+        case "text-emphasis-style", "-webkit-text-emphasis-style", "-epub-text-emphasis-style":
+            switch value {
+            case "inherit", "unset": style.textEmphasisStyle = ctx.parent.textEmphasisStyle
+            case "initial": style.textEmphasisStyle = nil
+            default: if let parsed = TextEmphasisValue.style(preserved) { style.textEmphasisStyle = parsed }
+            }
+        case "text-emphasis-color", "-webkit-text-emphasis-color", "-epub-text-emphasis-color":
+            switch value {
+            case "inherit", "unset": style.textEmphasisColor = ctx.parent.textEmphasisColor
+            case "initial": style.textEmphasisColor = nil
+            default: if let parsed = decorationColorToken(value) { style.textEmphasisColor = parsed }
+            }
+        case "text-emphasis-position", "-webkit-text-emphasis-position", "-epub-text-emphasis-position":
+            switch value {
+            case "inherit", "unset": style.textEmphasisPosition = ctx.parent.textEmphasisPosition
+            case "initial": style.textEmphasisPosition = TextEmphasisPosition()
+            default: if let parsed = TextEmphasisValue.position(value) { style.textEmphasisPosition = parsed }
+            }
+        case "text-emphasis", "-webkit-text-emphasis", "-epub-text-emphasis":
+            switch value {
+            case "inherit", "unset":
+                style.textEmphasisStyle = ctx.parent.textEmphasisStyle
+                style.textEmphasisColor = ctx.parent.textEmphasisColor
+            case "initial":
+                style.textEmphasisStyle = nil
+                style.textEmphasisColor = nil
+            default:
+                guard let parsed = TextEmphasisValue.shorthand(components(preserved), color: { decorationColorToken($0.lowercased()) })
+                else { break }
+                style.textEmphasisStyle = parsed.style
+                style.textEmphasisColor = parsed.color
+            }
         case "text-decoration-skip-ink":
             switch value {
             case "inherit", "unset": style.textDecorationSkipsInk = ctx.parent.textDecorationSkipsInk

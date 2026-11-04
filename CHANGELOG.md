@@ -2,6 +2,60 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.14.0] - 2026-11-04
+
+Emphasis marks: `text-emphasis` is drawn as WebKit draws it, in both writing modes, and lines grow to hold the marks (measured in a WKWebView, iOS 27.2). Aozora Bunko's 傍点 use it. Separately, the normal line spacing now rounds as WebKit rounds it on iOS.
+
+### Added
+
+- `text-emphasis-style`, `text-emphasis-color`, `text-emphasis-position` and the `text-emphasis` shorthand, with their `-webkit-` and `-epub-` forms. All three are inherited.
+  - Styles: `filled` or `open` with `dot`, `circle`, `double-circle`, `triangle` or `sesame`, or a string such as `"×"`.
+  - Without a shape, a horizontal line gets a circle and a vertical one sesame.
+  - `text-emphasis-position: auto` and the initial value put the marks over the text for Japanese and Korean and under it otherwise. Vertical text takes them on the right unless the position says `left`.
+- Which characters take a mark:
+  - one per character, on the first of its cluster;
+  - none on spaces, word separators or control characters;
+  - none on punctuation, except the symbols CSS Text Decoration 3 lists.
+- How a mark is drawn:
+  - Its size is half the text's.
+  - It is drawn upright, in the font the text's own cascade draws it in: the publication's fallbacks, then the system's. The reader's Georgia fallback is not used. In 17px PingFang the filled dot is Helvetica's (11 tall), the sesame Hiragino's (10).
+  - Horizontally it is centred on its character's ink; vertically, on its character's advance.
+  - Horizontally, an `under` mark's baseline is the text's descent plus the mark's ascent below the text's baseline. An `over` mark sits the text's ascent plus the mark's descent above it.
+  - Vertically, its centre is half the text's content area and half its own height from the central baseline.
+- Lines grow to hold the marks. A 17px PingFang line at 1.5 is 35.25 tall with sesame marks (25.5 without) and 36.25 with dots. A run whose style asks for marks grows its line even where none of its characters takes one.
+- A ruby takes its side. Marks on the side of a ruby are not drawn on its base, so horizontally (zh: marks under, ruby over) both are drawn, and vertically (both right) the base goes unmarked.
+- A `text-combine-upright` cell takes one mark, centred on its em square, even when the cell holds punctuation (`!?`).
+- Marks in `currentColor` follow a theme change with their text, as decorations do; marks in a colour of their own keep it.
+- Marks add no text: `sourceText` and every offset into it are unchanged.
+
+### Fixed
+
+- The normal line spacing adds the ascent and descent each rounded up, as the content box does, and the line gap rounded. At `line-height: normal`, 17px PingFang SC lines are 25 apart, as in WebKit; they were 24. The system font's stay 22.
+
+### Known issues
+
+- In vertical writing WebKit draws a `filled circle` mark at the text's full size, unlike every other mark, giving a 46.25 column. The engine draws it at half size (36.25) and does not copy this.
+- WebKit's horizontal filled triangle is a device pixel smaller each way, and up to a point higher, than Hiragino's ▲. WebKit draws Hiragino's ▲ in vertical writing and for the open triangle. The engine draws Hiragino's in both modes; no installed font explains the difference.
+
+### Performance
+
+Measured on the iOS 27.2 simulator: 300 paragraphs of 61 Han characters, each wrapped in a span, with and without sesame marks, medians of 15 runs. The machine was loaded, so the figures are approximate.
+
+| | Layout stage | Drawing one 800pt page at 3x |
+|---|---|---|
+| Horizontal | 248.6 → 288.9 ms | 35.9 → 41.3 ms |
+| Vertical | 107.6 → 144.2 ms | 25.7 → 32.9 ms |
+
+Part of the layout time is the extra height of the marked lines. The mark's font is looked up once per style, in the inline font cache. All of an item's marks are drawn in one call; one call per mark had cost 0.1 ms each.
+
+### Migration
+
+Pages and scroll heights move in two kinds of book:
+- books that use `text-emphasis`, since their marked lines are taller;
+- books whose PingFang text is at `line-height: normal`, by a point a line.
+
+Offsets into `sourceText` do not change.
+
 ## [0.13.2] - 2026-11-04
 
 An inline box at `line-height: normal` is sized by its own fonts, and font metrics round as WebKit rounds them on iOS (measured in a WKWebView, iOS 27.2).

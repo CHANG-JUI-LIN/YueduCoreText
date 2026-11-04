@@ -40,6 +40,22 @@ public enum ReaderFontCascade {
         [.cascadeList: descriptors(size: size, isBoldRequested: isBoldRequested)]
     }
 
+    /// `font` with only the publication's own fallbacks, as a web view
+    /// cascades it: the reader's last-resort faces above dropped. For glyphs
+    /// the engine places to match WebKit's shapes and sizes, such as
+    /// emphasis marks, which Georgia would otherwise draw (a 17px PingFang
+    /// paragraph's filled dot is Helvetica's in WebKit, 11 tall, not
+    /// Georgia's 10).
+    static func withoutReaderFallbacks(_ font: UIFont) -> UIFont {
+        guard let cascade = font.fontDescriptor.object(forKey: .cascadeList) as? [UIFontDescriptor] else { return font }
+        let authored = cascade.filter { descriptor in
+            let name = descriptor.postscriptName
+            return !fallbackFontNames.contains { name == $0 || name.hasPrefix($0 + "-") }
+        }
+        guard authored.count != cascade.count else { return font }
+        return UIFont(descriptor: font.fontDescriptor.addingAttributes([.cascadeList: authored]), size: font.pointSize)
+    }
+
     public static func preservingPrimary(_ font: UIFont, size: CGFloat, isBoldRequested: Bool = false) -> UIFont {
         // Publication CSS fallbacks precede the reader's last-resort coverage.
         // Preparation runs in the resolver and again in layout; replacing this

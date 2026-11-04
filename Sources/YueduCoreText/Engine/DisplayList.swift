@@ -53,6 +53,8 @@ public struct DisplayTextItem {
     public var paintTransform: PaintTransform? = nil
     /// CSS text decorations, relative to the baseline and the inline start.
     var textDecorations: [TextDecorationPaint] = []
+    /// CSS emphasis marks, relative to the baseline (`TextEmphasisPainter`).
+    var textEmphasis: TextEmphasisPaint? = nil
 
     /// Recover the exact attributes used by shaping instead of discarding
     /// kern, synthetic bold, and regex styles when constructing the draw list.
@@ -298,9 +300,10 @@ public enum DisplayListBuilder {
             items = items.map { item in
                 switch item {
                 case .text(let text) where text.color == oldThemeColor
-                    || text.textDecorations.contains(where: { $0.color == oldThemeColor }):
-                    // A decoration in `currentColor` follows the theme with
-                    // its text; one in a colour of its own keeps it.
+                    || text.textDecorations.contains(where: { $0.color == oldThemeColor })
+                    || text.textEmphasis?.color == oldThemeColor:
+                    // A decoration or emphasis mark in `currentColor` follows
+                    // the theme with its text; one in a colour of its own keeps it.
                     var recolored = DisplayTextItem(sourceRange: text.sourceRange, nodeID: text.nodeID,
                         linkTarget: text.linkTarget, writingMode: text.writingMode, rect: text.rect,
                         baselineY: text.baselineY, font: text.font,
@@ -308,6 +311,9 @@ public enum DisplayListBuilder {
                         ctLine: text.ctLine, sourceMapping: text.sourceMapping,
                         renderedTextOverride: text.renderedTextOverride)
                     recolored.textDecorations = text.textDecorations.map {
+                        $0.color == oldThemeColor ? $0.recolored(themeTextColor) : $0
+                    }
+                    recolored.textEmphasis = text.textEmphasis.map {
                         $0.color == oldThemeColor ? $0.recolored(themeTextColor) : $0
                     }
                     return .text(recolored)
@@ -355,6 +361,7 @@ public enum DisplayListBuilder {
                 )
                 item.paintTransform = t.paintTransform
                 item.textDecorations = t.textDecorations
+                item.textEmphasis = t.textEmphasis
                 items.append(.text(item))
             case .fill(let f):
                 var item = DisplayFillItem(

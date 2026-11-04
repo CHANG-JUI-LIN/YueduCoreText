@@ -35,13 +35,31 @@ struct InlineFontKey: Hashable {
 /// next paragraph. Access is serialized with the session's layout operations.
 final class InlineFontCache {
     private var fonts: [InlineFontKey: UIFont] = [:]
+    private var markFonts: [MarkFontKey: UIFont] = [:]
     var count: Int { fonts.count }
+
+    private struct MarkFontKey: Hashable {
+        let text: InlineFontKey
+        let mark: String
+        let language: String?
+    }
 
     func resolve(_ style: ComputedStyle, make: () -> UIFont) -> UIFont {
         let key = InlineFontKey(style)
         if let font = fonts[key] { return font }
         let font = make()
         if fonts.count < 128 { fonts[key] = font }
+        return font
+    }
+
+    /// The font `style`'s emphasis `mark` is drawn in, `text` being its
+    /// final font (`TextEmphasisLayout.markFont`): a Core Text fallback
+    /// lookup, which every candidate line's metrics would otherwise repeat.
+    func markFont(_ mark: String, style: ComputedStyle, text: UIFont) -> UIFont {
+        let key = MarkFontKey(text: InlineFontKey(style), mark: mark, language: style.language)
+        if let font = markFonts[key] { return font }
+        let font = TextEmphasisLayout.markFont(mark, text: text, language: style.language)
+        if markFonts.count < 128 { markFonts[key] = font }
         return font
     }
 }

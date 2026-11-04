@@ -75,6 +75,8 @@ struct LineRun {
     var generatedText: String? = nil
     /// The text decorations a text run draws (`TextDecorationLayout`).
     var textDecorations: [TextDecorationPaint] = []
+    /// The emphasis marks a text run, or a ruby's base, draws (`TextEmphasisLayout`).
+    var textEmphasis: TextEmphasisPaint? = nil
 
     init(
         sourceRange: NSRange,

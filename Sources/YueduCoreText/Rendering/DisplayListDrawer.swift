@@ -518,6 +518,12 @@ public enum DisplayListDrawer {
             }
         }
         context.restoreGState()
+        // Emphasis marks are painted with the glyphs, as WebKit paints a text box's foreground.
+        if !decorationOnly, let emphasis = item.textEmphasis {
+            TextEmphasisPainter.draw(emphasis, textColor: item.color, vertical: item.writingMode != .horizontal,
+                                     line: line, string: string, cellWidth: item.rect.width,
+                                     cellMiddle: item.rect.midY - item.baselineY, in: context)
+        }
         if !decorationOnly, !item.textDecorations.isEmpty {
             TextDecorationPainter.draw(item.textDecorations, where: { $0 == .lineThrough },
                                        length: length, line: line, string: string, in: context)

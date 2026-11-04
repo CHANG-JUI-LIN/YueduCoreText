@@ -335,6 +335,12 @@ struct ComputedStyle: Equatable {
     var textDecorationSkipsInk = true
     /// The decorations this box draws (`decorationsInEffect(inheriting:)`).
     var textDecorationsInEffect: [AppliedTextDecoration] = []
+    /// `text-emphasis-style`, inherited: nil is `none`.
+    var textEmphasisStyle: TextEmphasisStyle? = nil
+    /// `text-emphasis-color`, inherited: nil is `currentColor`.
+    var textEmphasisColor: UIColor? = nil
+    /// `text-emphasis-position`, inherited.
+    var textEmphasisPosition = TextEmphasisPosition()
     var overflowWrap: String = "normal"
     var wordBreak: String = "normal"
     var textAlignLast: NSTextAlignment? = nil
@@ -501,6 +507,9 @@ extension ComputedStyle {
         style.textUnderlinePosition = parent.textUnderlinePosition
         style.textDecorationSkipsInk = parent.textDecorationSkipsInk
         style.textDecorationsInEffect = parent.textDecorationsInEffect
+        style.textEmphasisStyle = parent.textEmphasisStyle
+        style.textEmphasisColor = parent.textEmphasisColor
+        style.textEmphasisPosition = parent.textEmphasisPosition
         style.overflowWrap = parent.overflowWrap
         style.wordBreak = parent.wordBreak
         style.textAlignLast = parent.textAlignLast

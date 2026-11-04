@@ -71,6 +71,7 @@ enum LogicalFlow {
                     baselineY: extent - t.baselineY, font: t.font, color: t.color, ctLine: t.ctLine,
                     sourceMapping: t.sourceMapping, renderedTextOverride: t.renderedTextOverride)
                 turned.textDecorations = t.textDecorations
+                turned.textEmphasis = t.textEmphasis
                 return .text(turned)
             case .fill(let f):
                 return .fill(FillFragment(
@@ -116,6 +117,7 @@ enum LogicalFlow {
             baselineY: page.minY + (em + ascent - descent) / 2, font: t.font, color: t.color, ctLine: t.ctLine,
             sourceMapping: t.sourceMapping, renderedTextOverride: t.renderedTextOverride)
         fragment.isCombinedUpright = true
+        fragment.textEmphasis = t.textEmphasis
         return fragment
     }
 }

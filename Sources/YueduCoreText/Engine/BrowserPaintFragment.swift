@@ -100,6 +100,7 @@ extension BrowserScrollDocument {
                             // CSS decorations paint with the glyphs and can
                             // reach past the line box (a vertical underline).
                             bounds = bounds.union(TextDecorationPainter.extent(of: item))
+                            bounds = bounds.union(TextEmphasisPainter.extent(of: item))
                         }
                     }
                     // One pixel includes the antialiased ink at a fractional edge.

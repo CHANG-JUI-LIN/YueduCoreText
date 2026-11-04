@@ -200,6 +200,7 @@ extension DisplayList {
                 )
                 translated.preparedDrawing = t.preparedDrawing
                 translated.textDecorations = t.textDecorations
+                translated.textEmphasis = t.textEmphasis
                 result.append(.text(translated))
             case .fill(let f):
                 guard !filteringItems || f.rect.rawValue.intersects(documentRect) else { continue }

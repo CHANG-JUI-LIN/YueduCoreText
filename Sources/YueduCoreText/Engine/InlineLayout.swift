@@ -429,6 +429,21 @@ enum InlineLayout {
                         below = max(below, box.below - shift)
                     }
                 }
+                // Emphasis marks sit outside the run's content box on their
+                // side and grow the line to hold them, whether or not this
+                // line's characters take one (`TextEmphasisLayout`; measured:
+                // a `，` alone with marks still grows its line to 35.25).
+                if TextEmphasisLayout.marks(run),
+                   let placement = TextEmphasisLayout.placement(
+                    style: run.style, font: font, vertical: context.writingMode != .horizontal, fonts: fonts),
+                   !(run.ruby != nil && placement.over) {
+                    let shift = run.style.verticalAlignOffset
+                    if placement.over {
+                        above = max(above, placement.reach + shift)
+                    } else {
+                        below = max(below, placement.reach - shift)
+                    }
+                }
             }
             if verticalTextOnly, let root = context.paragraphStyle ?? runs.first?.style {
                 // The root inline box, in the block's font and line-height.
@@ -598,6 +613,8 @@ enum InlineLayout {
                 lineRuns = TextDecorationLayout.decorate(lineRuns, root: root, writingMode: context.writingMode,
                                                          font: resolveFont)
             }
+            lineRuns = TextEmphasisLayout.mark(lineRuns, writingMode: context.writingMode, font: resolveFont,
+                                               fonts: fonts)
             var line = LayoutLine(
                 runs: lineRuns,
                 height: height,
@@ -795,7 +812,10 @@ enum InlineLayout {
     /// `FontBase::platformInit`): Times and Helvetica gain 15% of their height
     /// above, to match their Microsoft counterparts; the normal line spacing
     /// is the three metrics each rounded. Where iOS 27.2 differs from WebKit's
-    /// source, the measurement wins: the 15% is rounded up, not to nearest
+    /// source, the measurement wins: the normal line spacing adds the ascent
+    /// and descent each rounded up, as the content box does, and the line gap
+    /// rounded (17px PingFang SC lines are 25 apart at `normal`, the source
+    /// gives 24; the system font's 22); the 15% is rounded up, not to nearest
     /// (a content box in Helvetica is 11 at 8.5px, 18 at 14, 19 at 15, 20 at
     /// 16, and Times's 19 at 16); a Hiragino face keeps its own descent, not
     /// the 3 the source gives it for marked-text underlines (Hiragino Sans is
@@ -811,7 +831,7 @@ enum InlineLayout {
         if ["times", "helvetica"].contains(family.lowercased()) {
             ascent += ((ascent + descent) * 0.15).rounded(.up)
         }
-        let lineSpacing = ascent.rounded() + descent.rounded() + lineGap.rounded()
+        let lineSpacing = ascent.rounded(.up) + descent.rounded(.up) + lineGap.rounded()
         return (ascent, descent, lineSpacing)
     }
 
