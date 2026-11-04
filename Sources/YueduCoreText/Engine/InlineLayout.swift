@@ -124,6 +124,7 @@ enum InlineLayout {
         // treats them as atomic, unbreakable boxes.
         let attributed = NSMutableAttributedString()
         var runAttributedStart: [Int] = []   // attributed-string offset per run
+        var runShapedLength: [Int] = []      // its length there; the runs lie end to end
         var attributedCursor = 0
         var delegateBoxes: [AtomicInlineBox] = []
         var measuredRuby: [Int: RubyBox] = [:]
@@ -131,6 +132,7 @@ enum InlineLayout {
         var rubyDelegateBoxes: [RubyRunDelegateBox] = []
         for (index, run) in runs.enumerated() {
             runAttributedStart.append(attributedCursor)
+            runShapedLength.append(shapedLength(of: run))
             if let isStart = run.decorationEdge {
                 let width = edgeAdvance(run.style, isStart: isStart, context: context)
                 let box = AtomicInlineBox(width: width, ascent: 0, descent: 0)
@@ -142,7 +144,8 @@ enum InlineLayout {
                     value: delegate as Any, range: NSRange(location: isStart ? 0 : 1, length: 1))
                 attributed.append(edge)
             } else if let unit = run.ruby {
-                let ruby = RubyInlineLayout.measure(unit: unit, fontResolver: fontResolver, attributedSource: run.attributedSource,
+                let ruby = RubyInlineLayout.measure(unit: unit, fontResolver: fontResolver, fonts: fonts,
+                                                    attributedSource: run.attributedSource,
                                                     writingMode: context.writingMode, cjkTypographyStyle: context.cjkTypographyStyle)
                 measuredRuby[index] = ruby
                 let box = RubyRunDelegateBox(ruby)
@@ -236,9 +239,23 @@ enum InlineLayout {
             if run.style.verticalAlignOffset != 0, !run.isAtomicUnit, run.decorationEdge == nil {
                 attributed.addAttribute(
                     .baselineOffset, value: run.style.verticalAlignOffset,
-                    range: NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
+                    range: NSRange(location: runAttributedStart[index], length: runShapedLength[index]))
             }
-            attributedCursor += shapedLength(of: run)
+            attributedCursor += runShapedLength[index]
+        }
+
+        // The runs `range` meets, in order. A line reads only its own runs: walking
+        // the whole paragraph's for every line is quadratic in a block of thousands
+        // of rubies (1323 of the Aozora corpus spent most of its layout there).
+        func runIndices(meeting range: NSRange) -> Range<Int> {
+            var low = 0, high = runs.count
+            while low < high {
+                let mid = (low + high) / 2
+                if runAttributedStart[mid] + runShapedLength[mid] <= range.location { low = mid + 1 } else { high = mid }
+            }
+            var end = low
+            while end < runs.count, runAttributedStart[end] < NSMaxRange(range) { end += 1 }
+            return low..<end
         }
 
         // CJK text in its language's font, its punctuation where its style puts it, in
@@ -348,14 +365,16 @@ enum InlineLayout {
             // column to 40, a 60×60 one to 60, a 17×17 one not at all).
             // A line with ruby, an inline-block or a combined cell keeps the
             // Core Text extent below.
-            let centredColumn = context.writingMode != .horizontal && runs.indices.allSatisfy { index in
+            let lineRunIndices = runIndices(meeting: info.range)
+            let centredColumn = context.writingMode != .horizontal && lineRunIndices.allSatisfy { index in
                 let run = runs[index]
-                let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
+                let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: runShapedLength[index]))
                 return part.length == 0 || run.decorationEdge != nil
                     || (run.ruby == nil && run.inlineBlock == nil && run.combined == nil)
             }
-            for (index, run) in runs.enumerated() {
-                let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
+            for index in lineRunIndices {
+                let run = runs[index]
+                let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: runShapedLength[index]))
                 guard part.length > 0, run.decorationEdge == nil else { continue }
                 let font = resolveFont(run.style)
                 // The run's own line-height: an inline box at `normal` is sized
@@ -467,7 +486,6 @@ enum InlineLayout {
             let spacing = NSMaxRange(info.range) < attributed.length ? lineSpacing : 0
             return (max(0, above + below) + spacing, above)
         }
-        func usedHeight(_ info: CoreTextLineBreaker.LineBreak) -> CGFloat { lineMetrics(info).height }
         func makeLayoutLine(
             _ breakInfo: CoreTextLineBreaker.LineBreak,
             interval: InlineInterval,
@@ -496,9 +514,10 @@ enum InlineLayout {
             // Attribute runs intersecting this line's char range, by offset.
             var lineRuns: [LineRun] = []
             var xCursor: CGFloat = 0
-            for (index, run) in runs.enumerated() {
+            for index in runIndices(meeting: lineRange) {
+                let run = runs[index]
                 let runStart = runAttributedStart[index]
-                let runLen = shapedLength(of: run)
+                let runLen = runShapedLength[index]
                 let runEnd = runStart + runLen
                 let intersectStart = max(lineRange.location, runStart)
                 let intersectEnd = min(lineEnd, runEnd)
@@ -606,8 +625,9 @@ enum InlineLayout {
                 trimLineTrailingWhitespace(from: &lineRuns, sourceText: sourceText)
             }
 
-            let height = measuredMetrics?.height ?? usedHeight(breakInfo)
-            let baselineOffset = measuredMetrics?.baseline ?? lineMetrics(breakInfo).baseline
+            let metrics = measuredMetrics ?? lineMetrics(breakInfo)
+            let height = metrics.height
+            let baselineOffset = metrics.baseline
             let top = yTop
             let alignSlack = alignmentOffset(
                 alignment: alignment,

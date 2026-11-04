@@ -231,7 +231,8 @@ final class ComputedStyleTreeBuilder {
         )
         let root = ComputedStyleNode(
             tag: "body", semanticElement: bodySemantic, style: bodyStyle,
-            children: children(of: body, parentStyle: bodyStyle, parentElement: body, inheritedLink: nil),
+            children: children(of: body, path: bodySemantic.semanticPath, parentStyle: bodyStyle, parentElement: body,
+                               inheritedLink: nil),
             nodeID: nextNodeID,
             linkTarget: nil,
             anchorID: linkAnchorID(of: bodySemantic)
@@ -243,18 +244,23 @@ final class ComputedStyleTreeBuilder {
 
     // MARK: - Children
 
+    /// `path` is `element`'s semantic path.
     private func children(
         of element: Element,
+        path: String,
         parentStyle: ComputedStyle,
         parentElement: Element,
         inheritedLink: String?
     ) -> [StyleTreeChild] {
         var result: [StyleTreeChild] = []
+        var elementIndex = 0
         for node in element.getChildNodes() {
             if let text = node as? TextNode {
                 result.append(.text(text.getWholeText()))
             } else if let child = node as? Element {
-                let semanticElement = SwiftSoupHTMLSemanticAdapter.snapshot(child)
+                let semanticElement = SwiftSoupHTMLSemanticAdapter.snapshot(child, parentPath: path,
+                                                                            siblingIndex: elementIndex)
+                elementIndex += 1
                 let style = resolvedStyle(
                     for: child,
                     semanticElement: semanticElement,
@@ -274,7 +280,8 @@ final class ComputedStyleTreeBuilder {
                     tag: child.tagName().lowercased(),
                     semanticElement: semanticElement,
                     style: style,
-                    children: children(of: child, parentStyle: style, parentElement: child, inheritedLink: childLink),
+                    children: children(of: child, path: semanticElement.semanticPath, parentStyle: style,
+                                       parentElement: child, inheritedLink: childLink),
                     nodeID: nextNodeID,
                     linkTarget: childLink,
                     anchorID: linkAnchorID(of: semanticElement)

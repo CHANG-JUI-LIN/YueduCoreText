@@ -11,9 +11,21 @@ public enum SwiftSoupHTMLSemanticAdapter {
     /// identity required after the frontend returns. The returned value owns no
     /// SwiftSoup node or pointer.
     static func snapshot(_ element: Element) -> HTMLDOMElementSnapshot {
+        snapshot(element, semanticPath: semanticPath(of: element))
+    }
+
+    /// `snapshot(_:)` for an element a walk down the tree has reached: its path is its
+    /// parent's and its index among its parent's elements, which the walk knows. Working
+    /// the path out from the element lists every ancestor's element siblings, quadratic in
+    /// a block of thousands of rubies.
+    static func snapshot(_ element: Element, parentPath: String, siblingIndex: Int) -> HTMLDOMElementSnapshot {
+        snapshot(element, semanticPath: parentPath + "/" + segment(of: element, siblingIndex: siblingIndex))
+    }
+
+    private static func snapshot(_ element: Element, semanticPath: String) -> HTMLDOMElementSnapshot {
         let attributes = authoredAttributes(of: element)
         return HTMLDOMElementSnapshot(
-            semanticPath: semanticPath(of: element),
+            semanticPath: semanticPath,
             tagName: element.tagName(),
             namespace: namespaceURI(of: element),
             attributes: attributes,
@@ -50,13 +62,16 @@ public enum SwiftSoupHTMLSemanticAdapter {
         var segments: [String] = []
         var current: Element? = element
         while let candidate = current {
-            let ordinal = (try? candidate.elementSiblingIndex()) ?? 0
-            let id = ((try? candidate.attr("id")) ?? "")
-            let suffix = id.isEmpty ? "" : "#\(id)"
-            segments.append("\(candidate.tagName().lowercased())[\(ordinal)]\(suffix)")
+            segments.append(segment(of: candidate, siblingIndex: (try? candidate.elementSiblingIndex()) ?? 0))
             current = candidate.parent()
         }
         return segments.reversed().joined(separator: "/")
+    }
+
+    private static func segment(of element: Element, siblingIndex: Int) -> String {
+        let id = ((try? element.attr("id")) ?? "")
+        let suffix = id.isEmpty ? "" : "#\(id)"
+        return "\(element.tagName().lowercased())[\(siblingIndex)]\(suffix)"
     }
 
     private static func svgRenderability(of element: Element) -> SVGRenderability? {

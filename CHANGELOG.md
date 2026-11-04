@@ -2,6 +2,17 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.16.1] - 2026-11-04
+
+A chapter of thousands of rubies styles and lays out several times faster. Layout is unchanged: every fragment of the measured chapter lands where it did.
+
+### Fixed
+
+- **Styling was quadratic in an element's siblings.** Each element's semantic path was worked out from the element, which lists the element siblings of it and of every ancestor. The style tree now builds each path from its parent's as it walks down. On a chapter of 400 KB with 13 489 rubies in 413 blocks (Aozora Bunko 1323, chapter 3), styling took 3.4–4.5 s and now 0.62–0.73 s; the capability scan, which styles the chapter too, 3.9–4.9 s and now 1.0 s.
+- **Line layout was quadratic in a block's runs.** Each line's metrics and its runs read every run of the block, and the metrics were taken twice per line. A line now reads only the runs it holds, once. A ruby's base and annotations take their fonts from the line's font cache, as the line's text does. On the same chapter, layout took 3.3–4.3 s and now 1.47–1.88 s, in both writing modes.
+
+All timings are from a Debug build on an iOS 26.5 simulator.
+
 ## [0.16.0] - 2026-11-04
 
 Images in vertical writing: inline and as blocks, as WebKit sets them (measured in a WKWebView, iOS 26.5). A vertical chapter with an image used to be reported unsupported.

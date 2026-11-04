@@ -65,9 +65,12 @@ enum RubyInlineLayout {
         let linkTarget: String?
     }
 
+    /// `fonts` is the line's font cache, when it has one: a chapter of thousands of rubies
+    /// otherwise resolves each piece's font afresh.
     static func measure(
         unit: RubyInlineUnit,
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
+        fonts: InlineFontCache? = nil,
         attributedSource: NSAttributedString? = nil,
         writingMode: ReaderWritingMode = .horizontal,
         cjkTypographyStyle: CJKTypographyStyle? = nil
@@ -82,7 +85,7 @@ enum RubyInlineLayout {
                     linkTarget: $0.linkTarget
                 )
             },
-            fontResolver: fontResolver,
+            fontResolver: fontResolver, fonts: fonts,
             attributedSource: attributedSource, writingMode: writingMode,
             cjkTypographyStyle: cjkTypographyStyle
         )
@@ -96,7 +99,7 @@ enum RubyInlineLayout {
                     linkTarget: $0.linkTarget ?? unit.linkTarget
                 )
             },
-            fontResolver: fontResolver, writingMode: writingMode,
+            fontResolver: fontResolver, fonts: fonts, writingMode: writingMode,
             cjkTypographyStyle: cjkTypographyStyle
         )
         let outer = unit.outer.map { outer in
@@ -105,7 +108,7 @@ enum RubyInlineLayout {
                     InputPiece(text: $0.text, style: $0.style, sourceRange: unit.sourceRange,
                                nodeID: $0.nodeID, linkTarget: $0.linkTarget ?? unit.linkTarget)
                 },
-                fontResolver: fontResolver, writingMode: writingMode,
+                fontResolver: fontResolver, fonts: fonts, writingMode: writingMode,
                 cjkTypographyStyle: cjkTypographyStyle
             )
         }
@@ -204,6 +207,7 @@ enum RubyInlineLayout {
     private static func shape(
         _ inputs: [InputPiece],
         fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
+        fonts cache: InlineFontCache?,
         attributedSource: NSAttributedString? = nil,
         writingMode: ReaderWritingMode = .horizontal,
         cjkTypographyStyle: CJKTypographyStyle? = nil
@@ -213,14 +217,15 @@ enum RubyInlineLayout {
         var fonts: [UIFont] = []
         for input in inputs {
             starts.append(attributed.length)
-            let font = InlineLayout.resolvedFont(for: input.style, resolver: fontResolver)
+            let resolve = { InlineLayout.resolvedFont(for: input.style, resolver: fontResolver) }
+            let font = cache.map { $0.resolve(input.style, make: resolve) } ?? resolve()
             fonts.append(font)
             if let attributedSource {
                 attributed.append(attributedSource.attributedSubstring(from: input.sourceRange))
             } else {
                 attributed.append(NSAttributedString(
                     string: input.text,
-                    attributes: InlineLayout.textAttributes(for: input.style, resolver: fontResolver)
+                    attributes: InlineLayout.textAttributes(for: input.style, resolver: fontResolver, font: font)
                 ))
             }
         }
