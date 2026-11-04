@@ -2,6 +2,12 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.18.1] - 2026-11-05
+
+### Fixed
+
+- `centersSinglePage` sets what the page paints in the middle: the chapter's line boxes and block images, from the first to the last. 0.18.0 centred the chapter's whole box, so whatever comes before its first line or after its last without painting, such as the reader's paragraph spacing (`paragraphSpacing`) or a block's own margins, pushed the lines off the middle: by 4 points in a chapter as the app's Aozora converter writes one, at 8 points of spacing. A line with nothing on it has no say. The page still never moves the chapter further than its whole box leaves room for, so it stays on one page.
+
 ## [0.18.0] - 2026-11-04
 
 A title page, as Aozora Bunko marks one with ページの左右中央.

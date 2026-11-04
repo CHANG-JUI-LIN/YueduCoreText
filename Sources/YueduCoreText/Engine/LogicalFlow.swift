@@ -46,17 +46,47 @@ enum LogicalFlow {
     }
 
     /// The paged walker's logical insets for `config` on a page of `pageSize` (logical):
-    /// the reader's, plus, for a chapter that asks to be centred and fits the page, half
-    /// the page's spare block extent at the block start
-    /// (`BrowserLayoutConfig.centersSinglePage`). Only the start grows, so the chapter
-    /// still has the other half to spare and stays on one page.
+    /// the reader's, plus, for a chapter that asks to be centred and fits the page, what
+    /// sets its painted content (`paintedExtent`) in the middle of the page's block extent
+    /// (`BrowserLayoutConfig.centersSinglePage`). Only the start grows, and never by more
+    /// than the whole chapter, margins and spacing included, leaves to spare, so it stays
+    /// on one page.
     static func pageInsets(_ config: BrowserLayoutConfig, pageSize: CGSize, root: BlockBox) -> UIEdgeInsets {
         var result = insets(config.contentInsets, mode: config.writingMode)
-        guard config.centersSinglePage else { return result }
-        let spare = pageSize.height - result.top - result.bottom - documentExtent(root)
+        guard config.centersSinglePage, let painted = paintedExtent(root) else { return result }
+        let available = pageSize.height - result.top - result.bottom
+        let room = available - documentExtent(root)
+        guard room > 0 else { return result }
+        let shift = min(room, (available - (painted.end - painted.start)) / 2 - painted.start)
         // Under a point the page would not visibly move.
-        if spare >= 1 { result.top += spare / 2 }
+        if shift >= 1 { result.top += shift }
         return result
+    }
+
+    /// The block extent of what `root` paints, in the walker's document coordinates:
+    /// from the top of its first line box or block image to the bottom of its last. Edge
+    /// margins and the reader's spacing after the last paragraph
+    /// (`BrowserLayoutConfig.paragraphSpacing`) paint nothing, so they have no say. Boxes
+    /// are placed as `PageWalker` places them. Nil when the chapter has neither.
+    static func paintedExtent(_ root: BlockBox) -> (start: CGFloat, end: CGFloat)? {
+        var start = CGFloat.infinity
+        var end = -CGFloat.infinity
+        func visit(_ box: BlockBox, contentTop: CGFloat) {
+            // A line with nothing on it, such as an empty anonymous block's, paints nothing.
+            for line in box.lines where !line.runs.isEmpty && line.height > 0 {
+                start = min(start, contentTop + line.top)
+                end = max(end, contentTop + line.top + line.height)
+            }
+            if box.imageAttachment != nil {
+                start = min(start, contentTop)
+                end = max(end, contentTop + box.contentSize.height)
+            }
+            for child in box.children {
+                visit(child, contentTop: contentTop + child.frame.minY + child.borders.top + child.padding.top)
+            }
+        }
+        visit(root, contentTop: root.margins.top)
+        return start < end ? (start, end) : nil
     }
 
     static func rect(_ logical: CGRect, blockExtent: CGFloat) -> CGRect {

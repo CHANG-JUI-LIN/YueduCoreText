@@ -14,13 +14,15 @@ struct BrowserPageCentringTests {
     /// and after them are the whole spare extent.
     private static let css = "body { margin: 0; padding: 0 } p { margin: 0 }"
 
-    private static func config(centred: Bool, writingMode: ReaderWritingMode) -> BrowserLayoutConfig {
+    private static func config(centred: Bool, writingMode: ReaderWritingMode,
+                               paragraphSpacing: CGFloat = 0) -> BrowserLayoutConfig {
         BrowserLayoutConfig(
             renderWidth: size.width - insets.left - insets.right,
             renderHeight: size.height - insets.top - insets.bottom,
             rootFontSize: 17,
             fontFamilies: ["PingFangSC-Regular"],
             contentInsets: insets,
+            paragraphSpacing: paragraphSpacing,
             writingMode: writingMode,
             centersSinglePage: centred
         )
@@ -29,10 +31,13 @@ struct BrowserPageCentringTests {
     private static let titlePage = "<p>　　　　扉の一行目</p><p>　　　　　　献辞の二行目</p>"
     private static let longChapter = String(repeating: "<p>一頁に収まらない章は、置かれる場所を変えずに頁を送る。</p>", count: 40)
 
-    private static func pages(_ body: String, centred: Bool, writingMode: ReaderWritingMode) async throws -> [PageFragments] {
+    private static func pages(_ body: String, centred: Bool, writingMode: ReaderWritingMode,
+                              css: String = css, paragraphSpacing: CGFloat = 0,
+                              html: String? = nil) async throws -> [PageFragments] {
         let doc = BrowserLayoutDocument(
-            html: "<html><body>\(body)</body></html>", cssTexts: [css],
-            config: config(centred: centred, writingMode: writingMode), imageLoader: { _ in nil })
+            html: html ?? "<html><body>\(body)</body></html>", cssTexts: [css],
+            config: config(centred: centred, writingMode: writingMode, paragraphSpacing: paragraphSpacing),
+            imageLoader: { _ in nil })
         return try await doc.renderPages(containerSize: size)
     }
 
@@ -75,6 +80,36 @@ struct BrowserPageCentringTests {
             }
         }
         #expect(Self.texts(centred[0]).map(\.sourceRange) == Self.texts(plain[0]).map(\.sourceRange))
+    }
+
+    /// The reader's spacing after each paragraph, and a block's own margins, paint
+    /// nothing: the lines sit in the middle, not the boxes around them.
+    @Test(arguments: [ReaderWritingMode.horizontal, .verticalRTL])
+    func theLinesSitInTheMiddleNotTheirBoxes(writingMode: ReaderWritingMode) async throws {
+        // The third is a chapter as the app's Aozora converter writes one: white space
+        // around the body, and each block ended by a `br` that is a block.
+        let aozora = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+            <head>
+            <title>献辞</title>
+            </head>
+            <body style="zy-page-align: center"><p>　　　　献辞<br class="eol"/></p><p>　　　　　　友に<br class="eol"/></p></body>
+            </html>
+
+            """
+        let cases: [(css: String, paragraphSpacing: CGFloat, html: String?)] = [
+            (Self.css, 8, nil),
+            ("body { margin: 0; padding: 0 } p { margin: 1em 0 }", 0, nil),
+            (Self.css + " br.eol { display: block }", 8, aozora),
+        ]
+        for (css, spacing, html) in cases {
+            let centred = try await Self.pages(Self.titlePage, centred: true, writingMode: writingMode,
+                                               css: css, paragraphSpacing: spacing, html: html)
+            try #require(centred.count == 1)
+            let gaps = Self.gaps(centred[0], writingMode: writingMode)
+            #expect(abs(gaps.start - gaps.end) < 0.5, "\(writingMode) \(css) spacing \(spacing): gaps \(gaps)")
+        }
     }
 
     @Test(arguments: [ReaderWritingMode.horizontal, .verticalRTL])
