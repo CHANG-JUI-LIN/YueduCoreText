@@ -2,6 +2,18 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.18.0] - 2026-11-04
+
+A title page, as Aozora Bunko marks one with ページの左右中央.
+
+### Added
+
+- `BrowserLayoutConfig.centersSinglePage`: a chapter that fits on one page sits in the middle of the page's block axis, top to bottom in horizontal writing and right to left in vertical writing.
+  - The page grows its block-start inset by half the spare block extent, the page's content extent less the chapter's (its root box with its margins). Lines keep their inline positions, and every fragment, so everything a host paints and hit-tests, moves with them.
+  - A chapter longer than a page, or one that would move less than a point, lays out as without it.
+  - Paged layout only, in both the session and the batch path. Continuous (scroll) layout ignores it.
+  - Geometry, not a cascade input: a host may turn it on for a chapter it has already evaluated.
+
 ## [0.17.0] - 2026-11-04
 
 A ruby whose base holds rubies beside its text, as Aozora Bunko writes a reading over a phrase when one of its characters carries a note of its own. Annotations sit, and lines grow, as WebKit sets them (measured in a WKWebView, iOS 26.5: the app's fixtures S001o and S001p).

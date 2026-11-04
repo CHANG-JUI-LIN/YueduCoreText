@@ -108,6 +108,12 @@ public struct BrowserLayoutConfig {
     /// over its line gaps, so the last line sits on the content bottom. Paged
     /// horizontal layout only; scroll layout and vertical writing ignore it.
     public var bottomJustify: Bool = false
+    /// A title page (Aozora Bunko's ページの左右中央): when the whole chapter fits on one
+    /// page, the page centres it in the block axis, top to bottom in horizontal writing
+    /// and right to left in vertical writing. Lines keep their inline positions. A
+    /// chapter longer than a page lays out as without it. Paged layout only; scroll
+    /// layout ignores it. Geometry, not a cascade input.
+    public var centersSinglePage: Bool = false
     public init(
         renderWidth: CGFloat = 320,
         renderHeight: CGFloat = 480,
@@ -127,6 +133,7 @@ public struct BrowserLayoutConfig {
         writingMode: ReaderWritingMode = .horizontal,
         cjkTypographyStyle: CJKTypographyStyle? = nil,
         bottomJustify: Bool = false,
+        centersSinglePage: Bool = false,
         onDiagnostic: ((CSSFrontendDiagnostic) -> Void)? = nil
     ) {
         self.renderWidth = renderWidth
@@ -147,6 +154,7 @@ public struct BrowserLayoutConfig {
         self.writingMode = writingMode
         self.cjkTypographyStyle = cjkTypographyStyle
         self.bottomJustify = bottomJustify
+        self.centersSinglePage = centersSinglePage
         self.onDiagnostic = onDiagnostic
     }
 

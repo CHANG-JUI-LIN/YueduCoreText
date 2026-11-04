@@ -45,6 +45,20 @@ enum LogicalFlow {
         max(0, root.frame.height + root.margins.top + root.margins.bottom)
     }
 
+    /// The paged walker's logical insets for `config` on a page of `pageSize` (logical):
+    /// the reader's, plus, for a chapter that asks to be centred and fits the page, half
+    /// the page's spare block extent at the block start
+    /// (`BrowserLayoutConfig.centersSinglePage`). Only the start grows, so the chapter
+    /// still has the other half to spare and stays on one page.
+    static func pageInsets(_ config: BrowserLayoutConfig, pageSize: CGSize, root: BlockBox) -> UIEdgeInsets {
+        var result = insets(config.contentInsets, mode: config.writingMode)
+        guard config.centersSinglePage else { return result }
+        let spare = pageSize.height - result.top - result.bottom - documentExtent(root)
+        // Under a point the page would not visibly move.
+        if spare >= 1 { result.top += spare / 2 }
+        return result
+    }
+
     static func rect(_ logical: CGRect, blockExtent: CGFloat) -> CGRect {
         LogicalGeometry.physicalRect(LogicalRect(
             origin: LogicalPoint(inline: logical.minX, block: logical.minY),

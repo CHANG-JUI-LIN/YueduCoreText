@@ -412,10 +412,11 @@ final class BrowserLayoutDocument {
         var pages: [PageFragments] = []
         if !pipeline.rootBox.lines.isEmpty || !pipeline.rootBox.children.isEmpty {
             pages = metrics.time("fragment") {
-                PageFragmentation.fragment(
+                let pageSize = LogicalFlow.size(containerSize, mode: config.writingMode)
+                return PageFragmentation.fragment(
                     box: pipeline.rootBox,
-                    pageSize: LogicalFlow.size(containerSize, mode: config.writingMode),
-                    contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode),
+                    pageSize: pageSize,
+                    contentInsets: LogicalFlow.pageInsets(config, pageSize: pageSize, root: pipeline.rootBox),
                     bottomJustify: config.pagesBottomJustify
                 )
             }

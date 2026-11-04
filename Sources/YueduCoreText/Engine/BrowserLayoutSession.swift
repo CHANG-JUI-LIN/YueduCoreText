@@ -423,10 +423,11 @@ public final class BrowserLayoutSession {
         pipelinePronunciationHints = result.pronunciationHints
         pipelineParagraphRanges = BrowserLayoutSemanticContent.paragraphRanges(in: result.rootBox)
         pipeline = result
+        let pageSize = LogicalFlow.size(canvasSize, mode: config.writingMode)
         walker = PageWalker(
             box: result.rootBox,
-            pageSize: LogicalFlow.size(canvasSize, mode: config.writingMode),
-            contentInsets: LogicalFlow.insets(config.contentInsets, mode: config.writingMode),
+            pageSize: pageSize,
+            contentInsets: LogicalFlow.pageInsets(config, pageSize: pageSize, root: result.rootBox),
             bottomJustify: config.pagesBottomJustify
         )
         #if DEBUG
