@@ -59,6 +59,14 @@ final class CoreTextLineBreaker {
         }
         var count = CTTypesetterSuggestLineBreak(typesetter, charIndex, maxWidth)
 
+        if let held = noWrapBreak(attributed: attributed, nsString: nsString, typesetter: typesetter,
+                                  start: charIndex, suggested: count) {
+            let line = CTTypesetterCreateLine(typesetter, CFRange(location: charIndex, length: held))
+            let (width, ascent, descent) = metrics(for: line)
+            charIndex += held
+            return LineBreak(range: NSRange(location: charIndex - held, length: held),
+                             width: width, ascent: ascent, descent: descent, line: line)
+        }
         if let hyphenated = hyphenatedLine(attributed: attributed, start: charIndex, suggested: count, maxWidth: maxWidth) {
             charIndex = NSMaxRange(hyphenated.range)
             return hyphenated
@@ -161,6 +169,39 @@ final class CoreTextLineBreaker {
         let result = NSMutableAttributedString(attributedString: attributed)
         result.mutableString.replaceOccurrences(of: "\u{00AD}", with: "\u{2060}", range: NSRange(location: 0, length: result.length))
         return result
+    }
+
+    /// The line's length when the suggested break falls between two
+    /// characters of `nowrap` text, nil otherwise. The line then ends before
+    /// that text, at the last opportunity preceding it, so the text starts the
+    /// next line; when it already starts this one, it overflows it whole, up to
+    /// a forced break (measured, WebKit iOS 27.2: `丁七<nobr>…17 characters…</nobr>尾。`
+    /// in 200px is three lines, the nobr 289 wide on the second).
+    private func noWrapBreak(attributed: NSAttributedString, nsString: NSString, typesetter: CTTypesetter,
+                             start: Int, suggested: Int) -> Int? {
+        let end = start + suggested
+        let total = nsString.length
+        guard end > start, end < total else { return nil }
+        func held(_ index: Int) -> Bool {
+            attributed.attribute(TextBreakingAttributes.noWrap, at: index, effectiveRange: nil) as? Bool == true
+        }
+        func isForcedBreak(_ unit: unichar) -> Bool { [0x0A, 0x0D, 0x2028, 0x2029].contains(Int(unit)) }
+        guard held(end - 1), held(end), !isForcedBreak(nsString.character(at: end - 1)) else { return nil }
+        var text = NSRange()
+        _ = attributed.attribute(TextBreakingAttributes.noWrap, at: end,
+                                 longestEffectiveRange: &text, in: NSRange(location: start, length: total - start))
+        if text.location > start {
+            let before = CTTypesetterCreateLine(typesetter, CFRange(location: start, length: text.location - start))
+            let width = CTLineGetTypographicBounds(before, nil, nil, nil)
+            let count = CTTypesetterSuggestLineBreak(typesetter, start, width + 0.01)
+            if count > 0, count <= text.location - start { return count }
+        }
+        var stop = NSMaxRange(text)
+        for index in end..<stop where isForcedBreak(nsString.character(at: index)) {
+            stop = index + 1
+            break
+        }
+        return stop - start
     }
 
     private func isWordUnit(_ unit: unichar) -> Bool {

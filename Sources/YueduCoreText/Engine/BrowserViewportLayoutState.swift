@@ -60,6 +60,9 @@ final class BrowserViewportLayoutState {
         var result = Set<ObjectIdentifier>()
         func insert(_ line: LayoutLine) {
             if let ctLine = line.ctLine { result.insert(ObjectIdentifier(ctLine)) }
+            for placed in line.listMarkers {
+                if case .text(let markerLine, _, _) = placed.marker.content { result.insert(ObjectIdentifier(markerLine)) }
+            }
             for run in line.runs {
                 if let ruby = run.ruby {
                     result.insert(ObjectIdentifier(ruby.base.line))
@@ -147,7 +150,13 @@ final class BrowserViewportLayoutState {
         if !entry.complete {
             let remaining = max(0, count - measuredEnd.characterIndex)
             entry.height = measuredEnd.y + ceil(CGFloat(remaining) / max(1, context.containingInlineSize / max(1, box.style.fontSize * 0.7))) * lineHeight
-            if entry.geometry.isEmpty { entry.height = max(lineHeight, estimatedLines * lineHeight) }
+            if entry.geometry.isEmpty {
+                // A list marker grows the first line before it is measured too,
+                // or the box jumps when that line is shaped. Horizontal only, as
+                // viewport sessions are (`makeViewportSessionImpl`).
+                let markerLine = box.listMarkers.map { $0.above + $0.below }.max() ?? 0
+                entry.height = max(lineHeight, estimatedLines * lineHeight) + max(0, markerLine - lineHeight)
+            }
         }
         let old = geometry[id]
         let y = old?.origin.y ?? 0

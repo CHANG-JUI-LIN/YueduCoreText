@@ -118,6 +118,121 @@ enum CSSBorderCollapse: Equatable {
     case separate, collapse
 }
 
+/// CSS Lists 3 `list-style-type`. Inherited; initial `disc`.
+enum CSSListStyleType: Equatable {
+    case none
+    /// A `<counter-style-name>`, ASCII-lowercased. A name with no counter
+    /// style behind it is still a valid declaration and is drawn as `decimal`
+    /// (CSS Counter Styles 3 §3), so the cascade keeps it as written.
+    case counterStyle(String)
+
+    static let initial = CSSListStyleType.counterStyle("disc")
+
+    /// The one parser for a `list-style-type` value, shared by the longhand and
+    /// the `list-style` shorthand. `value` is already folded; nil is an invalid
+    /// declaration, which callers drop. A `<string>` or `symbols()` value is not
+    /// implemented and is dropped the same way.
+    static func parse(_ value: String) -> CSSListStyleType? {
+        if value == "none" { return CSSListStyleType.none }
+        return isCustomIdent(value) ? .counterStyle(value) : nil
+    }
+
+    /// CSS Values 4 `<custom-ident>`, minus escapes: name characters only, no
+    /// leading digit or `-digit`, and none of the reserved keywords.
+    private static func isCustomIdent(_ token: String) -> Bool {
+        let scalars = Array(token.unicodeScalars)
+        func isNameStart(_ scalar: Unicode.Scalar) -> Bool {
+            ("a"..."z").contains(scalar) || scalar == "_" || scalar.value >= 0x80
+        }
+        func isName(_ scalar: Unicode.Scalar) -> Bool {
+            isNameStart(scalar) || ("0"..."9").contains(scalar) || scalar == "-"
+        }
+        guard !scalars.isEmpty, scalars.allSatisfy(isName) else { return false }
+        let start = scalars[0] == "-" ? 1 : 0
+        guard start < scalars.count, isNameStart(scalars[start]) || scalars[start] == "-" else { return false }
+        return !["initial", "inherit", "unset", "revert", "revert-layer", "default"].contains(token)
+    }
+
+    /// The `list-style` shorthand (CSS Lists 3 §3.4). Any sub-property it leaves
+    /// out resets to its initial value. nil is an invalid declaration: a token
+    /// that is no sub-property's value, or one sub-property given twice.
+    /// `list-style-image` is parsed only so the declaration validates; the image
+    /// is never drawn (the marker falls back to the type, as a browser draws it
+    /// when the image fails to load).
+    static func parseShorthand(_ value: String) -> (type: CSSListStyleType, position: CSSListStylePosition)? {
+        var type: CSSListStyleType?
+        var position: CSSListStylePosition?
+        var hasImage = false
+        var noneCount = 0
+        for token in shorthandTokens(value) {
+            if token == "none" {
+                noneCount += 1
+            } else if let parsed = CSSListStylePosition.parse(token) {
+                guard position == nil else { return nil }
+                position = parsed
+            } else if isImage(token) {
+                guard !hasImage else { return nil }
+                hasImage = true
+            } else if let parsed = parse(token) {
+                guard type == nil else { return nil }
+                type = parsed
+            } else {
+                return nil
+            }
+        }
+        // `none` is a value of both the type and the image, so it goes to
+        // whichever of the two the shorthand has not set otherwise.
+        for _ in 0..<noneCount {
+            if type == nil {
+                type = CSSListStyleType.none
+            } else if !hasImage {
+                hasImage = true
+            } else {
+                return nil
+            }
+        }
+        return (type ?? .initial, position ?? .outside)
+    }
+
+    /// Whitespace-separated, but a function's arguments stay one token, so a
+    /// `url()` with a space in it is one image.
+    private static func shorthandTokens(_ value: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var depth = 0
+        for character in value {
+            if character == "(" { depth += 1 } else if character == ")" { depth = max(0, depth - 1) }
+            if character.isWhitespace && depth == 0 {
+                if !current.isEmpty { tokens.append(current) }
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
+    }
+
+    private static func isImage(_ token: String) -> Bool {
+        guard token.hasSuffix(")"), let open = token.firstIndex(of: "(") else { return false }
+        let function = token[..<open]
+        return ["url", "image-set", "-webkit-image-set"].contains(function) || function.hasSuffix("gradient")
+    }
+}
+
+/// CSS Lists 3 `list-style-position`. Inherited; initial `outside`.
+enum CSSListStylePosition: Equatable {
+    case outside, inside
+
+    static func parse(_ value: String) -> CSSListStylePosition? {
+        switch value {
+        case "outside": return .outside
+        case "inside": return .inside
+        default: return nil
+        }
+    }
+}
+
 struct ComputedStyle: Equatable {
     var display: CSSDisplay = .block
     var isHidden = false
@@ -132,10 +247,12 @@ struct ComputedStyle: Equatable {
     var cssClear: CSSClear = .none
     var verticalAlign: CSSVerticalAlign = .baseline
 
-    /// Resolved super/sub baseline shift (0 for baseline). CSS 2.1 §10.8.1
-    /// leaves the amount UA-defined; the value is computed from the PARENT
-    /// box's font-size, never this element's own — see the vertical-align
-    /// handling in ComputedStyleTreeBuilder.
+    /// Resolved super/sub baseline shift from the line's baseline (0 for
+    /// baseline). CSS 2.1 §10.8.1 leaves the amount UA-defined; each step is
+    /// computed from the PARENT box's font-size, never this element's own —
+    /// see the vertical-align handling in ComputedStyleTreeBuilder. Text
+    /// inside a shifted inline box moves with it, so an inline element
+    /// starts from its parent's shift: `<sup><a>1</a></sup>` raises the `1`.
     var verticalAlignOffset: CGFloat = 0
 
     /// Table `border-collapse`; layout only ever runs on `.separate`.
@@ -150,6 +267,16 @@ struct ComputedStyle: Equatable {
         cssFloat == .left || cssFloat == .right
     }
 
+    /// `display: list-item`: a block box that generates a marker. A flag on the
+    /// block instead of a `CSSDisplay` case, so every `switch display` keeps
+    /// treating it as the block it is. Not inherited; any other `display`
+    /// keyword clears it, so `li { display: block }` has no marker.
+    var isListItem = false
+    /// Inherited. The UA sets it on list containers (`UserAgentStyle.listStyleType`).
+    var listStyleType: CSSListStyleType = .initial
+    /// Inherited.
+    var listStylePosition: CSSListStylePosition = .outside
+
     // Inline text
     var fontSize: CGFloat
     var fontFamilies: [String]
@@ -161,6 +288,9 @@ struct ComputedStyle: Equatable {
     /// document imageLoader). nil = none.
     var backgroundImage: BackgroundImageStyle? = nil
     var textAlign: NSTextAlignment = .natural
+    /// Set by WebKit's `-webkit-center`/`-left`/`-right` text alignment, which
+    /// also places block children; inherited with `text-align`.
+    var blockAlignment: NSTextAlignment? = nil
     var lineHeight: CGFloat?            // nil = normal (ascent/descent)
     /// Unitless line-height is inherited as a multiplier and recomputed from
     /// each descendant's own font size. Length/percentage values are finalized
@@ -183,6 +313,28 @@ struct ComputedStyle: Equatable {
     var textIndent: CSSTextIndent = .initial
     var hyphens: String = "manual"
     var language: String? = nil
+    /// `quotes`, inherited: nil is `auto`, the marks of the content language
+    /// (`QuoteMarks`); an empty list is `none`.
+    var quotes: [QuotePair]? = nil
+    /// How many `q` elements hold this one, itself included. A `q` opens and
+    /// closes with the pair at depth - 1 (CSS Generated Content 3 §3.1.2).
+    var quoteDepth = 0
+    /// `text-decoration-line`, not inherited: the lines this box sets. What it
+    /// and its ancestors set together is `textDecorationsInEffect`.
+    var textDecorationLine: TextDecorationLines = []
+    /// nil is `currentColor`.
+    var textDecorationColor: UIColor? = nil
+    var textDecorationStyle: TextDecorationStyle = .solid
+    var textDecorationThickness: TextDecorationThickness = .auto
+    /// `text-underline-offset`, inherited.
+    var textUnderlineOffset: CSSLength = .auto
+    /// `text-underline-position`, inherited.
+    var textUnderlinePosition = TextUnderlinePosition()
+    /// `text-decoration-skip-ink`, inherited: `auto` and `all` skip, `none`
+    /// draws through the glyphs.
+    var textDecorationSkipsInk = true
+    /// The decorations this box draws (`decorationsInEffect(inheriting:)`).
+    var textDecorationsInEffect: [AppliedTextDecoration] = []
     var overflowWrap: String = "normal"
     var wordBreak: String = "normal"
     var textAlignLast: NSTextAlignment? = nil
@@ -221,7 +373,12 @@ struct ComputedStyle: Equatable {
     var borderRightStyle: BorderStyle = .solid
     var borderBottomStyle: BorderStyle = .solid
     var borderLeftStyle: BorderStyle = .solid
-    var borderColor: UIColor?
+    /// Per-side border colours. nil is `currentColor`, the initial value: the
+    /// side paints the element's own `color`.
+    var borderTopColor: UIColor?
+    var borderRightColor: UIColor?
+    var borderBottomColor: UIColor?
+    var borderLeftColor: UIColor?
     var borderRadius: CGFloat = 0
     var pendingBorderRadius: CSSLength? = nil
     /// Authored `transform: rotate(<angle>)` in degrees (paint-only; layout is
@@ -302,6 +459,12 @@ extension ComputedStyle {
         if let value = resolved(pendingBorderBottomWidth) { borderBottomWidth = value }
         if let value = resolved(pendingBorderLeftWidth) { borderLeftWidth = value }
         if let value = resolved(pendingBorderRadius) { borderRadius = value }
+        // A side styled `none` or `hidden` has a computed width of 0 (CSS
+        // Backgrounds §3.3), so `hr { border: none }` drops the UA's 1px.
+        if borderTopStyle == .none { borderTopWidth = 0 }
+        if borderRightStyle == .none { borderRightWidth = 0 }
+        if borderBottomStyle == .none { borderBottomWidth = 0 }
+        if borderLeftStyle == .none { borderLeftWidth = 0 }
         pendingBorderTopWidth = nil
         pendingBorderRightWidth = nil
         pendingBorderBottomWidth = nil
@@ -332,11 +495,24 @@ extension ComputedStyle {
         style.textIndent = parent.textIndent
         style.hyphens = parent.hyphens
         style.language = parent.language
+        style.quotes = parent.quotes
+        style.quoteDepth = parent.quoteDepth
+        style.textUnderlineOffset = parent.textUnderlineOffset
+        style.textUnderlinePosition = parent.textUnderlinePosition
+        style.textDecorationSkipsInk = parent.textDecorationSkipsInk
+        style.textDecorationsInEffect = parent.textDecorationsInEffect
         style.overflowWrap = parent.overflowWrap
         style.wordBreak = parent.wordBreak
         style.textAlignLast = parent.textAlignLast
+        style.blockAlignment = parent.blockAlignment
+        // Not `vertical-align` itself, which is not inherited, but the shifted
+        // baseline an inline box gives what it holds. An inline-block's
+        // contents lay out on their own lines; blocks never carry a shift.
+        style.verticalAlignOffset = parent.display == .inline ? parent.verticalAlignOffset : 0
         style.lineHeightMultiplier = parent.lineHeightMultiplier
         style.letterSpacing = parent.letterSpacing
+        style.listStyleType = parent.listStyleType
+        style.listStylePosition = parent.listStylePosition
         style.pendingLineHeightLength = nil
         return style
     }
@@ -344,13 +520,27 @@ extension ComputedStyle {
 
 /// Minimal user-agent stylesheet, rendered as a base `ComputedStyle` per tag.
 enum UserAgentStyle {
+    /// `display` follows WebKit html.css (iOS 27.2 runtime), which names every
+    /// element it makes block or hidden; every other element keeps CSS's
+    /// initial `display: inline` — `font`, `big`, `var`, `del`, a custom tag.
     static func basis(for tag: String) -> ComputedStyle {
         var style = ComputedStyle()
         switch tag {
-        case "html", "body", "div", "section", "article", "header", "footer",
-             "main", "aside", "nav", "blockquote", "figure", "figcaption",
-             "ul", "ol",
-             "li", "dl", "dt", "dd", "hr", "pre", "address", "form", "fieldset":
+        case "html", "body", "p", "div", "section", "article", "header", "footer", "hgroup",
+             "main", "aside", "nav", "search", "address", "center",
+             "blockquote", "figure", "figcaption",
+             "h1", "h2", "h3", "h4", "h5", "h6",
+             "ul", "ol", "menu", "dir", "li", "dl", "dt", "dd", "hr",
+             "pre", "xmp", "plaintext", "listing",
+             "form", "fieldset", "legend", "details", "summary", "optgroup", "option",
+             "frameset", "frame":
+            // html.css leaves `legend` inline, but the fieldset's legend is
+            // blockified when rendered (HTML Standard §15.3.13).
+            style.display = .block
+        case "video":
+            // WebKit lays `video` out as an inline replaced element. Here the
+            // media pass turns it into a placeholder image that keeps this
+            // style, and that placeholder has always been a block image.
             style.display = .block
         case "table":
             style.display = .table
@@ -370,57 +560,137 @@ enum UserAgentStyle {
         case "td", "th":
             style.display = .tableCell
             if tag == "th" { style.fontWeight = 700; style.textAlign = .center }
-        case "span", "a", "em", "i", "strong", "b", "u", "s", "small", "code",
-             "q", "cite", "mark", "time", "sub", "sup", "abbr", "label", "br",
-             "ruby", "rt", "rp", "rb":
-            style.display = .inline
-            if tag == "em" || tag == "i" { style.isItalic = true }
-            if tag == "strong" || tag == "b" { style.fontWeight = 700 }
         case "img", "svg", "canvas":
             style.display = .inlineBlock
-        case "head", "script", "style", "title", "meta", "link", "template":
+        case "head", "script", "style", "title", "meta", "link", "template",
+             "area", "base", "basefont", "datalist", "noembed", "noframes", "param",
+             "noscript":
+            // `noscript` is hidden under html.css's `@media (scripting)`, and a
+            // WKWebView runs scripts by default.
             style.display = .none
             style.isHidden = true
         default:
-            style.display = .block
+            style.display = .inline
         }
 
+        // Logical margins and paddings and relative font sizes go through the
+        // cascade (`declarations(for:nestedInList:)`), not here.
         switch tag {
-        case "p":
-            style.marginTop = .em(1)
-            style.marginBottom = .em(1)
-        case "h1":
-            style.fontSize = 32; style.fontWeight = 700
-            style.marginTop = .em(0.67); style.marginBottom = .em(0.67)
-        case "h2":
-            style.fontSize = 24; style.fontWeight = 700
-            style.marginTop = .em(0.83); style.marginBottom = .em(0.83)
-        case "h3":
-            style.fontSize = 18.72; style.fontWeight = 700
-            style.marginTop = .em(1); style.marginBottom = .em(1)
-        case "h4":
-            style.fontSize = 16; style.fontWeight = 700
-            style.marginTop = .em(1.33); style.marginBottom = .em(1.33)
-        case "h5":
-            style.fontSize = 13.28; style.fontWeight = 700
-            style.marginTop = .em(1.67); style.marginBottom = .em(1.67)
-        case "h6":
-            style.fontSize = 10.72; style.fontWeight = 700
-            style.marginTop = .em(2.33); style.marginBottom = .em(2.33)
-        case "ul", "ol", "menu", "dir":
-            style.paddingLeft = .px(40)
-        case "blockquote":
-            style.marginLeft = .px(40); style.marginRight = .px(40)
-        case "hr":
-            style.width = .percent(1)
+        case "em", "i":
+            style.isItalic = true
+        case "strong", "b":
+            style.fontWeight = 700
+        case "h1", "h2", "h3", "h4", "h5", "h6":
+            style.fontWeight = 700
+        case "li":
+            style.isListItem = true
         case "body":
             style.marginTop = .px(8); style.marginRight = .px(8)
             style.marginBottom = .px(8); style.marginLeft = .px(8)
-        case "pre":
+        case "pre", "xmp", "plaintext", "listing":
             style.whiteSpace = .pre
         default:
             break
         }
         return style
+    }
+
+    static let listContainerTags: Set<String> = ["dir", "menu", "ol", "ul"]
+
+    /// The UA declarations that need the cascade, from WebKit html.css (read
+    /// out of the iOS 27.2 runtime):
+    /// - `p { margin-block: 1em }`
+    /// - `pre, xmp, plaintext, listing { font-family: monospace; margin-block:
+    ///   1em }` and `tt, code, kbd, samp { font-family: monospace }`
+    /// - `:heading(1)`…`(6)`: `font-size` 2, 1.5, 1.17, inherited, 0.83,
+    ///   0.67em of the parent's; `margin-block` 0.67, 0.83, 1, 1.33, 1.67,
+    ///   2.33em of their own
+    /// - `blockquote, figure { margin-block: 1em; margin-inline: 40px }`
+    /// - `hr { color: gray; margin-block: 0.5em; margin-inline: auto;
+    ///   border-style: inset; border-width: 1px }`: the border is
+    ///   `currentColor`, so an author's `hr { color: … }` recolours it, as in
+    ///   WebKit. html.css gives `hr` no width; the auto width fills the line
+    ///   and the auto margins resolve to 0
+    /// - `dd { margin-inline-start: 40px }`
+    /// - `big { font-size: larger }`, `small { font-size: smaller }`, `sub {
+    ///   vertical-align: sub; font-size: smaller }`, `sup { vertical-align:
+    ///   super; font-size: smaller }`
+    /// - `i, cite, em, var, address, dfn { font-style: italic }` (`em` and `i`
+    ///   are set in `basis(for:)`), `nobr { white-space: nowrap }`, `center {
+    ///   text-align: -webkit-center }`
+    /// - `u, ins { text-decoration: underline }`, `s, strike, del {
+    ///   text-decoration: line-through }`
+    /// - `ul, menu, dir, ol { margin-block: 1em; padding-inline-start: 40px }`
+    ///   and `dl { margin-block: 1em }`, with `margin-block: 0` for one inside
+    ///   a `dir`, `dl`, `menu`, `ol` or `ul`, at any depth (`nestedInList`,
+    ///   read only for these five).
+    ///
+    /// Logical, so the cascade maps them to the writing mode's sides as it does
+    /// an author's: in vertical-rl paragraphs are spaced between columns and a
+    /// list is indented from the top. Relative, so a heading follows the
+    /// reader's font size. html.css writes the block-start margins as `__qem`,
+    /// which is `em` outside quirks mode; EPUB XHTML is never in quirks mode.
+    static func declarations(for tag: String, nestedInList: Bool) -> [(property: String, value: String)] {
+        func block(_ margin: String) -> [(property: String, value: String)] {
+            [("margin-block-start", margin), ("margin-block-end", margin)]
+        }
+        func inline(_ margin: String) -> [(property: String, value: String)] {
+            [("margin-inline-start", margin), ("margin-inline-end", margin)]
+        }
+        switch tag {
+        case "p": return block("1em")
+        case "pre", "xmp", "plaintext", "listing": return [("font-family", "monospace")] + block("1em")
+        case "tt", "code", "kbd", "samp": return [("font-family", "monospace")]
+        case "h1": return [("font-size", "2em")] + block("0.67em")
+        case "h2": return [("font-size", "1.5em")] + block("0.83em")
+        case "h3": return [("font-size", "1.17em")] + block("1em")
+        case "h4": return block("1.33em")
+        case "h5": return [("font-size", "0.83em")] + block("1.67em")
+        case "h6": return [("font-size", "0.67em")] + block("2.33em")
+        case "blockquote", "figure": return block("1em") + inline("40px")
+        case "hr":
+            return block("0.5em") + inline("auto") + [
+                ("color", "gray"), ("border-width", "1px"), ("border-style", "inset"),
+            ]
+        case "dd": return [("margin-inline-start", "40px")]
+        case "big": return [("font-size", "larger")]
+        case "small": return [("font-size", "smaller")]
+        case "sub": return [("vertical-align", "sub"), ("font-size", "smaller")]
+        case "sup": return [("vertical-align", "super"), ("font-size", "smaller")]
+        case "cite", "var", "dfn", "address": return [("font-style", "italic")]
+        case "nobr": return [("white-space", "nowrap")]
+        case "center": return [("text-align", "-webkit-center")]
+        case "u", "ins": return [("text-decoration", "underline")]
+        case "s", "strike", "del": return [("text-decoration", "line-through")]
+        case "dl": return block(nestedInList ? "0" : "1em")
+        case _ where listContainerTags.contains(tag):
+            return block(nestedInList ? "0" : "1em") + [("padding-inline-start", "40px")]
+        default: return []
+        }
+    }
+
+    /// The ancestors that take a list container's or a `dl`'s block margins
+    /// away; the same five are the ones whose margins they take.
+    static let nestedListMarginAncestors: Set<String> = ["dir", "dl", "menu", "ol", "ul"]
+
+    /// WebKit html.css: `ul, menu, dir` are `disc` and `ol` is `decimal`; a
+    /// `dir`, `menu` or `ul` inside one list container is `circle`, inside two
+    /// or more `square`. nil for every other element, which inherits.
+    /// `listAncestors` counts ancestors in `listContainerTags`. It is a UA rule
+    /// set apart from `basis(for:)` because the inherited value it replaces can
+    /// equal the initial one (`ol { list-style-type: none }` around a `ul`).
+    static func listStyleType(for tag: String, listAncestors: Int) -> CSSListStyleType? {
+        switch tag {
+        case "ol":
+            return .counterStyle("decimal")
+        case "ul", "menu", "dir":
+            switch listAncestors {
+            case 0: return .counterStyle("disc")
+            case 1: return .counterStyle("circle")
+            default: return .counterStyle("square")
+            }
+        default:
+            return nil
+        }
     }
 }

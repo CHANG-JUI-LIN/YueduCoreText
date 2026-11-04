@@ -127,7 +127,8 @@ struct LogicalPropertyTests {
             return nil
         }.first)
         #expect(p.style.marginTop == .em(2))
-        #expect(p.style.marginLeft == .px(0))
+        // The UA's margin-block-end, not the horizontal mapping's 2em.
+        #expect(p.style.marginLeft == .em(1))
         // A session under the other writing mode needs a new evaluation.
         #expect(!evaluation.accepts(horizontalConfig))
     }

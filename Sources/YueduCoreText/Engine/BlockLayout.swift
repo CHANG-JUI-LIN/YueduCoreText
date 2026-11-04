@@ -118,6 +118,12 @@ enum BlockLayout {
             fc = nil
             fcInlineOffsetX = 0
         }
+        if box.style.isListItem {
+            // Every float placed so far precedes this item; the ones placed
+            // while laying out its content are its own and leave its marker be.
+            box.floatsBeforeListItem = (fc?.activeFloats ?? [],
+                                        fcInlineOffsetX ..< fcInlineOffsetX + sides.contentWidth)
+        }
 
         var cursorBlock: CGFloat = 0   // content-box-relative, along block axis
         var previousBlockEndMargin: CGFloat? = nil
@@ -225,14 +231,14 @@ enum BlockLayout {
                 } else if !hasInFlowChild
                             && cursorBlock == 0
                             && child.style.cssClear == .none
-                            // Floats and inline-blocks establish a BFC, so their
-                            // margins never collapse with children's (CSS 2.1 §8.3.1).
-                            && !box.style.isFloated && !box.isInlineBlock
+                            && !establishesBlockFormattingContext(box)
                             && LogicalGeometry.blockStart(edge: box.borders, mode: writingMode) == 0
                             && LogicalGeometry.blockStart(edge: box.padding, mode: writingMode) == 0 {
                     collapsedTop = childMarginBlockStart
                     child.logicalBlockOrigin = 0
-                    box.margins.top = max(box.margins.top, collapsedTop)
+                    LogicalGeometry.setBlockStart(
+                        Margins.collapse(LogicalGeometry.blockStart(edge: box.margins, mode: writingMode), collapsedTop),
+                        of: &box.margins, mode: writingMode)
                     marginFoldedIntoParent = true
                 } else {
                     collapsedTop = childMarginBlockStart
@@ -277,7 +283,12 @@ enum BlockLayout {
                 let grownMarginBlockStart = LogicalGeometry.blockStart(edge: child.margins, mode: writingMode)
                 if grownMarginBlockStart != childMarginBlockStart {
                     if marginFoldedIntoParent {
-                        box.margins.top = max(box.margins.top, grownMarginBlockStart)
+                        // The parent's margin already holds the child's former
+                        // one, so collapse with the grown margin's own share.
+                        LogicalGeometry.setBlockStart(
+                            Margins.collapse(LogicalGeometry.blockStart(edge: box.margins, mode: writingMode),
+                                             grownMarginBlockStart),
+                            of: &box.margins, mode: writingMode)
                     } else if let base = marginCollapseBase {
                         child.logicalBlockOrigin +=
                             Margins.collapse(base, grownMarginBlockStart)
@@ -311,8 +322,11 @@ enum BlockLayout {
                         height: inlineExtent
                     ))
                 }
-                cursorBlock = child.logicalBlockOrigin + borderBoxBlockExtent + childMarginBlockEnd
-                previousBlockEndMargin = childMarginBlockEnd
+                // Likewise its last child's block-end margin may have left
+                // through the child's end and joined the child's own.
+                let grownMarginBlockEnd = LogicalGeometry.blockEnd(edge: child.margins, mode: writingMode)
+                cursorBlock = child.logicalBlockOrigin + borderBoxBlockExtent + grownMarginBlockEnd
+                previousBlockEndMargin = grownMarginBlockEnd
                 hasInFlowChild = true
             }
         }
@@ -400,7 +414,8 @@ enum BlockLayout {
                 firstLineConstraint: firstLineConstraint,
                 paragraphStyle: box.style,
                 fontCache: viewport?.fontCache,
-                cjkTypographyStyle: cjkTypographyStyle
+                cjkTypographyStyle: cjkTypographyStyle,
+                listMarkers: box.listMarkers
             )
             if let viewport {
                 box.lines = viewport.lines(for: box, context: context, prepareRuns: layOutInlineBlocks)
@@ -413,13 +428,28 @@ enum BlockLayout {
         assert(viewport != nil || box.inlineRuns.isEmpty || !box.lines.isEmpty)
         #endif
 
-        // The last child's block-end margin leaves through a margin-less end,
-        // except out of an inline-block, whose margins never collapse with its
-        // children's (CSS 2.1 §8.3.1).
-        if box.lines.isEmpty, !box.isInlineBlock, let last = previousBlockEndMargin,
+        // The last child's block-end margin leaves through an end with no
+        // border or padding, of a box whose height is auto, and joins the box's
+        // own block-end margin (CSS 2.1 §8.3.1): `<div><p>…</p></div>` followed
+        // by a margin-less block keeps the paragraph's 1em between them
+        // (measured, WebKit iOS 27.2). A box that establishes a block
+        // formatting context keeps it inside.
+        if box.lines.isEmpty, !establishesBlockFormattingContext(box), let last = previousBlockEndMargin,
            LogicalGeometry.blockEnd(edge: box.borders, mode: writingMode) == 0,
-           LogicalGeometry.blockEnd(edge: box.padding, mode: writingMode) == 0 {
+           LogicalGeometry.blockEnd(edge: box.padding, mode: writingMode) == 0,
+           box.style.height.isAutoForMarginCollapsing {
             cursorBlock -= last
+            LogicalGeometry.setBlockEnd(
+                Margins.collapse(LogicalGeometry.blockEnd(edge: box.margins, mode: writingMode), last),
+                of: &box.margins, mode: writingMode)
+        }
+
+        // An empty list item holds the one line its marker sits on
+        // (`ListMarker.ownLine`; none when it draws no marker). An item whose
+        // content starts with a table or a block image gets no extra line.
+        if let marker = box.unanchoredListMarker, box.inlineRuns.isEmpty,
+           !box.children.contains(where: { !$0.isFloated }) {
+            cursorBlock = max(cursorBlock, marker.ownLine.above + marker.ownLine.below)
         }
 
         var minLineTop: CGFloat = 0
@@ -634,7 +664,19 @@ enum BlockLayout {
             let leftover = containerWidth - s.contentWidth - marginTotalPad - (ml ?? 0) - (mr ?? 0)
             switch (ml, mr) {
             case (.some(let l), .some(let r)):
-                s.margins.left = l; s.margins.right = r
+                // A parent aligned `-webkit-center`/`-webkit-right` (html.css
+                // `center`) places the margin box (WebKit
+                // `RenderBox::computeInlineDirectionMargins`).
+                switch box.parentBox?.style.blockAlignment {
+                case .center?:
+                    s.margins.left = max(0, leftover / 2) + l
+                    s.margins.right = containerWidth - s.contentWidth - marginTotalPad - s.margins.left
+                case .right?:
+                    s.margins.right = r
+                    s.margins.left = containerWidth - s.contentWidth - marginTotalPad - r
+                default:
+                    s.margins.left = l; s.margins.right = r
+                }
             case (.none, .none):
                 s.margins.left = max(leftover / 2, 0); s.margins.right = max(leftover / 2, 0)
             case (.some(let l), .none):
@@ -725,6 +767,27 @@ enum BlockLayout {
             resolved.inlineDecorations = run.inlineDecorations
             resolved.decorationEdge = run.decorationEdge
             return resolved
+        }
+    }
+}
+
+extension BlockLayout {
+    /// Boxes whose margins never collapse with their children's (CSS 2.1
+    /// §8.3.1): floats, inline-blocks and table cells. The root is not among
+    /// them here: the page walker reads its folded block-start margin as the
+    /// page's inset.
+    static func establishesBlockFormattingContext(_ box: BlockBox) -> Bool {
+        box.style.isFloated || box.isInlineBlock || box.style.display == .tableCell
+    }
+}
+
+private extension CSSLength {
+    /// A percentage height has no definite containing block in normal flow and
+    /// behaves as auto (see the height resolution below).
+    var isAutoForMarginCollapsing: Bool {
+        switch self {
+        case .auto, .percent: return true
+        default: return false
         }
     }
 }

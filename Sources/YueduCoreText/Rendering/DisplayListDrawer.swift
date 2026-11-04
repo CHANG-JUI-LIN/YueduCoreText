@@ -63,7 +63,13 @@ public enum DisplayListDrawer {
     }
 
     /// One bordered box: background (clipped to radius) + four border edges.
-    private static func drawFill(_ item: DisplayFillItem, in context: CGContext) {
+    /// `sideOrder` is the canonical sides in the order WebKit paints the
+    /// physical top, bottom, left and right.
+    private static func drawFill(_ item: DisplayFillItem, sideOrder: [BoxSide] = [.top, .bottom, .left, .right],
+                                 in context: CGContext) {
+        // Bevelled edges take their colours by physical side, so they resolve
+        // before the vertical branch below maps the sides to canonical ones.
+        let item = item.resolvingBevelEdges()
         let rect = item.rect.rawValue
         context.saveGState()
         defer { context.restoreGState() }
@@ -81,7 +87,8 @@ public enum DisplayListDrawer {
                 borderTop: item.borderRight, borderBottom: item.borderLeft,
                 borderLeft: item.borderTop, borderRight: item.borderBottom,
                 nodeID: item.nodeID, writingMode: .horizontal,
-                fragmentPosition: item.fragmentPosition, isBackgroundPaint: item.isBackgroundPaint), in: context)
+                fragmentPosition: item.fragmentPosition, isBackgroundPaint: item.isBackgroundPaint,
+                followsTextColor: item.followsTextColor), sideOrder: [.left, .right, .bottom, .top], in: context)
             context.restoreGState()
             return
         }
@@ -139,7 +146,7 @@ public enum DisplayListDrawer {
             context.setLineWidth(width)
             // Dotted: round dots. Dashed: short dashes.
             switch style {
-            case .solid, .none:
+            case .solid, .none, .inset, .outset:
                 context.setLineDash(phase: 0, lengths: [])
             case .dotted:
                 // Visible dots: a 1×-width solid dot with a 2.5× gap. A
@@ -166,7 +173,7 @@ public enum DisplayListDrawer {
             color.setStroke()
             context.setLineWidth(width)
             switch style {
-            case .solid, .none:
+            case .solid, .none, .inset, .outset:
                 context.setLineDash(phase: 0, lengths: [])
             case .dotted:
                 context.setLineDash(phase: 0, lengths: [width, width * 2.5])
@@ -263,43 +270,204 @@ public enum DisplayListDrawer {
             return
         }
 
-        // Top edge spans the full box width; side edges start below the top
-        // border width and end above the bottom border width so corners don't
-        // double-stroke.
+        // Dotted and dashed sides: the top edge spans the full box width;
+        // side edges start below the top border width and end above the
+        // bottom border width so corners don't double-stroke.
         let topInset = item.borderTop.width / 2
         let bottomInset = item.borderBottom.width / 2
         let leftInset = item.borderLeft.width / 2
         let rightInset = item.borderRight.width / 2
-
-        strokeEdge(
-            from: CGPoint(x: rect.minX + leftInset, y: rect.minY + topInset),
-            to: CGPoint(x: rect.maxX - rightInset, y: rect.minY + topInset),
-            width: item.borderTop.width,
-            style: item.borderTop.style,
-            color: item.borderTop.color
-        )
-        strokeEdge(
-            from: CGPoint(x: rect.minX + leftInset, y: rect.maxY - bottomInset),
-            to: CGPoint(x: rect.maxX - rightInset, y: rect.maxY - bottomInset),
-            width: item.borderBottom.width,
-            style: item.borderBottom.style,
-            color: item.borderBottom.color
-        )
-        strokeEdge(
-            from: CGPoint(x: rect.minX + leftInset, y: rect.minY + topInset),
-            to: CGPoint(x: rect.minX + leftInset, y: rect.maxY - bottomInset),
-            width: item.borderLeft.width,
-            style: item.borderLeft.style,
-            color: item.borderLeft.color
-        )
-        strokeEdge(
-            from: CGPoint(x: rect.maxX - rightInset, y: rect.minY + topInset),
-            to: CGPoint(x: rect.maxX - rightInset, y: rect.maxY - bottomInset),
-            width: item.borderRight.width,
-            style: item.borderRight.style,
-            color: item.borderRight.color
-        )
+        let edges: [BoxSide: BorderEdge] = [.top: item.borderTop, .bottom: item.borderBottom,
+                                            .left: item.borderLeft, .right: item.borderRight]
+        let outerRadius = roundedCorners.isEmpty ? 0 : radius
+        for side in sideOrder {
+            guard let edge = edges[side], edge.isVisible else { continue }
+            if edge.style == .solid {
+                fillSolidSide(side, of: item, rect: rect, outerRadius: outerRadius,
+                              roundedCorners: roundedCorners, in: context)
+                continue
+            }
+            switch side {
+            case .top:
+                strokeEdge(from: CGPoint(x: rect.minX + leftInset, y: rect.minY + topInset),
+                           to: CGPoint(x: rect.maxX - rightInset, y: rect.minY + topInset),
+                           width: edge.width, style: edge.style, color: edge.color)
+            case .bottom:
+                strokeEdge(from: CGPoint(x: rect.minX + leftInset, y: rect.maxY - bottomInset),
+                           to: CGPoint(x: rect.maxX - rightInset, y: rect.maxY - bottomInset),
+                           width: edge.width, style: edge.style, color: edge.color)
+            case .left:
+                strokeEdge(from: CGPoint(x: rect.minX + leftInset, y: rect.minY + topInset),
+                           to: CGPoint(x: rect.minX + leftInset, y: rect.maxY - bottomInset),
+                           width: edge.width, style: edge.style, color: edge.color)
+            case .right:
+                strokeEdge(from: CGPoint(x: rect.maxX - rightInset, y: rect.minY + topInset),
+                           to: CGPoint(x: rect.maxX - rightInset, y: rect.maxY - bottomInset),
+                           width: edge.width, style: edge.style, color: edge.color)
+            }
+        }
         context.restoreGState()
+    }
+
+    private enum BoxSide { case top, bottom, left, right }
+
+    /// A solid side of a border that is not one uniform frame, as WebKit's
+    /// `BorderPainter` paints it (`paintOneBorderSide`,
+    /// `clipBorderSidePolygon`): its part of the border ring between the
+    /// outer and inner borders, rounded where the box is, cut from each
+    /// neighbour along the line from their outer corner to their inner one.
+    /// The cut is antialiased where the neighbour is another colour and
+    /// aliased where it is the same, so a join of one colour leaves no seam.
+    ///
+    /// Measured, S001 ua-all (dpr 3): `cc2`'s red left meets its black
+    /// bottom on the diagonal, the pixel there (191, 64, 0), the bottom
+    /// painted first; `ri`'s 4px inset border with a 10px radius keeps its
+    /// curve, 180 where its 44 top meets its 212 right, the top first.
+    private static func fillSolidSide(
+        _ side: BoxSide, of item: DisplayFillItem, rect: CGRect, outerRadius: CGFloat,
+        roundedCorners: UIRectCorner, in context: CGContext
+    ) {
+        func occupied(_ edge: BorderEdge) -> CGFloat { edge.style == .none ? 0 : edge.width }
+        let top = occupied(item.borderTop), bottom = occupied(item.borderBottom)
+        let left = occupied(item.borderLeft), right = occupied(item.borderRight)
+        let inner = CGRect(x: rect.minX + left, y: rect.minY + top,
+                           width: max(0, rect.width - left - right), height: max(0, rect.height - top - bottom))
+        func outer(_ corner: UIRectCorner) -> CGFloat { roundedCorners.contains(corner) ? outerRadius : 0 }
+        let outerRadii = CornerRadii(
+            topLeft: CGSize(width: outer(.topLeft), height: outer(.topLeft)),
+            topRight: CGSize(width: outer(.topRight), height: outer(.topRight)),
+            bottomRight: CGSize(width: outer(.bottomRight), height: outer(.bottomRight)),
+            bottomLeft: CGSize(width: outer(.bottomLeft), height: outer(.bottomLeft)))
+        let innerRadii = CornerRadii(
+            topLeft: CGSize(width: max(0, outer(.topLeft) - left), height: max(0, outer(.topLeft) - top)),
+            topRight: CGSize(width: max(0, outer(.topRight) - right), height: max(0, outer(.topRight) - top)),
+            bottomRight: CGSize(width: max(0, outer(.bottomRight) - right), height: max(0, outer(.bottomRight) - bottom)),
+            bottomLeft: CGSize(width: max(0, outer(.bottomLeft) - left), height: max(0, outer(.bottomLeft) - bottom)))
+
+        // `findIntersection`: where the line through p1 and p2 crosses the
+        // one through d1 and d2.
+        func intersection(_ p1: CGPoint, _ p2: CGPoint, _ d1: CGPoint, _ d2: CGPoint) -> CGPoint? {
+            let px = p2.x - p1.x, py = p2.y - p1.y, dx = d2.x - d1.x, dy = d2.y - d1.y
+            let denominator = px * dy - py * dx
+            guard denominator != 0 else { return nil }
+            let t = ((d1.x - p1.x) * dy - (d1.y - p1.y) * dx) / denominator
+            return CGPoint(x: p1.x + t * px, y: p1.y + t * py)
+        }
+        // The side's quad from the outer corner at its start, through the
+        // inner corners, to the outer corner at its end; at a rounded inner
+        // corner the cut runs on to the chord of the inner curve, so the
+        // whole ring there is divided.
+        var quad: [CGPoint]
+        let first: BorderEdge, second: BorderEdge, edge: BorderEdge
+        switch side {
+        case .top:
+            edge = item.borderTop; first = item.borderLeft; second = item.borderRight
+            quad = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: inner.minX, y: inner.minY),
+                    CGPoint(x: inner.maxX, y: inner.minY), CGPoint(x: rect.maxX, y: rect.minY)]
+            let a = innerRadii.topLeft, b = innerRadii.topRight
+            if a != .zero, let p = intersection(quad[0], quad[1], CGPoint(x: quad[1].x + a.width, y: quad[1].y),
+                                                CGPoint(x: quad[1].x, y: quad[1].y + a.height)) { quad[1] = p }
+            if b != .zero, let p = intersection(quad[3], quad[2], CGPoint(x: quad[2].x - b.width, y: quad[2].y),
+                                                CGPoint(x: quad[2].x, y: quad[2].y + b.height)) { quad[2] = p }
+        case .left:
+            edge = item.borderLeft; first = item.borderTop; second = item.borderBottom
+            quad = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: inner.minX, y: inner.minY),
+                    CGPoint(x: inner.minX, y: inner.maxY), CGPoint(x: rect.minX, y: rect.maxY)]
+            let a = innerRadii.topLeft, b = innerRadii.bottomLeft
+            if a != .zero, let p = intersection(quad[0], quad[1], CGPoint(x: quad[1].x + a.width, y: quad[1].y),
+                                                CGPoint(x: quad[1].x, y: quad[1].y + a.height)) { quad[1] = p }
+            if b != .zero, let p = intersection(quad[3], quad[2], CGPoint(x: quad[2].x + b.width, y: quad[2].y),
+                                                CGPoint(x: quad[2].x, y: quad[2].y - b.height)) { quad[2] = p }
+        case .bottom:
+            edge = item.borderBottom; first = item.borderLeft; second = item.borderRight
+            quad = [CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: inner.minX, y: inner.maxY),
+                    CGPoint(x: inner.maxX, y: inner.maxY), CGPoint(x: rect.maxX, y: rect.maxY)]
+            let a = innerRadii.bottomLeft, b = innerRadii.bottomRight
+            if a != .zero, let p = intersection(quad[0], quad[1], CGPoint(x: quad[1].x + a.width, y: quad[1].y),
+                                                CGPoint(x: quad[1].x, y: quad[1].y - a.height)) { quad[1] = p }
+            if b != .zero, let p = intersection(quad[3], quad[2], CGPoint(x: quad[2].x - b.width, y: quad[2].y),
+                                                CGPoint(x: quad[2].x, y: quad[2].y - b.height)) { quad[2] = p }
+        case .right:
+            edge = item.borderRight; first = item.borderTop; second = item.borderBottom
+            quad = [CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: inner.maxX, y: inner.minY),
+                    CGPoint(x: inner.maxX, y: inner.maxY), CGPoint(x: rect.maxX, y: rect.maxY)]
+            let a = innerRadii.topRight, b = innerRadii.bottomRight
+            if a != .zero, let p = intersection(quad[0], quad[1], CGPoint(x: quad[1].x - a.width, y: quad[1].y),
+                                                CGPoint(x: quad[1].x, y: quad[1].y + a.height)) { quad[1] = p }
+            if b != .zero, let p = intersection(quad[3], quad[2], CGPoint(x: quad[2].x - b.width, y: quad[2].y),
+                                                CGPoint(x: quad[2].x, y: quad[2].y - b.height)) { quad[2] = p }
+        }
+        func matches(_ other: BorderEdge) -> Bool {
+            other.isVisible && other.style == edge.style && other.color == edge.color
+        }
+        let firstMatches = matches(first), secondMatches = matches(second)
+
+        context.saveGState()
+        defer { context.restoreGState() }
+        let ring = CGMutablePath()
+        ring.addPath(roundedPath(rect, outerRadii))
+        if !inner.isEmpty { ring.addPath(roundedPath(inner, innerRadii)) }
+        context.addPath(ring)
+        context.clip(using: .evenOdd)
+        func clip(_ points: [CGPoint], antialias: Bool) {
+            context.setShouldAntialias(antialias)
+            context.beginPath()
+            context.addLines(between: points)
+            context.closePath()
+            context.clip()
+        }
+        let horizontal = side == .top || side == .bottom
+        if firstMatches == secondMatches {
+            clip(quad, antialias: !firstMatches)
+        } else {
+            // One end aliased, the other not: each clip squares off the end
+            // the other one cuts.
+            let squaredEnd = horizontal ? CGPoint(x: quad[3].x, y: quad[2].y) : CGPoint(x: quad[2].x, y: quad[3].y)
+            clip([quad[0], quad[1], quad[2], squaredEnd, quad[3]], antialias: !firstMatches)
+            let squaredStart = horizontal ? CGPoint(x: quad[0].x, y: quad[1].y) : CGPoint(x: quad[1].x, y: quad[0].y)
+            clip([quad[0], squaredStart, quad[1], quad[2], quad[3]], antialias: !secondMatches)
+        }
+        context.setShouldAntialias(true)
+        context.setFillColor(edge.color.cgColor)
+        context.fill(rect)
+    }
+
+    private struct CornerRadii {
+        var topLeft: CGSize, topRight: CGSize, bottomRight: CGSize, bottomLeft: CGSize
+    }
+
+    /// A rect with elliptical corners (cubic arcs).
+    private static func roundedPath(_ rect: CGRect, _ radii: CornerRadii) -> CGPath {
+        let k: CGFloat = 0.5522847498
+        let path = CGMutablePath()
+        let tl = radii.topLeft, tr = radii.topRight, br = radii.bottomRight, bl = radii.bottomLeft
+        path.move(to: CGPoint(x: rect.minX + tl.width, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - tr.width, y: rect.minY))
+        if tr != .zero {
+            path.addCurve(to: CGPoint(x: rect.maxX, y: rect.minY + tr.height),
+                          control1: CGPoint(x: rect.maxX - tr.width * (1 - k), y: rect.minY),
+                          control2: CGPoint(x: rect.maxX, y: rect.minY + tr.height * (1 - k)))
+        }
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br.height))
+        if br != .zero {
+            path.addCurve(to: CGPoint(x: rect.maxX - br.width, y: rect.maxY),
+                          control1: CGPoint(x: rect.maxX, y: rect.maxY - br.height * (1 - k)),
+                          control2: CGPoint(x: rect.maxX - br.width * (1 - k), y: rect.maxY))
+        }
+        path.addLine(to: CGPoint(x: rect.minX + bl.width, y: rect.maxY))
+        if bl != .zero {
+            path.addCurve(to: CGPoint(x: rect.minX, y: rect.maxY - bl.height),
+                          control1: CGPoint(x: rect.minX + bl.width * (1 - k), y: rect.maxY),
+                          control2: CGPoint(x: rect.minX, y: rect.maxY - bl.height * (1 - k)))
+        }
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl.height))
+        if tl != .zero {
+            path.addCurve(to: CGPoint(x: rect.minX + tl.width, y: rect.minY),
+                          control1: CGPoint(x: rect.minX, y: rect.minY + tl.height * (1 - k)),
+                          control2: CGPoint(x: rect.minX + tl.width * (1 - k), y: rect.minY))
+        }
+        path.closeSubpath()
+        return path
     }
 
     private static func drawText(
@@ -317,6 +485,14 @@ public enum DisplayListDrawer {
         } else {
             context.translateBy(x: item.rect.minX, y: item.baselineY)
         }
+        // CSS decorations go with the glyphs, as WebKit paints a text box:
+        // underlines and overlines under them, line-throughs over them.
+        let length = item.writingMode == .horizontal ? item.rect.width : item.rect.height
+        if !decorationOnly, !item.textDecorations.isEmpty {
+            TextDecorationPainter.draw(item.textDecorations, where: { $0 != .lineThrough },
+                                       length: length, line: line, string: string, in: context)
+        }
+        context.saveGState()
         context.scaleBy(x: 1, y: -1)
         context.textMatrix = .identity
         context.textPosition = .zero
@@ -340,6 +516,11 @@ public enum DisplayListDrawer {
                 context.textPosition = CGPoint(x: syntheticBoldOffset, y: 0)
                 CTLineDraw(line, context)
             }
+        }
+        context.restoreGState()
+        if !decorationOnly, !item.textDecorations.isEmpty {
+            TextDecorationPainter.draw(item.textDecorations, where: { $0 == .lineThrough },
+                                       length: length, line: line, string: string, in: context)
         }
         context.restoreGState()
     }

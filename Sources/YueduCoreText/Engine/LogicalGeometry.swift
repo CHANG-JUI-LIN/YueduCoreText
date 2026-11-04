@@ -150,6 +150,15 @@ struct LogicalGeometry {
             prefix = "margin"; side = String(property.dropFirst("margin-".count))
         case "padding-inline-start", "padding-inline-end", "padding-block-start", "padding-block-end":
             prefix = "padding"; side = String(property.dropFirst("padding-".count))
+        case _ where property.hasPrefix("border-block-") || property.hasPrefix("border-inline-"):
+            // `border-block-end`, `border-inline-start-color` and the like.
+            let parts = property.split(separator: "-").map(String.init)
+            guard (3...4).contains(parts.count), ["start", "end"].contains(parts[2]) else { return nil }
+            if parts.count == 4, !["width", "style", "color"].contains(parts[3]) { return nil }
+            let mapped = physicalProperty(forLogical: "margin-\(parts[1])-\(parts[2])", mode: mode).map {
+                "border-" + $0.dropFirst("margin-".count)
+            }
+            return parts.count == 4 ? mapped.map { "\($0)-\(parts[3])" } : mapped
         default:
             return nil
         }
@@ -183,6 +192,20 @@ struct LogicalGeometry {
         switch mode {
         case .horizontal: return edge.bottom
         case .verticalRTL:   return edge.left
+        }
+    }
+
+    static func setBlockStart(_ value: CGFloat, of edge: inout EdgeSizes, mode: ReaderWritingMode) {
+        switch mode {
+        case .horizontal: edge.top = value
+        case .verticalRTL: edge.right = value
+        }
+    }
+
+    static func setBlockEnd(_ value: CGFloat, of edge: inout EdgeSizes, mode: ReaderWritingMode) {
+        switch mode {
+        case .horizontal: edge.bottom = value
+        case .verticalRTL: edge.left = value
         }
     }
 

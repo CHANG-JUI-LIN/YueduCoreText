@@ -27,6 +27,38 @@ enum BrowserLayoutTestSupport {
         return (pages, doc)
     }
 
+    /// The reference document WebKit was measured with (S001: 17px PingFang
+    /// SC at line-height 1.5, an 8px body margin, `lang="zh-Hant"`) holding
+    /// `body`: 366 wide, or a 776 tall vertical-rl page.
+    static func webKitReference(
+        _ body: String, css: String = "", vertical: Bool = false, lang: String? = "zh-Hant"
+    ) async throws -> (pages: [PageFragments], doc: BrowserLayoutDocument) {
+        let reference = "html{font-size:17px;line-height:1.5;text-align:justify;font-family:\"PingFang SC\"}"
+        let width: CGFloat = vertical ? 3000 : 366
+        let height: CGFloat = vertical ? 776 : 20_000
+        var config = BrowserLayoutConfig(renderWidth: width, renderHeight: height, rootFontSize: 17,
+                                         fontFamilies: ["PingFangSC-Regular"], textColor: .black, backgroundColor: .white)
+        config.writingMode = vertical ? .verticalRTL : .horizontal
+        let html = "<html\(lang.map { " lang=\"\($0)\"" } ?? "")><body>\(body)</body></html>"
+        let doc = BrowserLayoutDocument(html: html, cssTexts: [reference, css], config: config)
+        let pages = try await doc.renderPages(containerSize: CGSize(width: width, height: height))
+        return (pages, doc)
+    }
+
+    /// The text fragment holding the first character of `text`'s first
+    /// occurrence after the first `from` in the source.
+    static func fragment(_ text: String, after from: String? = nil, in layout: (pages: [PageFragments], doc: BrowserLayoutDocument)) -> TextFragment? {
+        let source = layout.doc.lastSourceText as NSString
+        let anchor = from.map { source.range(of: $0) } ?? NSRange(location: 0, length: 0)
+        guard anchor.location != NSNotFound else { return nil }
+        let start = anchor.location + anchor.length
+        let found = source.range(of: text, range: NSRange(location: start, length: source.length - start))
+        guard found.location != NSNotFound else { return nil }
+        return allTextFragments(layout.pages).first {
+            $0.sourceRange.length > 0 && NSLocationInRange(found.location, $0.sourceRange)
+        }
+    }
+
     /// All text fragments across all pages, flattened in document order.
     static func allTextFragments(_ pages: [PageFragments]) -> [TextFragment] {
         var result: [TextFragment] = []

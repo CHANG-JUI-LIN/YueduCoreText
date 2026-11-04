@@ -27,6 +27,9 @@ struct InlineRun {
     /// A shaped-only inline box edge; true is inline-start, false inline-end.
     /// It reserves advance without inserting anything into chapter sourceText.
     var decorationEdge: Bool? = nil
+    /// Generated content (a `q`'s quotation marks): `text` is shaped and
+    /// drawn, and `sourceRange` is empty where it stands.
+    var isGeneratedText = false
 
     init(
         text: String,
@@ -201,7 +204,7 @@ enum InlineLayout {
                     .font: resolveFont(run.style),
                 ]))
             } else {
-                if let source = run.attributedSource {
+                if let source = run.attributedSource, !run.isGeneratedText {
                     attributed.append(source.attributedSubstring(from: run.sourceRange))
                 } else {
                     attributed.append(NSAttributedString(
@@ -211,11 +214,13 @@ enum InlineLayout {
                 }
             }
             // Only genuine text runs shift with the text baseline; replaced
-            // and delegate-backed runs align by their own box. The vertical
-            // writing mode aligns runs to a central baseline instead, where
-            // super/sub needs a different metric and stays unsupported.
-            if context.writingMode == .horizontal, run.style.verticalAlignOffset != 0,
-               !run.isAtomicUnit, run.decorationEdge == nil {
+            // and delegate-backed runs align by their own box. Across a
+            // vertical line the shift is the same amount towards the line's
+            // over side, the right in vertical-rl (measured, WebKit iOS 27.2:
+            // `sup` 6.67 and `sub` 4.39 at 17px, as horizontally); Core Text
+            // applies it to vertical runs along the line's ascent, which the
+            // drawer turns to the right.
+            if run.style.verticalAlignOffset != 0, !run.isAtomicUnit, run.decorationEdge == nil {
                 attributed.addAttribute(
                     .baselineOffset, value: run.style.verticalAlignOffset,
                     range: NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
@@ -235,16 +240,21 @@ enum InlineLayout {
         }
 
         if context.writingMode == .verticalRTL {
-            // The engine's own boxes (images, ruby, inline-box edges) stay upright, as
-            // they always have; every character is then set as CSS Writing Modes 3
-            // `text-orientation: mixed` sets it, by the pass the legacy engine runs too.
-            attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
-                                    value: true, range: NSRange(location: 0, length: attributed.length))
-            CJKTypography.applyOrientation(to: attributed)
+            applyVerticalOrientation(to: attributed)
         }
 
         let cssHeight = lineHeight ?? runs.first?.style.lineHeight
         let lineSpacing = runs.first?.style.configLineSpacing ?? 0
+        // The first line's root inline box (its block's font), in which list
+        // markers across a vertical line take their room and find their place:
+        // not its first box nor its largest (S001d 14-span-*: a 34px span at the
+        // start leaves the column at 34, a 10.2px one still widens it to 25).
+        let markerLineExtent: CGFloat? = context.writingMode == .verticalRTL && !context.listMarkers.isEmpty
+            ? (context.paragraphStyle ?? runs.first?.style).map {
+                let extent = roundedContentExtent(resolveFont($0))
+                return extent.ascent + extent.descent
+            }
+            : nil
         // Half-leading belongs to the inline box, not its glyph ink bounds.
         // Keep the existing vertical/ruby metrics while resolving horizontal
         // text struts and replaced elements independently around the baseline.
@@ -252,9 +262,7 @@ enum InlineLayout {
         // text range. Two algebraically equal copies rounded differently, so a
         // strut with the text's own font and line-height outvoted it by an ULP.
         func inlineBox(_ font: UIFont, lineHeight: CGFloat?) -> (above: CGFloat, below: CGFloat) {
-            let ink = font.ascender - font.descender
-            let leading = ((lineHeight ?? ink) - ink) / 2
-            return (font.ascender + leading, -font.descender + leading)
+            halfLeadingBox(font, lineHeight: lineHeight)
         }
         func lineMetrics(_ info: CoreTextLineBreaker.LineBreak) -> (height: CGFloat, baseline: CGFloat) {
             var above: CGFloat = -.greatestFiniteMagnitude
@@ -262,12 +270,55 @@ enum InlineLayout {
             if let strut = context.paragraphStyle, context.writingMode == .horizontal {
                 (above, below) = inlineBox(resolveFont(strut), lineHeight: strut.lineHeight)
             }
+            // A list marker takes no room along the line but sits on its first
+            // one, growing it. Horizontally it is an inline box of its own, in
+            // the list item's font and line-height; across a vertical line it
+            // takes the root inline box's content area about the central line,
+            // with no leading (measured, design §10).
+            if info.range.location == 0 {
+                if context.writingMode == .horizontal {
+                    for marker in context.listMarkers {
+                        above = max(above, marker.above)
+                        below = max(below, marker.below)
+                    }
+                } else if let markerLineExtent {
+                    above = max(above, markerLineExtent / 2)
+                    below = max(below, markerLineExtent / 2)
+                }
+            }
+            // A vertical line of text alone: every inline box sits on the
+            // central baseline, its line-height split evenly either side and
+            // carried by its baseline shift, the root inline box among them
+            // (measured, WebKit iOS 27.2: a `big` at 1.5 widens a 25.5 column
+            // to 30.58, a `sup` to 30.03, a `sub` to 27.77, a 30px span to 45,
+            // whether the shifted text stands upright or lies on its side).
+            // A line with ruby, a replaced element, an inline-block or a
+            // combined cell keeps the Core Text extent below.
+            let verticalTextOnly = context.writingMode != .horizontal && runs.indices.allSatisfy { index in
+                let run = runs[index]
+                let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
+                return part.length == 0 || run.decorationEdge != nil
+                    || (run.atomic == nil && run.ruby == nil && run.inlineBlock == nil && run.combined == nil)
+            }
             for (index, run) in runs.enumerated() {
                 let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
                 guard part.length > 0, run.decorationEdge == nil else { continue }
                 let font = resolveFont(run.style)
                 let cssRequested = run.style.lineHeight ?? cssHeight
-                if run.atomic != nil || run.ruby != nil || run.inlineBlock != nil || context.writingMode != .horizontal {
+                if verticalTextOnly {
+                    // The style's shift, not the attribute: text on its side
+                    // also carries `CJKTypography`'s centring offset there.
+                    let shift = run.style.verticalAlignOffset
+                    attributed.enumerateAttributes(in: part) { attributes, _, _ in
+                        let used = attributes[.font] as? UIFont ?? font
+                        var requested = cssRequested ?? used.pointSize
+                        if let p = attributes[.paragraphStyle] as? NSParagraphStyle, p.minimumLineHeight > 0 {
+                            requested = max(requested, p.minimumLineHeight)
+                        }
+                        above = max(above, requested / 2 + shift)
+                        below = max(below, requested / 2 - shift)
+                    }
+                } else if run.atomic != nil || run.ruby != nil || run.inlineBlock != nil || context.writingMode != .horizontal {
                     // The only paragraph style in this string is a Reader
                     // rule's line-height (the ruby run above forwards its
                     // base's; atomic runs never carry one). It must still size
@@ -293,7 +344,8 @@ enum InlineLayout {
                         // A CJK stand-in draws the run's own text: only a font a rule
                         // chose makes this a range with a font of its own.
                         let asked = attributes[CJKTypography.replacedFontAttribute] as? UIFont ?? used
-                        let ink = used.ascender - used.descender
+                        let content = roundedContentExtent(used)
+                        let ink = content.ascent + content.descent
                         var requested = cssRequested
                         if let p = attributes[.paragraphStyle] as? NSParagraphStyle, p.minimumLineHeight > 0 {
                             requested = max(requested ?? 0, p.minimumLineHeight)
@@ -309,8 +361,14 @@ enum InlineLayout {
                     }
                 }
             }
+            if verticalTextOnly, let root = context.paragraphStyle ?? runs.first?.style {
+                // The root inline box, in the block's font and line-height.
+                let half = (cssHeight ?? resolveFont(root).pointSize) / 2
+                above = max(above, half)
+                below = max(below, half)
+            }
             if !above.isFinite || !below.isFinite { above = info.ascent; below = info.descent }
-            if context.writingMode != .horizontal {
+            if context.writingMode != .horizontal, !verticalTextOnly {
                 let requested = cssHeight ?? 0
                 let leading = max(0, requested - info.ascent - info.descent) / 2
                 above = max(above, info.ascent + leading); below = max(below, info.descent + leading)
@@ -358,7 +416,7 @@ enum InlineLayout {
                 // Source range of this slice: shift by the run's source offset.
                 let sliceLen: Int
                 let sourceOffset: Int
-                if run.decorationEdge != nil {
+                if run.decorationEdge != nil || run.isGeneratedText {
                     sliceLen = 0
                     sourceOffset = run.sourceRange.location
                 } else if run.atomic != nil || run.ruby != nil || run.combined != nil || run.inlineBlock != nil {
@@ -407,6 +465,10 @@ enum InlineLayout {
                 )
                 laidOutRun.inlineDecorations = run.inlineDecorations
                 laidOutRun.isDecorationEdge = run.decorationEdge != nil
+                if run.isGeneratedText {
+                    laidOutRun.generatedText = (run.text as NSString).substring(
+                        with: NSRange(location: intersectStart - runStart, length: intersectEnd - intersectStart))
+                }
                 lineRuns.append(laidOutRun)
                 xCursor += width
             }
@@ -434,6 +496,7 @@ enum InlineLayout {
                     inlineBlock: last.inlineBlock
                 )
                 lineRuns[lineRuns.count - 1].inlineDecorations = last.inlineDecorations
+                lineRuns[lineRuns.count - 1].generatedText = last.generatedText
             }
 
             // Collapsing whitespace modes remove leading whitespace at the
@@ -454,7 +517,11 @@ enum InlineLayout {
                 maxWidth: interval.lineWidth
             )
             let contentX = interval.lineX + alignSlack
-            return LayoutLine(
+            if let root = context.paragraphStyle ?? lineRuns.first?.style {
+                lineRuns = TextDecorationLayout.decorate(lineRuns, root: root, writingMode: context.writingMode,
+                                                         font: resolveFont)
+            }
+            var line = LayoutLine(
                 runs: lineRuns,
                 height: height,
                 ascent: breakInfo.ascent,
@@ -467,6 +534,15 @@ enum InlineLayout {
                     for: lineRuns, baseline: top + baselineOffset, context: context
                 )
             )
+            if lineRange.location == 0 {
+                line.listMarkers = context.listMarkers.map { marker in
+                    PlacedListMarker(
+                        marker: marker,
+                        floatShift: floatShift(of: marker, band: blockOffsetY + top, height: height),
+                        blockShift: markerLineExtent.map { (marker.ascent + marker.descent - $0) / 2 } ?? 0)
+                }
+            }
+            return line
         }
 
         let breaker = CoreTextLineBreaker()
@@ -479,12 +555,11 @@ enum InlineLayout {
         // or line construction. Only float-affected boxes take the band-aware
         // incremental path below.
         if !needsPerLineIntervals, cursorSink == nil {
-            let effectiveMaxWidth = (runs.contains { $0.style.whiteSpace == .nowrap })
-                ? CGFloat.greatestFiniteMagnitude
-                : maxWidth
+            // `nowrap` text holds its own breaks (`TextBreakingAttributes.noWrap`);
+            // the rest of the paragraph wraps around it.
             let breaks = breaker.breakLines(
                 attributed: attributed,
-                maxWidth: effectiveMaxWidth
+                maxWidth: maxWidth
             )
             var yTop: CGFloat = 0
             let lines = breaks.map { breakInfo in
@@ -542,9 +617,7 @@ enum InlineLayout {
                     ? context.firstLineConstraint.apply(to: baseInterval)
                     : baseInterval
 
-                let effectiveMaxWidth = (runs.contains { $0.style.whiteSpace == .nowrap })
-                    ? CGFloat.greatestFiniteMagnitude
-                    : interval.lineWidth
+                let effectiveMaxWidth = interval.lineWidth
                 var trialIndex = lineStart
                 let candidate: CoreTextLineBreaker.LineBreak
                 let metrics: (height: CGFloat, baseline: CGFloat)
@@ -605,6 +678,71 @@ enum InlineLayout {
     }
 
 
+
+    /// Sets every character of a vertical line as CSS Writing Modes 3
+    /// `text-orientation: mixed` sets it, by the pass the legacy engine runs
+    /// too. The engine's own boxes (images, ruby, inline-box edges) stay
+    /// upright, as they always have. The one copy for a line's text and a list
+    /// marker's.
+    static func applyVerticalOrientation(to attributed: NSMutableAttributedString) {
+        attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
+                                value: true, range: NSRange(location: 0, length: attributed.length))
+        CJKTypography.applyOrientation(to: attributed)
+    }
+
+    /// WebKit's content area of `font`: its ascent and descent each rounded
+    /// up, as WebKit rounds every inline box's, after the font's own
+    /// adjustments (`webKitMetrics`). A line's inline boxes and a list
+    /// marker's room and place in vertical writing (design §10) are measured
+    /// in it.
+    static func roundedContentExtent(_ font: UIFont) -> (ascent: CGFloat, descent: CGFloat) {
+        let metrics = webKitMetrics(font)
+        return (ceil(metrics.ascent), ceil(metrics.descent))
+    }
+
+    /// The inline box of `font` at `lineHeight` about its baseline, half the
+    /// leading above and half below its content area (CSS 2.1 §10.8.1);
+    /// `normal` is the font's own line spacing. The one copy for struts, text
+    /// and list markers. Measured, WebKit iOS 27.2 (S001 ua-q-h): a 17px span
+    /// at 1.5 in a PingFang line grows it to 26.5 in Menlo (16 + 5 about a
+    /// 19 + 6 strut), 26 in the system font, Hiragino Mincho and Times New
+    /// Roman, 27 in Apple SD Gothic Neo and Snell Roundhand, 29 in Zapfino,
+    /// and leaves it at 25.5 in Helvetica, whose ascent gains 3.
+    static func halfLeadingBox(_ font: UIFont, lineHeight: CGFloat?) -> (above: CGFloat, below: CGFloat) {
+        let (ascent, descent) = roundedContentExtent(font)
+        let leading = ((lineHeight ?? webKitMetrics(font).lineSpacing) - ascent - descent) / 2
+        return (ascent + leading, descent + leading)
+    }
+
+    /// `font`'s vertical metrics as WebKit takes them (`FontCoreText.cpp`,
+    /// `FontBase::platformInit`): Times and Helvetica gain 15% of their height
+    /// above, to match their Microsoft counterparts; the normal line spacing
+    /// is the three metrics each rounded, taken before a Hiragino face is
+    /// given 3 below for marked-text underlines. WebKit's source lists
+    /// Courier with Times and Helvetica; on iOS 27.2 it keeps its own ascent
+    /// (measured: a 17px Courier box is 13 + 5, unadjusted it is 16 + 5).
+    private static func webKitMetrics(_ font: UIFont) -> (ascent: CGFloat, descent: CGFloat, lineSpacing: CGFloat) {
+        let ctFont = font as CTFont
+        var ascent = CTFontGetAscent(ctFont)
+        var descent = CTFontGetDescent(ctFont)
+        let lineGap = CTFontGetLeading(ctFont)
+        let family = CTFontCopyFamilyName(ctFont) as String
+        if ["times", "helvetica"].contains(family.lowercased()) {
+            ascent += ((ascent + descent) * 0.15).rounded()
+        }
+        let lineSpacing = ascent.rounded() + descent.rounded() + lineGap.rounded()
+        if descent < 3, lineGap >= 3, family.hasPrefix("Hiragino") { descent = 3 }
+        return (ascent, descent, lineSpacing)
+    }
+
+    /// How far left floats placed before `marker`'s list item reach into the
+    /// item's content box across the line band at `band`.
+    private static func floatShift(of marker: ListMarker, band: CGFloat, height: CGFloat) -> CGFloat {
+        guard let before = marker.listItem.floatsBeforeListItem, !before.floats.isEmpty else { return 0 }
+        let context = FloatContext(containerWidth: 0)
+        for float in before.floats { context.restore(float) }
+        return context.availableInterval(y: band, height: height, inlineRange: before.inlineRange).leftIntrusion
+    }
 
     /// Removes leading whitespace from the first run of a line when the run's
     /// whitespace mode collapses spaces (normal/nowrap/preLine).
@@ -695,24 +833,30 @@ enum InlineLayout {
     /// context and shifts every following fragment away from its drawn glyphs.
     private static func shapedAdvance(in line: CTLine, range: NSRange) -> CGFloat {
         var advance: CGFloat = 0
+        // Where each run starts along the line: the runs come in visual order,
+        // each as wide as its typographic bounds. Not the first glyph's
+        // position: a vertical run keeps its positions in the rotated glyph
+        // space, where the first is (-em/2, …), which put half an em into the
+        // first slice of a run split by an element boundary (S001 ua-all-v:
+        // `丙一<u>底線文字</u>` placed the underlined text 8.5 late).
+        var runStart: CGFloat = 0
         for run in CTLineGetGlyphRuns(line) as! [CTRun] {
             let rawRange = CTRunGetStringRange(run)
             let runRange = NSRange(location: rawRange.location, length: rawRange.length)
+            let width = CGFloat(CTRunGetTypographicBounds(run, CFRange(location: 0, length: 0), nil, nil, nil))
+            defer { runStart += width }
             let part = NSIntersectionRange(range, runRange)
             guard part.length > 0, CTRunGetGlyphCount(run) > 0 else { continue }
-            let width = CGFloat(CTRunGetTypographicBounds(run, CFRange(location: 0, length: 0), nil, nil, nil))
             if part == runRange {
                 advance += width
                 continue
             }
-            var origin = CGPoint.zero
-            CTRunGetPositions(run, CFRange(location: 0, length: 1), &origin)
             let rtl = CTRunGetStatus(run).contains(.rightToLeft)
             func offset(at index: Int) -> CGFloat {
                 // A bidi boundary has two caret offsets. The run's own edges
                 // select its affinity; interior indices retain ligature carets.
-                if index == runRange.location { return origin.x + (rtl ? width : 0) }
-                if index == NSMaxRange(runRange) { return origin.x + (rtl ? 0 : width) }
+                if index == runRange.location { return runStart + (rtl ? width : 0) }
+                if index == NSMaxRange(runRange) { return runStart + (rtl ? 0 : width) }
                 return GlyphBoundary.offset(line, at: index)
             }
             advance += abs(offset(at: NSMaxRange(part)) - offset(at: part.location))
@@ -867,7 +1011,7 @@ enum InlineLayout {
         // No family that resolves: the system font, as in the legacy engine. CJK text
         // gets its language's font from `CJKTypography.applyFonts`.
         let base = resolved
-            ?? style.fontFamilies.compactMap { UIFont(name: $0, size: style.fontSize) }.first
+            ?? style.fontFamilies.compactMap { installedFont(family: $0, size: style.fontSize, language: style.language) }.first
             ?? UIFont.systemFont(ofSize: style.fontSize)
         var font = base
         if style.fontWeight >= 600 || style.configBold {
@@ -892,6 +1036,15 @@ enum InlineLayout {
         return font
     }
 
+    /// One `font-family` entry as an installed font: a generic family as
+    /// WebKit picks it for the content language (`GenericFontFamily`), any
+    /// other name as the face it names.
+    static func installedFont(family: String, size: CGFloat, language: String?) -> UIFont? {
+        GenericFontFamily.isGeneric(family)
+            ? GenericFontFamily.font(named: family, language: language, size: size)
+            : UIFont(name: family, size: size)
+    }
+
     static func textAttributes(
         for style: ComputedStyle,
         resolver: (([String], Int, Bool, CGFloat) -> UIFont?)? = nil,
@@ -904,6 +1057,9 @@ enum InlineLayout {
             TextBreakingAttributes.hyphens: style.hyphens,
             TextBreakingAttributes.emergency: style.overflowWrap != "normal" || style.wordBreak == "break-all" || style.wordBreak == "break-word",
         ]
+        if style.whiteSpace == .nowrap {
+            attributes[TextBreakingAttributes.noWrap] = true
+        }
         if let language = style.language {
             attributes[TextBreakingAttributes.language] = language
             attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language

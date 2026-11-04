@@ -2,6 +2,48 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.13.0] - 2026-11-04
+
+List items draw their markers, and the user-agent stylesheet is WebKit's html.css (iOS 27.2) wherever the engine lays the element out: block margins, headings, `hr`, monospace, inline elements, `big`/`small`/`sup`/`sub`, text decorations, `q`'s quotation marks and `<font>`. The positions, sizes and colours were measured in a WKWebView; the wavy, dotted, dashed and double decoration lines follow WebKit's source and were not measured. The one deliberate difference is that `medium` is the reader's root font size where WebKit's is a fixed 16px. Most chapters lay out differently: see Migration.
+
+### Added
+
+- **List markers.** A `display: list-item` box draws an `outside` marker in horizontal and vertical-rl writing, numbered by the HTML ordinal value (`ol start`, `reversed`, `li value`, and items wrapped in other elements). `list-style-type` takes `decimal`, `decimal-leading-zero`, `lower-alpha`/`-latin`, `upper-alpha`/`-latin`, `lower-roman`, `upper-roman`, `disc`, `circle`, `square`, `cjk-decimal`, `trad-chinese-informal`, `cjk-ideographic`, `simp-chinese-informal` and `none`; an unknown name draws `decimal`. `list-style-position`, the `list-style` shorthand and the `ol`/`ul`/`li` `type` attributes apply. A counter is text with no source characters of its own (a zero-length range), so offsets, search, selection and listening never meet it; a bullet is a fill.
+- `UnsupportedFeature.listMarker` (`list-marker`): a chapter that draws an `inside` marker is refused by admission.
+- `DisplayList.spokenText(pageText:pageRange:paragraphRanges:)`: what VoiceOver reads for a page or scroll tile. Each paragraph that starts on it starts a line, and an ordered list's counter is read where its item starts ("1.", "一、"); bullets say nothing. For speech only.
+- `FillFragment.followsTextColor` and `DisplayFillItem.followsTextColor`: a list marker's bullet, or a box whose border is `currentColor`, follows a theme change that recolours text. Code that copies a fill must pass it on.
+- `BorderStyle.inset` and `.outset`, painted dark and light by physical side as WebKit does.
+- Text decorations: `text-decoration` and its longhands (`-line`, `-style`, `-color`, `-thickness`), `text-underline-offset`, `text-underline-position` and `text-decoration-skip-ink`, placed and snapped to device pixels as WebKit places them. Skip-ink breaks a line around Latin glyphs, not ideographs, and not in vertical writing. Images, ruby, tate-chu-yoko, inline-blocks and list markers draw none.
+- `q` prints the quotation marks of its content language and nesting depth (WebKit's table: 「」 for `zh-Hant` and `ja`, “” for `zh-TW`, `zh-HK`, `ko` and `en`, straight quotes for no language), as generated text with no source characters. `quotes` (`auto`, `none`, string pairs) applies.
+- The CSS generic families (`serif`, `sans-serif`, `cursive`, `fantasy`, `monospace`, `system-ui`) resolve to the face WebKit picks for the content language.
+- `CSSNamedColors` (the 148 CSS named colours and the HTML legacy colour parser) and `CSSRGB`.
+- `<font color size face>`, `<hr noshade size color width align>`, and logical border properties (`border-block-end` and the rest); per-side border colours, with `currentColor` as the initial value.
+- `HTMLPresentationalHintProperty` gains `listStyleType`, `color`, `fontSize`, `fontFamily`, `backgroundColor`, `borderColor`, `borderStyle`, `borderBottomWidth`, `marginLeft` and `marginRight`; `HTMLPresentationalHintValue` gains `listStyleType(_:)`, `color(_:)`, `fontSize(_:)`, `fontFamily(_:)`, `solidBorderStyle` and `auto`, with the new `HTMLListStyleType` and `HTMLFontSizeKeyword`. A host that switches over either enum exhaustively must handle them.
+
+### Changed
+
+- The user-agent margins are logical, so vertical-rl spaces them between columns: `ul`, `ol`, `menu`, `dir` and `dl` have 1em above and below (none when nested in a list) and `padding-inline-start: 40px` (on top in vertical-rl, where it was the physical left); `p` 1em; headings 0.67–2.33em of their own size; `blockquote` and `figure` 1em and 40px either side; `pre` 1em; `dd` 40px at its start; `hr` 0.5em.
+- Headings without an authored size are relative (`h1` is 2em), so they follow the reader's font size.
+- `hr` is a 1px inset gray border with an auto width (it had `width: 100%`). A side with `border-style: none` or `hidden` takes no width. Vertical chapters holding an `hr` are now laid out by the engine; one whose `hr` has an authored percentage width is still refused.
+- `pre`, `code`, `tt`, `kbd`, `samp`, `xmp`, `plaintext` and `listing` are monospace (Menlo).
+- An element html.css does not make a block is inline (CSS's initial value): `font`, `big`, `var`, `del`, `tt`, `kbd`, `samp` and custom tags were each laid out as a block. `noscript`, `datalist` and the other elements html.css hides are not drawn. `video` stays a block, as its placeholder image always was. Ruby whose base sits in such an element is now admitted.
+- `big` and `small` are ×1.2 and ÷1.2 of the parent's size; `sup` and `sub` are `smaller` and shifted, the shift now carried into inline children (`<sup><a>1</a></sup>`) and applied in vertical writing.
+- `cite`, `var`, `dfn` and `address` are italic; `center` centres its text and blocks (`-webkit-center`); `nobr` does not wrap; `u` and `ins` are underlined, `s`, `strike` and `del` struck through.
+- Absolute font-size keywords keep WebKit's proportions about the reader's root size (WebKit: 9, 10, 13, 16, 18, 24, 32, 48 at a 16px `medium`); `larger` and `smaller` are ×1.2 and ÷1.2.
+- Every inline box's ascent and descent are rounded up, and Times and Helvetica gain 15% above, as WebKit takes font metrics. A line's baseline moves down about 0.38 in PingFang, and a line mixing faces takes WebKit's height (26.5 with Menlo).
+- Named colours are CSS's (`green` is rgb(0, 128, 0), `gray` 128).
+- Solid border sides meet on the diagonal and keep rounded corners when their colours or widths differ, as WebKit's `BorderPainter` draws them.
+
+### Fixed
+
+- A block's last child's bottom margin passes out of a parent with no padding, border or height there (CSS 2.1 §8.3.1); a `<div><p>…</p></div>` before an element with no top margin lost the paragraph's margin.
+- `display: initial` and `unset` are inline; a `dialog` without `open` is not drawn.
+- A vertical line's first run no longer measures half an em too wide.
+
+### Migration
+
+Chapters with lists, headings, paragraphs in vertical writing, `blockquote`, `figure`, `pre`, `hr`, inline elements such as `font` or `sup`, or mixed fonts lay out differently, so pages and scroll heights move; offsets into `sourceText` do not (counters and quotation marks own no characters). A host that measured layout against 0.12 measures again. Chapters with an `inside` marker now go to the host's fallback, and vertical chapters with an `hr` or with ruby inside `font` come to the engine, so reading positions saved in them map to a different layout.
+
 ## [0.12.1] - 2026-11-03
 
 A paged chapter can be laid out off the main thread, and a cancelled layout stops part-way.

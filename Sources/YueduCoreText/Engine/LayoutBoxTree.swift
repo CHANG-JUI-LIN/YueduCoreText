@@ -71,6 +71,10 @@ struct LineRun {
     let inlineBlock: BlockBox?
     var inlineDecorations: [InlineDecoration] = []
     var isDecorationEdge = false
+    /// What a generated run draws; its `sourceRange` is empty.
+    var generatedText: String? = nil
+    /// The text decorations a text run draws (`TextDecorationLayout`).
+    var textDecorations: [TextDecorationPaint] = []
 
     init(
         sourceRange: NSRange,
@@ -117,6 +121,9 @@ struct LayoutLine {
     /// ligatures, RTL, emoji clusters). Nil when unavailable.
     let ctLine: CTLine?
     var inlineDecorations: [InlineLineDecoration] = []
+    /// The list markers sitting on this line: on its formatting context's first
+    /// line only, and two when a nested list starts its parent item.
+    var listMarkers: [PlacedListMarker] = []
 }
 
 enum BlockBoxType {
@@ -175,6 +182,17 @@ final class BlockBox {
     /// already distributed); on a cell box, its column span.
     var tableColumnMaxContent: [CGFloat]? = nil
     var tableColspan: Int = 1
+    /// Markers whose list items' first formatted line is this box's first
+    /// line (`ListMarker.anchor`), outermost item first. Box tree input, like
+    /// `inlineRuns`.
+    var listMarkers: [ListMarker] = []
+    /// This list item's own marker when no line takes it: an empty item, or
+    /// one whose content starts with a table or a block image.
+    var unanchoredListMarker: ListMarker? = nil
+    /// On a list item with a marker: the floats already placed when BlockLayout
+    /// entered it, and its content box's inline range, both in its float
+    /// context's coordinates. Only these floats push its marker.
+    var floatsBeforeListItem: (floats: [ActiveFloat], inlineRange: Range<CGFloat>)? = nil
     /// This box is an inline-block's content, laid out on its parent's line
     /// (`InlineRun.inlineBlock`) instead of in the parent's block flow.
     var isInlineBlock = false

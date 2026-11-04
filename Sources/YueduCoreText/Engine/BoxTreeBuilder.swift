@@ -80,6 +80,7 @@ enum BoxTreeBuilder {
         boxCount: inout Int
     ) -> BlockBox {
         boxCount += 1
+        let contentStart = sourceText.currentOffset
         var kids: [BlockBox] = []
         var pendingInline: [InlineRun] = []
         var assignedFirstInlineContext = false
@@ -233,6 +234,11 @@ enum BoxTreeBuilder {
             assignedFirstInlineContext = true
         }
         _ = assignedFirstInlineContext
+        // The item's content is complete, so its first line can be found now.
+        if let marker = ListMarker.make(for: box, ordinal: node.listItemOrdinal, nodeID: node.nodeID,
+                                        sourceLocation: contentStart, config: config) {
+            ListMarker.anchor(marker, in: box)
+        }
         return box
     }
 
@@ -515,7 +521,8 @@ enum BoxTreeBuilder {
             let adjusted = ComputedStyleNode(
                 tag: element.tag, semanticElement: element.semanticElement,
                 style: cellStyle, children: element.children, nodeID: element.nodeID,
-                linkTarget: element.linkTarget, anchorID: element.anchorID
+                linkTarget: element.linkTarget, anchorID: element.anchorID,
+                listItemOrdinal: element.listItemOrdinal
             )
             let cell = buildBlockInternal(
                 for: adjusted, config: config, containerWidth: containerWidth,
@@ -677,6 +684,22 @@ enum BoxTreeBuilder {
             sourceStart = sourceText.currentOffset
         }
         defer { closePiece(closesBox: true, runs: &runs, sourceEnd: sourceText.currentOffset) }
+        // html.css `q::before { content: open-quote }` and `q::after { content:
+        // close-quote }`: marks in the q's own style that take their room on
+        // the line but hold no source text, so reading positions, search and
+        // selection never meet them.
+        let quote = node.tag == "q"
+            ? QuoteMarks.pair(node.style.quotes ?? QuoteMarks.pairs(forLanguage: node.style.language),
+                              depth: node.style.quoteDepth - 1)
+            : nil
+        if let mark = quote?.open, !mark.isEmpty {
+            runs.append(generatedTextRun(mark, node: node, at: sourceText.currentOffset))
+        }
+        defer {
+            if let mark = quote?.close, !mark.isEmpty {
+                runs.append(generatedTextRun(mark, node: node, at: sourceText.currentOffset))
+            }
+        }
         for child in node.children {
             switch child {
             case .text(let raw):
@@ -735,6 +758,15 @@ enum BoxTreeBuilder {
                 }
             }
         }
+    }
+
+    /// Text that the style generates, with no source of its own: an empty
+    /// source range where it stands.
+    private static func generatedTextRun(_ text: String, node: ComputedStyleNode, at offset: Int) -> InlineRun {
+        var run = InlineRun(text: text, style: node.style, sourceRange: NSRange(location: offset, length: 0),
+                            nodeID: node.nodeID, linkTarget: node.linkTarget)
+        run.isGeneratedText = true
+        return run
     }
 
     private static func preserveInlineDecoration(
@@ -1170,6 +1202,8 @@ enum BoxTreeBuilder {
     private static func anonymousBlockStyle(inheriting style: ComputedStyle) -> ComputedStyle {
         var style = style
         style.display = .block
+        // Not inherited: a list item's anonymous boxes are not list items.
+        style.isListItem = false
         style.cssFloat = .none
         style.cssClear = .none
         style.marginTop = .px(0); style.marginRight = .px(0)
@@ -1185,7 +1219,8 @@ enum BoxTreeBuilder {
         style.pendingBorderBottomWidth = nil; style.pendingBorderLeftWidth = nil
         style.borderTopStyle = .solid; style.borderRightStyle = .solid
         style.borderBottomStyle = .solid; style.borderLeftStyle = .solid
-        style.borderColor = nil
+        style.borderTopColor = nil; style.borderRightColor = nil
+        style.borderBottomColor = nil; style.borderLeftColor = nil
         style.borderRadius = 0; style.pendingBorderRadius = nil
         style.backgroundColor = nil; style.backgroundImage = nil
         // The parent's rotation already turns this box with it; keeping the

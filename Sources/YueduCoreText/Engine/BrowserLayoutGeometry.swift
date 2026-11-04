@@ -172,14 +172,78 @@ public enum BorderStyle: Equatable, Sendable {
     case solid
     case dotted
     case dashed
+    /// Solid, darkened on the physical top and left and lightened on the
+    /// bottom and right. The painter resolves the colours
+    /// (`BorderEdge.paintedBevel(topOrLeft:)`).
+    case inset
+    /// `inset` with the darkened and lightened sides swapped.
+    case outset
 
     public static func from(cssRaw: String?) -> BorderStyle {
         switch (cssRaw ?? "solid").lowercased() {
         case "dotted": return .dotted
         case "dashed": return .dashed
+        case "inset": return .inset
+        case "outset": return .outset
         case "none", "hidden": return .none
         default: return .solid
         }
+    }
+}
+
+extension BorderEdge {
+    /// An `inset` or `outset` edge as the solid edge WebKit paints on one
+    /// physical side; any other edge unchanged.
+    ///
+    /// WebKit (`BorderPainter::calculateBorderStyleColor`) darkens the top and
+    /// left of an inset border and lightens its bottom and right, and the
+    /// reverse for outset, by physical side: a vertical-rl `hr` is dark on its
+    /// physical left. Darkening skips colours at or below the luminance of
+    /// rgb(32,32,32), lightening those at or above rgb(235,235,235). Measured on
+    /// iOS 27.2: `hr`'s rgb(128,128,128) paints 44 and 212.
+    func paintedBevel(topOrLeft: Bool) -> BorderEdge {
+        let darkens: Bool
+        switch style {
+        case .inset: darkens = topOrLeft
+        case .outset: darkens = !topOrLeft
+        case .none, .solid, .dotted, .dashed: return self
+        }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        // A type guard, not a fallback: every CSS-parsed colour is RGB or gray,
+        // which `getRed` converts; only a pattern colour has no channels.
+        guard color.getRed(&r, green: &g, blue: &b, alpha: &a) else {
+            return BorderEdge(width: width, color: color, style: .solid)
+        }
+        // A CSS colour is 8-bit in WebKit; quantizing keeps rgb(32,32,32)
+        // itself on the right side of the threshold it defines.
+        func quantized(_ c: CGFloat) -> CGFloat { (min(max(c, 0), 1) * 255).rounded() / 255 }
+        (r, g, b) = (quantized(r), quantized(g), quantized(b))
+        func linear(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        func luminance(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGFloat {
+            0.2126729 * linear(r) + 0.7151522 * linear(g) + 0.0721750 * linear(b)
+        }
+        let v = max(r, g, b)
+        let multiplier: CGFloat
+        if darkens {
+            guard luminance(r, g, b) > luminance(32 / 255, 32 / 255, 32 / 255)
+            else { return BorderEdge(width: width, color: color, style: .solid) }
+            multiplier = max(0, (v - 0.33) / v)
+        } else {
+            guard luminance(r, g, b) < luminance(235 / 255, 235 / 255, 235 / 255)
+            else { return BorderEdge(width: width, color: color, style: .solid) }
+            // WebKit's `lightenedBlack`: black has no hue to scale.
+            guard v > 0 else {
+                return BorderEdge(width: width, color: UIColor(white: 84 / 255, alpha: a), style: .solid)
+            }
+            multiplier = min(1, v + 0.33) / v
+        }
+        // WebKit rounds the result to 8-bit sRGB.
+        func byte(_ c: CGFloat) -> CGFloat { (min(max(c * multiplier, 0), 1) * 255).rounded() / 255 }
+        return BorderEdge(
+            width: width,
+            color: UIColor(red: byte(r), green: byte(g), blue: byte(b), alpha: a),
+            style: .solid
+        )
     }
 }
 

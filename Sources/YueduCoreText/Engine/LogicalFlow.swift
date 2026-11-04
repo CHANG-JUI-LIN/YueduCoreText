@@ -31,11 +31,14 @@ enum LogicalFlow {
         s.borderBottomWidth = p.borderLeftWidth; s.borderLeftWidth = p.borderTopWidth
         s.borderTopStyle = p.borderRightStyle; s.borderRightStyle = p.borderBottomStyle
         s.borderBottomStyle = p.borderLeftStyle; s.borderLeftStyle = p.borderTopStyle
+        s.borderTopColor = p.borderRightColor; s.borderRightColor = p.borderBottomColor
+        s.borderBottomColor = p.borderLeftColor; s.borderLeftColor = p.borderTopColor
         return ComputedStyleNode(tag: node.tag, semanticElement: node.semanticElement, style: s,
             children: node.children.map {
                 if case .element(let child) = $0 { return .element(styleTree(child, mode: mode)) }
                 return $0
-            }, nodeID: node.nodeID, linkTarget: node.linkTarget, anchorID: node.anchorID)
+            }, nodeID: node.nodeID, linkTarget: node.linkTarget, anchorID: node.anchorID,
+            listItemOrdinal: node.listItemOrdinal)
     }
 
     static func documentExtent(_ root: BlockBox) -> CGFloat {
@@ -59,12 +62,16 @@ enum LogicalFlow {
             case .text(let t) where t.isCombinedUpright:
                 return .text(combinedUpright(t, extent: extent, documentBlockExtent: documentBlockExtent))
             case .text(let t):
-                return .text(TextFragment(sourceRange: t.sourceRange, nodeID: t.nodeID,
+                // Decorations are measured from the baseline toward the line's
+                // under side, which turns with it.
+                var turned = TextFragment(sourceRange: t.sourceRange, nodeID: t.nodeID,
                     linkTarget: t.linkTarget, writingMode: mode,
                     rect: PageLocalRect(rawValue: rect(t.rect.rawValue, blockExtent: extent)),
                     documentRect: DocumentRect(rawValue: rect(t.documentRect.rawValue, blockExtent: documentBlockExtent)),
                     baselineY: extent - t.baselineY, font: t.font, color: t.color, ctLine: t.ctLine,
-                    sourceMapping: t.sourceMapping, renderedTextOverride: t.renderedTextOverride))
+                    sourceMapping: t.sourceMapping, renderedTextOverride: t.renderedTextOverride)
+                turned.textDecorations = t.textDecorations
+                return .text(turned)
             case .fill(let f):
                 return .fill(FillFragment(
                     rect: PageLocalRect(rawValue: rect(f.rect.rawValue, blockExtent: extent)),
@@ -73,7 +80,7 @@ enum LogicalFlow {
                     borderTop: f.borderLeft, borderBottom: f.borderRight,
                     borderLeft: f.borderBottom, borderRight: f.borderTop,
                     nodeID: f.nodeID, writingMode: mode, fragmentPosition: f.fragmentPosition,
-                    isBackgroundPaint: f.isBackgroundPaint))
+                    isBackgroundPaint: f.isBackgroundPaint, followsTextColor: f.followsTextColor))
             case .image(let i):
                 return .image(ImageFragment(source: i.source, image: i.image, sourceRange: i.sourceRange,
                     nodeID: i.nodeID, linkTarget: i.linkTarget, writingMode: mode,

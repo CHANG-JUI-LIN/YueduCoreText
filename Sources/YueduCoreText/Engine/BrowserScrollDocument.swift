@@ -199,6 +199,7 @@ extension DisplayList {
                     renderedTextOverride: t.renderedTextOverride
                 )
                 translated.preparedDrawing = t.preparedDrawing
+                translated.textDecorations = t.textDecorations
                 result.append(.text(translated))
             case .fill(let f):
                 guard !filteringItems || f.rect.rawValue.intersects(documentRect) else { continue }
@@ -211,7 +212,8 @@ extension DisplayList {
                     borderLeft: f.borderLeft, borderRight: f.borderRight,
                     nodeID: f.nodeID, writingMode: f.writingMode,
                     fragmentPosition: f.fragmentPosition,
-                    isBackgroundPaint: f.isBackgroundPaint
+                    isBackgroundPaint: f.isBackgroundPaint,
+                    followsTextColor: f.followsTextColor
                 )))
             case .image(let i):
                 guard !filteringItems || i.rect.rawValue.intersects(documentRect) else { continue }

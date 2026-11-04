@@ -1,0 +1,243 @@
+import Foundation
+
+/// One level of quotation marks: what `open-quote` and `close-quote` print.
+struct QuotePair: Equatable {
+    let open: String
+    let close: String
+}
+
+/// The quotation marks a `q` prints (CSS Generated Content 3 §3.1; html.css
+/// `q::before { content: open-quote }`, `q::after { content: close-quote }`).
+enum QuoteMarks {
+
+    /// The pairs `quotes: auto` gives text in `language`, outermost first,
+    /// as WebKit picks them (`RenderTreeUpdaterGeneratedContent.cpp`): the
+    /// language's entry in its table, where a two-subtag entry such as
+    /// `zh-hant` matches a later subtag of the tag before any singleton
+    /// (RFC 4647 §3.3.2), else the entry for the primary subtag. A tag the
+    /// table has no entry for, an empty one, or one holding anything but
+    /// ASCII letters and hyphens gets straight quotes. Measured on iOS 27.2:
+    /// `zh-TW`, `zh-HK` and `ko` print “”, `zh-Hant` and `ja` 「」, `und`
+    /// and a document with no `lang` " and '.
+    static func pairs(forLanguage language: String?) -> [QuotePair] {
+        guard let language, !language.isEmpty else { return straight }
+        let key = language.lowercased()
+        guard key.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || $0 == "-" }) else { return straight }
+        let subtags = key.split(separator: "-", omittingEmptySubsequences: false)
+        let primary = subtags[0]
+        for subtag in subtags.dropFirst() {
+            if subtag.count == 1 { break }
+            if let entry = table["\(primary)-\(subtag)"] { return entry.pairs }
+        }
+        return table[String(primary)]?.pairs ?? straight
+    }
+
+    /// The pair at `depth` (0 outermost); past the last, the last repeats.
+    static func pair(_ pairs: [QuotePair], depth: Int) -> QuotePair? {
+        guard let last = pairs.last else { return nil }
+        return depth < pairs.count ? pairs[max(0, depth)] : last
+    }
+
+    private static let straight = [QuotePair(open: "\"", close: "\""), QuotePair(open: "'", close: "'")]
+
+    /// WebKit's table, open and close at depth 0, then at every depth after.
+    private static let table: [String: [UInt16]] = [
+        "af": [0x201C, 0x201D, 0x2018, 0x2019],
+        "agq": [0x201E, 0x201D, 0x201A, 0x2019],
+        "ak": [0x201C, 0x201D, 0x2018, 0x2019],
+        "am": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "ar": [0x201D, 0x201C, 0x2019, 0x2018],
+        "asa": [0x201C, 0x201D, 0x2018, 0x2019],
+        "az-cyrl": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "bas": [0x00AB, 0x00BB, 0x201E, 0x201C],
+        "bem": [0x201C, 0x201D, 0x2018, 0x2019],
+        "bez": [0x201C, 0x201D, 0x2018, 0x2019],
+        "bg": [0x201E, 0x201C, 0x201A, 0x2018],
+        "bm": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "bn": [0x201C, 0x201D, 0x2018, 0x2019],
+        "br": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "brx": [0x201C, 0x201D, 0x2018, 0x2019],
+        "bs-cyrl": [0x201E, 0x201C, 0x201A, 0x2018],
+        "ca": [0x201C, 0x201D, 0x00AB, 0x00BB],
+        "cgg": [0x201C, 0x201D, 0x2018, 0x2019],
+        "chr": [0x201C, 0x201D, 0x2018, 0x2019],
+        "cs": [0x201E, 0x201C, 0x201A, 0x2018],
+        "da": [0x201C, 0x201D, 0x2018, 0x2019],
+        "dav": [0x201C, 0x201D, 0x2018, 0x2019],
+        "de": [0x201E, 0x201C, 0x201A, 0x2018],
+        "de-ch": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "dje": [0x201C, 0x201D, 0x2018, 0x2019],
+        "dua": [0x00AB, 0x00BB, 0x2018, 0x2019],
+        "dyo": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "dz": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ebu": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ee": [0x201C, 0x201D, 0x2018, 0x2019],
+        "el": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "en": [0x201C, 0x201D, 0x2018, 0x2019],
+        "en-gb": [0x201C, 0x201D, 0x2018, 0x2019],
+        "es": [0x201C, 0x201D, 0x00AB, 0x00BB],
+        "et": [0x201E, 0x201C, 0x201A, 0x2018],
+        "eu": [0x201C, 0x201D, 0x00AB, 0x00BB],
+        "ewo": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "fa": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "ff": [0x201E, 0x201D, 0x201A, 0x2019],
+        "fi": [0x201D, 0x201D, 0x2019, 0x2019],
+        "fr": [0x00AB, 0x00BB, 0x00AB, 0x00BB],
+        "fr-ca": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "fr-ch": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "gsw": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "gu": [0x201C, 0x201D, 0x2018, 0x2019],
+        "guz": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ha": [0x201C, 0x201D, 0x2018, 0x2019],
+        "he": [0x0022, 0x0022, 0x0027, 0x0027],
+        "hi": [0x201C, 0x201D, 0x2018, 0x2019],
+        "hr": [0x201E, 0x201C, 0x201A, 0x2018],
+        "hu": [0x201E, 0x201D, 0x00BB, 0x00AB],
+        "id": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ig": [0x201C, 0x201D, 0x2018, 0x2019],
+        "it": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "ja": [0x300C, 0x300D, 0x300E, 0x300F],
+        "jgo": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "jmc": [0x201C, 0x201D, 0x2018, 0x2019],
+        "kab": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "kam": [0x201C, 0x201D, 0x2018, 0x2019],
+        "kde": [0x201C, 0x201D, 0x2018, 0x2019],
+        "kea": [0x201C, 0x201D, 0x2018, 0x2019],
+        "khq": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ki": [0x201C, 0x201D, 0x2018, 0x2019],
+        "kkj": [0x00AB, 0x00BB, 0x2039, 0x203A],
+        "kln": [0x201C, 0x201D, 0x2018, 0x2019],
+        "km": [0x201C, 0x201D, 0x2018, 0x2019],
+        "kn": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ko": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ksb": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ksf": [0x00AB, 0x00BB, 0x2018, 0x2019],
+        "lag": [0x201D, 0x201D, 0x2019, 0x2019],
+        "lg": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ln": [0x201C, 0x201D, 0x2018, 0x2019],
+        "lo": [0x201C, 0x201D, 0x2018, 0x2019],
+        "lt": [0x201E, 0x201C, 0x201E, 0x201C],
+        "lu": [0x201C, 0x201D, 0x2018, 0x2019],
+        "luo": [0x201C, 0x201D, 0x2018, 0x2019],
+        "luy": [0x201E, 0x201C, 0x201A, 0x2018],
+        "lv": [0x201C, 0x201D, 0x2018, 0x2019],
+        "mas": [0x201C, 0x201D, 0x2018, 0x2019],
+        "mer": [0x201C, 0x201D, 0x2018, 0x2019],
+        "mfe": [0x201C, 0x201D, 0x2018, 0x2019],
+        "mg": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "mgo": [0x201C, 0x201D, 0x2018, 0x2019],
+        "mk": [0x201E, 0x201C, 0x201A, 0x2018],
+        "ml": [0x201C, 0x201D, 0x2018, 0x2019],
+        "mr": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ms": [0x201C, 0x201D, 0x2018, 0x2019],
+        "mua": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "my": [0x201C, 0x201D, 0x2018, 0x2019],
+        "naq": [0x201C, 0x201D, 0x2018, 0x2019],
+        "nb": [0x00AB, 0x00BB, 0x2018, 0x2019],
+        "nd": [0x201C, 0x201D, 0x2018, 0x2019],
+        "nl": [0x201C, 0x201D, 0x2018, 0x2019],
+        "nmg": [0x201E, 0x201D, 0x00AB, 0x00BB],
+        "nn": [0x00AB, 0x00BB, 0x2018, 0x2019],
+        "nnh": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "nus": [0x201C, 0x201D, 0x2018, 0x2019],
+        "nyn": [0x201C, 0x201D, 0x2018, 0x2019],
+        "pl": [0x201E, 0x201D, 0x00AB, 0x00BB],
+        "pt": [0x201C, 0x201D, 0x2018, 0x2019],
+        "pt-pt": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "rn": [0x201D, 0x201D, 0x2019, 0x2019],
+        "ro": [0x201E, 0x201D, 0x00AB, 0x00BB],
+        "rof": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ru": [0x00AB, 0x00BB, 0x201E, 0x201C],
+        "rw": [0x00AB, 0x00BB, 0x2018, 0x2019],
+        "rwk": [0x201C, 0x201D, 0x2018, 0x2019],
+        "saq": [0x201C, 0x201D, 0x2018, 0x2019],
+        "sbp": [0x201C, 0x201D, 0x2018, 0x2019],
+        "seh": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ses": [0x201C, 0x201D, 0x2018, 0x2019],
+        "sg": [0x00AB, 0x00BB, 0x201C, 0x201D],
+        "shi": [0x00AB, 0x00BB, 0x201E, 0x201D],
+        "shi-tfng": [0x00AB, 0x00BB, 0x201E, 0x201D],
+        "si": [0x201C, 0x201D, 0x2018, 0x2019],
+        "sk": [0x201E, 0x201C, 0x201A, 0x2018],
+        "sl": [0x201E, 0x201C, 0x201A, 0x2018],
+        "sn": [0x201D, 0x201D, 0x2019, 0x2019],
+        "so": [0x201C, 0x201D, 0x2018, 0x2019],
+        "sq": [0x201E, 0x201C, 0x201A, 0x2018],
+        "sr": [0x201E, 0x201C, 0x201A, 0x2018],
+        "sr-latn": [0x201E, 0x201C, 0x201A, 0x2018],
+        "sv": [0x201D, 0x201D, 0x2019, 0x2019],
+        "sw": [0x201C, 0x201D, 0x2018, 0x2019],
+        "swc": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ta": [0x201C, 0x201D, 0x2018, 0x2019],
+        "te": [0x201C, 0x201D, 0x2018, 0x2019],
+        "teo": [0x201C, 0x201D, 0x2018, 0x2019],
+        "th": [0x201C, 0x201D, 0x2018, 0x2019],
+        "ti-er": [0x2018, 0x2019, 0x201C, 0x201D],
+        "to": [0x201C, 0x201D, 0x2018, 0x2019],
+        "tr": [0x201C, 0x201D, 0x2018, 0x2019],
+        "twq": [0x201C, 0x201D, 0x2018, 0x2019],
+        "tzm": [0x201C, 0x201D, 0x2018, 0x2019],
+        "uk": [0x00AB, 0x00BB, 0x201E, 0x201C],
+        "ur": [0x201D, 0x201C, 0x2019, 0x2018],
+        "vai": [0x201C, 0x201D, 0x2018, 0x2019],
+        "vai-latn": [0x201C, 0x201D, 0x2018, 0x2019],
+        "vi": [0x201C, 0x201D, 0x2018, 0x2019],
+        "vun": [0x201C, 0x201D, 0x2018, 0x2019],
+        "xh": [0x2018, 0x2019, 0x201C, 0x201D],
+        "xog": [0x201C, 0x201D, 0x2018, 0x2019],
+        "yav": [0x00AB, 0x00BB, 0x00AB, 0x00BB],
+        "yo": [0x201C, 0x201D, 0x2018, 0x2019],
+        "zh": [0x201C, 0x201D, 0x2018, 0x2019],
+        "zh-hant": [0x300C, 0x300D, 0x300E, 0x300F],
+        "zu": [0x201C, 0x201D, 0x2018, 0x2019]
+    ]
+
+    /// A `quotes` value: nil when it is not one, `.some(nil)` for `auto`,
+    /// an empty list for `none`, else the pairs its strings give.
+    static func parse(_ value: String) -> [QuotePair]?? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch trimmed.lowercased() {
+        case "auto", "initial": return .some(nil)
+        case "none": return .some([])
+        default: break
+        }
+        var strings: [String] = []
+        var characters = Array(trimmed.unicodeScalars)[...]
+        while let first = characters.first {
+            if first.properties.isWhitespace { characters.removeFirst(); continue }
+            guard first == "\"" || first == "'" else { return nil }
+            characters.removeFirst()
+            var string = String.UnicodeScalarView()
+            var closed = false
+            while let scalar = characters.popFirst() {
+                if scalar == first { closed = true; break }
+                guard scalar == "\\" else { string.append(scalar); continue }
+                // CSS Syntax §4.3.7: up to six hex digits and one white
+                // space after them, or the next character itself.
+                var hex = ""
+                while hex.count < 6, let digit = characters.first, digit.properties.isASCIIHexDigit {
+                    hex.unicodeScalars.append(digit)
+                    characters.removeFirst()
+                }
+                if hex.isEmpty {
+                    if let escaped = characters.popFirst() { string.append(escaped) }
+                } else {
+                    if let space = characters.first, space.properties.isWhitespace { characters.removeFirst() }
+                    let code = UInt32(hex, radix: 16) ?? 0xFFFD
+                    string.append(Unicode.Scalar(code == 0 ? 0xFFFD : code) ?? "\u{FFFD}")
+                }
+            }
+            guard closed else { return nil }
+            strings.append(String(string))
+        }
+        guard !strings.isEmpty, strings.count % 2 == 0 else { return nil }
+        return .some(stride(from: 0, to: strings.count, by: 2).map { QuotePair(open: strings[$0], close: strings[$0 + 1]) })
+    }
+}
+
+private extension Array where Element == UInt16 {
+    var pairs: [QuotePair] {
+        func mark(_ code: UInt16) -> String { String(Character(Unicode.Scalar(code)!)) }
+        return [QuotePair(open: mark(self[0]), close: mark(self[1])), QuotePair(open: mark(self[2]), close: mark(self[3]))]
+    }
+}

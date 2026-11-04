@@ -270,6 +270,9 @@ enum BrowserChapterAdmission {
             if textIndentUsage == .unsupported {
                 reasons.append(.textIndent)
             }
+            if ListMarkerSupport.drawsInsideMarker(in: styleTree) {
+                reasons.append(.listMarker)
+            }
         } else if hasAny("table, thead, tbody, tfoot, tr, td, th") {
             reasons.append(.table)
         }

@@ -51,6 +51,8 @@ public struct DisplayTextItem {
     /// CSS `transform: rotate()` from the nearest transformed ancestor box;
     /// applied at draw time only. See `PaintTransform`.
     public var paintTransform: PaintTransform? = nil
+    /// CSS text decorations, relative to the baseline and the inline start.
+    var textDecorations: [TextDecorationPaint] = []
 
     /// Recover the exact attributes used by shaping instead of discarding
     /// kern, synthetic bold, and regex styles when constructing the draw list.
@@ -147,6 +149,8 @@ public struct DisplayFillItem {
     /// See `FillFragment.isBackgroundPaint` — the authored page surface, which
     /// a reader-chosen background image replaces.
     public let isBackgroundPaint: Bool
+    /// See `FillFragment.followsTextColor` — a list marker's bullet.
+    public let followsTextColor: Bool
     public var paintTransform: PaintTransform? = nil
 
     public init(
@@ -160,7 +164,8 @@ public struct DisplayFillItem {
         nodeID: Int,
         writingMode: ReaderWritingMode,
         fragmentPosition: BlockDecorationFragmentPosition = .single,
-        isBackgroundPaint: Bool = false
+        isBackgroundPaint: Bool = false,
+        followsTextColor: Bool = false
     ) {
         self.rect = rect
         self.color = color
@@ -173,10 +178,31 @@ public struct DisplayFillItem {
         self.writingMode = writingMode
         self.fragmentPosition = fragmentPosition
         self.isBackgroundPaint = isBackgroundPaint
+        self.followsTextColor = followsTextColor
     }
 
     public var hasVisibleBorder: Bool {
         borderTop.isVisible || borderBottom.isVisible || borderLeft.isVisible || borderRight.isVisible
+    }
+
+    /// This item with its `inset`/`outset` edges resolved to the solid colours
+    /// they paint. The edges here are physical, so this runs before a vertical
+    /// item's edges are mapped to canonical sides.
+    func resolvingBevelEdges() -> DisplayFillItem {
+        let bevelled: Set<BorderStyle> = [.inset, .outset]
+        guard [borderTop, borderBottom, borderLeft, borderRight].contains(where: { bevelled.contains($0.style) })
+        else { return self }
+        var resolved = DisplayFillItem(
+            rect: rect, color: color, cornerRadius: cornerRadius,
+            borderTop: borderTop.paintedBevel(topOrLeft: true),
+            borderBottom: borderBottom.paintedBevel(topOrLeft: false),
+            borderLeft: borderLeft.paintedBevel(topOrLeft: true),
+            borderRight: borderRight.paintedBevel(topOrLeft: false),
+            nodeID: nodeID, writingMode: writingMode, fragmentPosition: fragmentPosition,
+            isBackgroundPaint: isBackgroundPaint, followsTextColor: followsTextColor
+        )
+        resolved.paintTransform = paintTransform
+        return resolved
     }
 }
 
@@ -247,7 +273,7 @@ public struct DisplayList {
                     && a.borderLeft == b.borderLeft && a.borderRight == b.borderRight
                     && a.nodeID == b.nodeID && a.writingMode == b.writingMode
                     && a.fragmentPosition == b.fragmentPosition && a.isBackgroundPaint == b.isBackgroundPaint
-                    && a.paintTransform == b.paintTransform
+                    && a.followsTextColor == b.followsTextColor && a.paintTransform == b.paintTransform
             case (.image(let a), .image(let b)):
                 return a.image === b.image && a.source == b.source && sameRect(a.rect, b.rect)
                     && a.sourceRange == b.sourceRange && a.nodeID == b.nodeID && a.linkTarget == b.linkTarget
@@ -270,12 +296,39 @@ public enum DisplayListBuilder {
         collect(page.fragments, into: &items, sourceText: sourceText)
         if let themeTextColor, let oldThemeColor {
             items = items.map { item in
-                guard case .text(let text) = item, text.color == oldThemeColor else { return item }
-                return .text(DisplayTextItem(sourceRange: text.sourceRange, nodeID: text.nodeID,
-                    linkTarget: text.linkTarget, writingMode: text.writingMode, rect: text.rect,
-                    baselineY: text.baselineY, font: text.font, color: themeTextColor, text: text.text,
-                    ctLine: text.ctLine, sourceMapping: text.sourceMapping,
-                    renderedTextOverride: text.renderedTextOverride))
+                switch item {
+                case .text(let text) where text.color == oldThemeColor
+                    || text.textDecorations.contains(where: { $0.color == oldThemeColor }):
+                    // A decoration in `currentColor` follows the theme with
+                    // its text; one in a colour of its own keeps it.
+                    var recolored = DisplayTextItem(sourceRange: text.sourceRange, nodeID: text.nodeID,
+                        linkTarget: text.linkTarget, writingMode: text.writingMode, rect: text.rect,
+                        baselineY: text.baselineY, font: text.font,
+                        color: text.color == oldThemeColor ? themeTextColor : text.color, text: text.text,
+                        ctLine: text.ctLine, sourceMapping: text.sourceMapping,
+                        renderedTextOverride: text.renderedTextOverride)
+                    recolored.textDecorations = text.textDecorations.map {
+                        $0.color == oldThemeColor ? $0.recolored(themeTextColor) : $0
+                    }
+                    return .text(recolored)
+                case .fill(let fill) where fill.followsTextColor:
+                    // A bullet's ink is its fill, a circle's its border; either
+                    // follows the theme on the same condition as text.
+                    func recolor(_ color: UIColor) -> UIColor { color == oldThemeColor ? themeTextColor : color }
+                    func recolor(_ edge: BorderEdge) -> BorderEdge {
+                        BorderEdge(width: edge.width, color: recolor(edge.color), style: edge.style)
+                    }
+                    var recolored = DisplayFillItem(rect: fill.rect, color: recolor(fill.color),
+                        cornerRadius: fill.cornerRadius, borderTop: recolor(fill.borderTop),
+                        borderBottom: recolor(fill.borderBottom), borderLeft: recolor(fill.borderLeft),
+                        borderRight: recolor(fill.borderRight), nodeID: fill.nodeID, writingMode: fill.writingMode,
+                        fragmentPosition: fill.fragmentPosition, isBackgroundPaint: fill.isBackgroundPaint,
+                        followsTextColor: true)
+                    recolored.paintTransform = fill.paintTransform
+                    return .fill(recolored)
+                default:
+                    return item
+                }
             }
         }
         return DisplayList(items: items)
@@ -301,6 +354,7 @@ public enum DisplayListBuilder {
                     renderedTextOverride: t.renderedTextOverride
                 )
                 item.paintTransform = t.paintTransform
+                item.textDecorations = t.textDecorations
                 items.append(.text(item))
             case .fill(let f):
                 var item = DisplayFillItem(
@@ -309,7 +363,8 @@ public enum DisplayListBuilder {
                     borderLeft: f.borderLeft, borderRight: f.borderRight,
                     nodeID: f.nodeID, writingMode: f.writingMode,
                     fragmentPosition: f.fragmentPosition,
-                    isBackgroundPaint: f.isBackgroundPaint
+                    isBackgroundPaint: f.isBackgroundPaint,
+                    followsTextColor: f.followsTextColor
                 )
                 item.paintTransform = f.paintTransform
                 items.append(.fill(item))

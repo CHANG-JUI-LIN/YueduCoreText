@@ -20,6 +20,12 @@ final class ComputedStyleNode {
     let linkTarget: String?
     /// This element's own `id` attribute (anchor target), nil when absent.
     let anchorID: String?
+    /// The number this list item counts as (HTML ordinal value), set by
+    /// `ListItemOrdinals.assign` once `buildTree` has the whole tree; nil for
+    /// anything that is not a list item. Not inherited. The stages after the
+    /// cascade rebuild nodes (`LogicalFlow.styleTree` rebuilds every node of a
+    /// vertical chapter), so every copy of a node must pass it on.
+    var listItemOrdinal: Int?
     init(
         tag: String,
         semanticElement: HTMLDOMElementSnapshot?,
@@ -27,7 +33,8 @@ final class ComputedStyleNode {
         children: [StyleTreeChild],
         nodeID: Int,
         linkTarget: String?,
-        anchorID: String?
+        anchorID: String?,
+        listItemOrdinal: Int? = nil
     ) {
         self.tag = tag
         self.semanticElement = semanticElement
@@ -36,6 +43,7 @@ final class ComputedStyleNode {
         self.nodeID = nodeID
         self.linkTarget = linkTarget
         self.anchorID = anchorID
+        self.listItemOrdinal = listItemOrdinal
     }
 
     convenience init(
@@ -229,6 +237,7 @@ final class ComputedStyleTreeBuilder {
             anchorID: linkAnchorID(of: bodySemantic)
         )
         nextNodeID += 1
+        ListItemOrdinals.assign(in: root)
         return root
     }
 
@@ -416,10 +425,33 @@ final class ComputedStyleTreeBuilder {
         parentElement: Element?
     ) -> ComputedStyle {
         var style = parent.inherited(from: parent)
-        let ua = UserAgentStyle.basis(for: element.tagName().lowercased())
+        let tag = element.tagName().lowercased()
+        let ua = UserAgentStyle.basis(for: tag)
         style = style.applyingUA(ua)
-        if element.tagName().lowercased() == "rt" {
+        if tag == "rt" {
             style.fontSize = parent.fontSize * 0.5
+        }
+        // html.css: `dialog { display: none }`, `dialog[open] { display: block }`.
+        // Hidden after the cascade only if no author rule shows it.
+        let closedDialog = tag == "dialog" && element.hasAttr("open") == false
+        if tag == "dialog" { style.display = closedDialog ? .none : .block }
+        let ctx = ApplyContext(parent: parent, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies, writingMode: readerConfig.writingMode)
+        var nestedInList = false
+        if UserAgentStyle.nestedListMarginAncestors.contains(tag) {
+            var listAncestors = 0
+            var cursor = element.parent()
+            while let ancestor = cursor {
+                let name = ancestor.tagName().lowercased()
+                if UserAgentStyle.listContainerTags.contains(name) { listAncestors += 1 }
+                if UserAgentStyle.nestedListMarginAncestors.contains(name) { nestedInList = true }
+                cursor = ancestor.parent()
+            }
+            if let type = UserAgentStyle.listStyleType(for: tag, listAncestors: listAncestors) {
+                style.listStyleType = type
+            }
+        }
+        for (property, value) in UserAgentStyle.declarations(for: tag, nestedInList: nestedInList) {
+            ComputedStylePropertyApplier.apply(key: property, value: value, to: &style, ctx: ctx)
         }
 
         // HTML presentational hints form their own cascade origin between UA
@@ -429,10 +461,9 @@ final class ComputedStyleTreeBuilder {
             HTMLPresentationalHintExtractor.extract(
                 from: semanticElement.htmlSemanticElement
             ),
-            to: &style
+            to: &style,
+            rootFontSize: rootFontSize
         )
-
-        let ctx = ApplyContext(parent: parent, rootFontSize: rootFontSize, textColor: textColor, backgroundColor: backgroundColor, configFontFamilies: configFontFamilies, writingMode: readerConfig.writingMode)
 
         let matchedIndices = rules.indices.filter { rules[$0].selector.matches(element: element, parent: parentElement) }
         matchedRuleIndices.formUnion(matchedIndices)
@@ -458,7 +489,9 @@ final class ComputedStyleTreeBuilder {
         if let language = semanticElement.attribute("lang") ?? semanticElement.attribute("xml:lang") {
             style.language = language.isEmpty ? nil : language
         }
+        if tag == "q" { style.quoteDepth = parent.quoteDepth + 1 }
         if semanticElement.attribute("hidden") != nil { style.isHidden = true }
+        if closedDialog, style.display == .none { style.isHidden = true }
         if case .length(let length) = style.textIndent {
             switch length {
             case .em, .rem, .pt:
@@ -477,6 +510,7 @@ final class ComputedStyleTreeBuilder {
         if style.display != .inline, style.display != .inlineBlock {
             style.verticalAlignOffset = 0
         }
+        style.textDecorationsInEffect = style.decorationsInEffect(inheriting: parent.textDecorationsInEffect)
         if let report = readerConfig.onDiagnostic {
             let path = Self.diagnosticPath(element)
             for rule in matched {
@@ -504,22 +538,59 @@ final class ComputedStyleTreeBuilder {
 
     static func applyPresentationalHints(
         _ hints: [HTMLPresentationalHint],
-        to style: inout ComputedStyle
+        to style: inout ComputedStyle,
+        rootFontSize: CGFloat
     ) {
-        for hint in hints {
-            guard case .dimension(let dimension) = hint.value else { continue }
-            let length: CSSLength
+        func length(_ dimension: HTMLPresentationalDimension) -> CSSLength {
             switch dimension {
-            case .pixels(let value):
-                length = .px(value)
-            case .percentage(let fraction):
-                length = .percent(fraction)
+            case .pixels(let value): return .px(value)
+            case .percentage(let fraction): return .percent(fraction)
             }
-            switch hint.property {
-            case .width:
-                style.width = length
-            case .height:
-                style.height = length
+        }
+        func uiColor(_ color: CSSRGB) -> UIColor {
+            UIColor(red: CGFloat(color.red) / 255, green: CGFloat(color.green) / 255,
+                    blue: CGFloat(color.blue) / 255, alpha: 1)
+        }
+        for hint in hints {
+            switch (hint.property, hint.value) {
+            case (.width, .dimension(let dimension)):
+                style.width = length(dimension)
+            case (.height, .dimension(let dimension)):
+                style.height = length(dimension)
+            case (.listStyleType, .listStyleType(let type)):
+                style.listStyleType = type == .none ? .none : .counterStyle(type.rawValue)
+            case (.color, .color(let color)):
+                style.color = uiColor(color)
+            case (.backgroundColor, .color(let color)):
+                style.backgroundColor = uiColor(color)
+            case (.borderColor, .color(let color)):
+                let c = uiColor(color)
+                style.borderTopColor = c; style.borderRightColor = c
+                style.borderBottomColor = c; style.borderLeftColor = c
+            case (.borderStyle, .solidBorderStyle):
+                style.borderTopStyle = .solid; style.borderRightStyle = .solid
+                style.borderBottomStyle = .solid; style.borderLeftStyle = .solid
+            case (.borderBottomWidth, .dimension(let dimension)):
+                style.pendingBorderBottomWidth = length(dimension)
+            case (.marginLeft, .dimension(let dimension)):
+                style.marginLeft = length(dimension)
+            case (.marginLeft, .auto):
+                style.marginLeft = .auto
+            case (.marginRight, .dimension(let dimension)):
+                style.marginRight = length(dimension)
+            case (.marginRight, .auto):
+                style.marginRight = .auto
+            case (.fontSize, .fontSize(let keyword)):
+                // An absolute keyword; the parent size is never read.
+                if let size = ComputedStylePropertyApplier.resolveFontSize(
+                    keyword.rawValue, parentSize: style.fontSize, root: rootFontSize) {
+                    style.fontSize = size
+                }
+            case (.fontFamily, .fontFamily(let list)):
+                style.fontFamilies = ComputedStylePropertyApplier.fontFamilyList(list.lowercased())
+            default:
+                // The extractor pairs every property with its own kind of value.
+                continue
             }
         }
     }
@@ -537,9 +608,12 @@ fileprivate struct ApplyContext {
 
 extension ComputedStyle {
     /// Applies UA defaults onto an inherited style: UA sets non-inherited box
-    /// props, and UA font-size overrides are *absolute* unless UA said relative.
+    /// props. Font sizes are relative and go through the cascade
+    /// (`UserAgentStyle.declarations`), except `rt`'s half size, which
+    /// `resolvedStyle` sets itself.
     mutating func applyingUA(_ ua: ComputedStyle) -> ComputedStyle {
         display = ua.display
+        isListItem = ua.isListItem
         isHidden = ua.isHidden
         width = ua.width
         height = ua.height
@@ -559,7 +633,6 @@ extension ComputedStyle {
         borderSpacingVertical = ua.borderSpacingVertical
         // `white-space` is inherited; a UA default (only `<pre>`) overrides it.
         if ua.whiteSpace != .normal { whiteSpace = ua.whiteSpace }
-        if ua.fontSize != 17 { fontSize = ua.fontSize }
         if ua.fontWeight != 400 { fontWeight = ua.fontWeight }
         if ua.isItalic { isItalic = true }
         return self
@@ -606,29 +679,75 @@ enum ComputedStylePropertyApplier {
         let preserved = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = preserved.lowercased()
         guard !value.isEmpty else { return }
+        if let longhands = logicalShorthandLonghands(key: key, value: preserved) {
+            for (longhand, longhandValue) in longhands {
+                apply(key: longhand, value: longhandValue, to: &style, ctx: ctx)
+            }
+            return
+        }
         if let physical = LogicalGeometry.physicalProperty(forLogical: key, mode: ctx.writingMode) {
             apply(key: physical, value: raw, to: &style, ctx: ctx)
             return
         }
         switch key {
         case "display":
+            let display: CSSDisplay
             switch value {
-            case "none": style.display = .none; style.isHidden = true
-            case "block": style.display = .block
-            case "inline": style.display = .inline
-            case "inline-block": style.display = .inlineBlock
-            case "table": style.display = .table
-            case "table-row-group": style.display = .tableRowGroup
-            case "table-header-group": style.display = .tableHeaderGroup
-            case "table-footer-group": style.display = .tableFooterGroup
-            case "table-row": style.display = .tableRow
-            case "table-cell": style.display = .tableCell
+            case "none": display = .none
+            // A list item is a block that also generates a marker.
+            case "block", "list-item": display = .block
+            case "inline": display = .inline
+            case "inline-block": display = .inlineBlock
+            case "table": display = .table
+            case "table-row-group": display = .tableRowGroup
+            case "table-header-group": display = .tableHeaderGroup
+            case "table-footer-group": display = .tableFooterGroup
+            case "table-row": display = .tableRow
+            case "table-cell": display = .tableCell
+            // `display` is not inherited: `unset` is its initial value, inline.
+            case "initial", "unset": display = .inline
+            case "inherit":
+                style.display = ctx.parent.display
+                if ctx.parent.display == .none { style.isHidden = true }
+                style.isListItem = ctx.parent.isListItem
+                return
             // inline-table and the column/caption roles stay unparsed: the
-            // admission scanner rejects them from the raw declaration.
-            default: break
+            // admission scanner rejects them from the raw declaration. An
+            // unparsed value is dropped and changes nothing, list item included.
+            default: return
+            }
+            style.display = display
+            if display == .none { style.isHidden = true }
+            style.isListItem = value == "list-item"
+        case "list-style-type":
+            switch value {
+            case "inherit", "unset": style.listStyleType = ctx.parent.listStyleType
+            case "initial": style.listStyleType = .initial
+            default: if let type = CSSListStyleType.parse(value) { style.listStyleType = type }
+            }
+        case "list-style-position":
+            switch value {
+            case "inherit", "unset": style.listStylePosition = ctx.parent.listStylePosition
+            case "initial": style.listStylePosition = .outside
+            default: if let position = CSSListStylePosition.parse(value) { style.listStylePosition = position }
+            }
+        case "list-style":
+            switch value {
+            case "inherit", "unset":
+                style.listStyleType = ctx.parent.listStyleType
+                style.listStylePosition = ctx.parent.listStylePosition
+            case "initial":
+                style.listStyleType = .initial
+                style.listStylePosition = .outside
+            default:
+                guard let parsed = CSSListStyleType.parseShorthand(value) else { break }
+                style.listStyleType = parsed.type
+                style.listStylePosition = parsed.position
             }
         case "color":
-            if let c = parseColor(value) { style.color = c }
+            // On `color` itself `currentColor` is the inherited colour.
+            if value == "currentcolor" { style.color = ctx.parent.color }
+            else if let c = parseColor(value) { style.color = c }
         case "background-color":
             if let c = parseColor(value) { style.backgroundColor = c }
         case "float":
@@ -650,26 +769,28 @@ enum ComputedStylePropertyApplier {
             // cells. Length values degrade to baseline instead of rejecting
             // the chapter. The shift matches WebKit
             // (InlineLineBoxVerticalAligner): the PARENT box's font-size / 3 + 1
-            // up (sub: / 5 + 1 down).
+            // up (sub: / 5 + 1 down), from the parent's own shifted baseline
+            // (measured: a `sup` in a `sup` sits 6.67 + 5.72 up).
+            let parentShift = ctx.parent.verticalAlignOffset
             switch value {
             case "baseline":
                 style.verticalAlign = .baseline
-                style.verticalAlignOffset = 0
+                style.verticalAlignOffset = parentShift
             case "super", "-epub-super":
                 style.verticalAlign = .sup
-                style.verticalAlignOffset = ctx.parent.fontSize / 3 + 1
+                style.verticalAlignOffset = parentShift + ctx.parent.fontSize / 3 + 1
             case "sub", "-epub-sub":
                 style.verticalAlign = .sub
-                style.verticalAlignOffset = -(ctx.parent.fontSize / 5 + 1)
+                style.verticalAlignOffset = parentShift - (ctx.parent.fontSize / 5 + 1)
             case "top":
                 style.verticalAlign = .top
-                style.verticalAlignOffset = 0
+                style.verticalAlignOffset = parentShift
             case "middle":
                 style.verticalAlign = .middle
-                style.verticalAlignOffset = 0
+                style.verticalAlignOffset = parentShift
             case "bottom":
                 style.verticalAlign = .bottom
-                style.verticalAlignOffset = 0
+                style.verticalAlignOffset = parentShift
             default: break
             }
         case "border-collapse":
@@ -716,17 +837,29 @@ enum ComputedStylePropertyApplier {
                 style.fontSize = px
             }
         case "font-family":
-            style.fontFamilies = value
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))) }
+            style.fontFamilies = fontFamilyList(value)
         case "font-weight":
             style.fontWeight = cssFontWeight(value, current: style.fontWeight)
         case "font-style":
             style.isItalic = value.contains("italic") || value.contains("oblique")
         case "text-align":
-            if ["left", "right", "center", "justify", "start", "end"].contains(value) { style.textAlign = cssAlignment(value) }
-            else if value == "inherit" || value == "unset" { style.textAlign = ctx.parent.textAlign }
-            else if value == "initial" { style.textAlign = .natural }
+            if ["left", "right", "center", "justify", "start", "end"].contains(value) {
+                style.textAlign = cssAlignment(value)
+                style.blockAlignment = nil
+            } else if value == "-webkit-center" || value == "-webkit-left" || value == "-webkit-right" {
+                // WebKit's legacy alignments (html.css `center`, `<div
+                // align>`) align the text and also every block child that has
+                // no auto inline margin (`RenderBox::computeInlineDirectionMargins`).
+                let side = String(value.dropFirst("-webkit-".count))
+                style.textAlign = cssAlignment(side)
+                style.blockAlignment = cssAlignment(side)
+            } else if value == "inherit" || value == "unset" {
+                style.textAlign = ctx.parent.textAlign
+                style.blockAlignment = ctx.parent.blockAlignment
+            } else if value == "initial" {
+                style.textAlign = .natural
+                style.blockAlignment = nil
+            }
         case "hyphens", "-webkit-hyphens", "-epub-hyphens", "-moz-hyphens", "-ms-hyphens":
             if ["none", "manual", "auto"].contains(value) { style.hyphens = value }
             else if value == "inherit" || value == "unset" { style.hyphens = ctx.parent.hyphens }
@@ -772,6 +905,84 @@ enum ComputedStylePropertyApplier {
             } else if let length = CSSLengthResolver.parse(value) {
                 style.letterSpacing = nil
                 style.pendingLetterSpacingLength = length
+            }
+        case "quotes":
+            if value == "inherit" || value == "unset" {
+                style.quotes = ctx.parent.quotes
+            } else if let quotes = QuoteMarks.parse(preserved) {
+                style.quotes = quotes
+            }
+        case "text-decoration-line":
+            switch value {
+            case "inherit": style.textDecorationLine = ctx.parent.textDecorationLine
+            case "initial", "unset": style.textDecorationLine = []
+            default: if let lines = TextDecorationValue.lines(value) { style.textDecorationLine = lines }
+            }
+        case "text-decoration-style":
+            switch value {
+            case "inherit": style.textDecorationStyle = ctx.parent.textDecorationStyle
+            case "initial", "unset": style.textDecorationStyle = .solid
+            default: if let parsed = TextDecorationValue.style(value) { style.textDecorationStyle = parsed }
+            }
+        case "text-decoration-color":
+            switch value {
+            case "inherit": style.textDecorationColor = ctx.parent.textDecorationColor
+            case "initial", "unset": style.textDecorationColor = nil
+            default: if let parsed = decorationColorToken(value) { style.textDecorationColor = parsed }
+            }
+        case "text-decoration-thickness":
+            switch value {
+            case "inherit": style.textDecorationThickness = ctx.parent.textDecorationThickness
+            case "initial", "unset": style.textDecorationThickness = .auto
+            default: if let parsed = TextDecorationValue.thickness(value) { style.textDecorationThickness = parsed }
+            }
+        case "text-decoration":
+            switch value {
+            case "inherit":
+                style.textDecorationLine = ctx.parent.textDecorationLine
+                style.textDecorationStyle = ctx.parent.textDecorationStyle
+                style.textDecorationColor = ctx.parent.textDecorationColor
+                style.textDecorationThickness = ctx.parent.textDecorationThickness
+            case "initial", "unset":
+                style.textDecorationLine = []
+                style.textDecorationStyle = .solid
+                style.textDecorationColor = nil
+                style.textDecorationThickness = .auto
+            default:
+                guard let parsed = TextDecorationValue.shorthand(components(preserved), color: { decorationColorToken($0.lowercased()) })
+                else { break }
+                style.textDecorationLine = parsed.lines
+                style.textDecorationStyle = parsed.style
+                style.textDecorationColor = parsed.color
+                style.textDecorationThickness = parsed.thickness
+            }
+        case "text-underline-offset":
+            switch value {
+            case "inherit", "unset": style.textUnderlineOffset = ctx.parent.textUnderlineOffset
+            case "initial": style.textUnderlineOffset = .auto
+            default:
+                if let length = CSSLengthResolver.parse(value) {
+                    // A font-relative offset inherits as an absolute length.
+                    switch length {
+                    case .em, .rem, .pt:
+                        style.textUnderlineOffset = CSSLengthResolver.resolve(length, emBase: style.fontSize,
+                            remBase: ctx.rootFontSize, percentBase: 0).map { .px($0) } ?? length
+                    default: style.textUnderlineOffset = length
+                    }
+                }
+            }
+        case "text-underline-position":
+            switch value {
+            case "inherit", "unset": style.textUnderlinePosition = ctx.parent.textUnderlinePosition
+            case "initial": style.textUnderlinePosition = TextUnderlinePosition()
+            default: if let parsed = TextDecorationValue.underlinePosition(value) { style.textUnderlinePosition = parsed }
+            }
+        case "text-decoration-skip-ink":
+            switch value {
+            case "inherit", "unset": style.textDecorationSkipsInk = ctx.parent.textDecorationSkipsInk
+            case "initial", "auto", "all": style.textDecorationSkipsInk = true
+            case "none": style.textDecorationSkipsInk = false
+            default: break
             }
         case "white-space":
             switch value {
@@ -834,18 +1045,23 @@ enum ComputedStylePropertyApplier {
         case "border-width": applyBorderWidthShorthand(value, to: &style)
         case "border":
             // `border: <width> <style> <color>` shorthand. Width + color + style.
-            for part in value.split(separator: " ").map(String.init) {
+            // A colour left out resets to `currentColor`, as a shorthand resets
+            // every longhand it omits.
+            var color: UIColor? = nil
+            for part in components(value) {
                 if let length = borderLength(part) {
                     style.pendingBorderTopWidth = length; style.pendingBorderRightWidth = length
                     style.pendingBorderBottomWidth = length; style.pendingBorderLeftWidth = length
-                } else if let c = parseColor(part) {
-                    style.borderColor = c
+                } else if let token = borderColorToken(part) {
+                    color = token
                 } else if BorderStyle.from(cssRaw: part) != .solid || isBorderStyleKeyword(part) {
                     let s = BorderStyle.from(cssRaw: part)
                     style.borderTopStyle = s; style.borderRightStyle = s
                     style.borderBottomStyle = s; style.borderLeftStyle = s
                 }
             }
+            style.borderTopColor = color; style.borderRightColor = color
+            style.borderBottomColor = color; style.borderLeftColor = color
         case "border-top": applyBorderSideShorthand(part: value, style: &style, side: "top")
         case "border-right": applyBorderSideShorthand(part: value, style: &style, side: "right")
         case "border-bottom": applyBorderSideShorthand(part: value, style: &style, side: "bottom")
@@ -855,7 +1071,21 @@ enum ComputedStylePropertyApplier {
         case "border-right-style": style.borderRightStyle = BorderStyle.from(cssRaw: value)
         case "border-bottom-style": style.borderBottomStyle = BorderStyle.from(cssRaw: value)
         case "border-left-style": style.borderLeftStyle = BorderStyle.from(cssRaw: value)
-        case "border-color": style.borderColor = parseColor(value)
+        case "border-color":
+            let tokens = components(value).map(borderColorToken)
+            guard (1...4).contains(tokens.count), tokens.allSatisfy({ $0 != nil }) else { break }
+            let colors = tokens.map { $0! }
+            func c(_ i: Int) -> UIColor? { colors[i] }
+            switch colors.count {
+            case 1: style.borderTopColor = c(0); style.borderRightColor = c(0); style.borderBottomColor = c(0); style.borderLeftColor = c(0)
+            case 2: style.borderTopColor = c(0); style.borderRightColor = c(1); style.borderBottomColor = c(0); style.borderLeftColor = c(1)
+            case 3: style.borderTopColor = c(0); style.borderRightColor = c(1); style.borderBottomColor = c(2); style.borderLeftColor = c(1)
+            default: style.borderTopColor = c(0); style.borderRightColor = c(1); style.borderBottomColor = c(2); style.borderLeftColor = c(3)
+            }
+        case "border-top-color": if let token = borderColorToken(value) { style.borderTopColor = token }
+        case "border-right-color": if let token = borderColorToken(value) { style.borderRightColor = token }
+        case "border-bottom-color": if let token = borderColorToken(value) { style.borderBottomColor = token }
+        case "border-left-color": if let token = borderColorToken(value) { style.borderLeftColor = token }
         case "border-radius": if let length = borderLength(value) { style.pendingBorderRadius = length }
         case "background":
             if let c = parseColor(shorthandBackgroundColor(value)) { style.backgroundColor = c }
@@ -875,6 +1105,12 @@ enum ComputedStylePropertyApplier {
         default:
             break // unimplemented properties are ignored (Phase 1)
         }
+    }
+
+    /// A `font-family` list's names, unquoted.
+    fileprivate static func fontFamilyList(_ value: String) -> [String] {
+        value.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))) }
     }
 
     fileprivate static func applyMarginShorthand(_ value: String, to style: inout ComputedStyle) {
@@ -971,6 +1207,65 @@ enum ComputedStylePropertyApplier {
         }
     }
 
+    /// A decoration colour: `.some(nil)` for `currentColor`, clear for
+    /// `transparent`, nil for a token that is not a colour.
+    fileprivate static func decorationColorToken(_ part: String) -> UIColor?? {
+        if part == "transparent" { return .some(.clear) }
+        return borderColorToken(part)
+    }
+
+    /// A border colour: `.some(nil)` for `currentColor`, nil for a token that
+    /// is not a colour.
+    fileprivate static func borderColorToken(_ part: String) -> UIColor?? {
+        if part.lowercased() == "currentcolor" { return .some(nil) }
+        return parseColor(part).map { .some($0) }
+    }
+
+    /// A value's space-separated components, keeping a function's arguments
+    /// (`rgb(0, 0, 0)`) in one.
+    fileprivate static func components(_ value: String) -> [String] {
+        var result: [String] = []
+        var current = ""
+        var depth = 0
+        for character in value {
+            switch character {
+            case "(": depth += 1; current.append(character)
+            case ")": depth = max(0, depth - 1); current.append(character)
+            case " ", "\t", "\n", "\r":
+                if depth > 0 { current.append(character) }
+                else if !current.isEmpty { result.append(current); current = "" }
+            default: current.append(character)
+            }
+        }
+        if !current.isEmpty { result.append(current) }
+        return result
+    }
+
+    /// The longhands of a logical two-sided shorthand: `margin-block`,
+    /// `margin-inline`, `padding-block`, `padding-inline` and
+    /// `border-{block,inline}-{width,style,color}` take a start and an
+    /// optional end value; `border-block` and `border-inline` give both sides
+    /// the same `border-*` value. nil for any other property.
+    fileprivate static func logicalShorthandLonghands(key: String, value: String) -> [(String, String)]? {
+        switch key {
+        case "margin-block", "margin-inline", "padding-block", "padding-inline",
+             "border-block-width", "border-inline-width", "border-block-style",
+             "border-inline-style", "border-block-color", "border-inline-color":
+            let parts = components(value)
+            guard (1...2).contains(parts.count) else { return [] }
+            let segments = key.split(separator: "-").map(String.init)
+            let base = segments[0] == "border"
+                ? "border-\(segments[1])-%@-\(segments[2])"
+                : "\(segments[0])-\(segments[1])-%@"
+            return [(base.replacingOccurrences(of: "%@", with: "start"), parts[0]),
+                    (base.replacingOccurrences(of: "%@", with: "end"), parts.count == 2 ? parts[1] : parts[0])]
+        case "border-block", "border-inline":
+            return [("\(key)-start", value), ("\(key)-end", value)]
+        default:
+            return nil
+        }
+    }
+
     fileprivate static func applyBorderStyleShorthand(_ value: String, to style: inout ComputedStyle) {
         let styles = value.split(separator: " ").map(String.init).map { BorderStyle.from(cssRaw: $0) }
         guard !styles.isEmpty else { return }
@@ -989,7 +1284,17 @@ enum ComputedStylePropertyApplier {
         style: inout ComputedStyle,
         side: String
     ) {
-        for part in value.split(separator: " ").map(String.init) {
+        // The side's colour alone; one left out resets to `currentColor`.
+        var color: UIColor? = nil
+        defer {
+            switch side {
+            case "top": style.borderTopColor = color
+            case "right": style.borderRightColor = color
+            case "bottom": style.borderBottomColor = color
+            default: style.borderLeftColor = color
+            }
+        }
+        for part in components(value) {
             if let length = borderLength(part) {
                 switch side {
                 case "top": style.pendingBorderTopWidth = length
@@ -997,8 +1302,8 @@ enum ComputedStylePropertyApplier {
                 case "bottom": style.pendingBorderBottomWidth = length
                 default: style.pendingBorderLeftWidth = length
                 }
-            } else if let c = parseColor(part) {
-                style.borderColor = c
+            } else if let token = borderColorToken(part) {
+                color = token
             } else if isBorderStyleKeyword(part) {
                 let s = BorderStyle.from(cssRaw: part)
                 switch side {
@@ -1072,14 +1377,23 @@ enum ComputedStylePropertyApplier {
         return (x, y)
     }
 
+    /// Absolute keywords keep WebKit's proportions (its sizes at the default
+    /// 16px `medium` are 9, 10, 13, 16, 18, 24, 32, 48; measured through
+    /// `<font size>` 1–7 on iOS 27.2) about the reader's root size, so a book's
+    /// `small` follows the reader's font size where WebKit's would not.
+    /// `larger`/`smaller` are WebKit's ×1.2 and ÷1.2 of the parent's size
+    /// (measured: `big` 20.4, `small` 14.17 in 17px text).
     fileprivate static func resolveFontSize(_ raw: String, parentSize: CGFloat, root: CGFloat) -> CGFloat? {
         switch raw {
-        case "small": return root * 0.833
+        case "xx-small": return root * 9 / 16
+        case "x-small": return root * 10 / 16
+        case "small": return root * 13 / 16
         case "medium": return root
-        case "large": return root * 1.2
-        case "x-large": return root * 1.5
+        case "large": return root * 18 / 16
+        case "x-large": return root * 24 / 16
         case "xx-large": return root * 2
-        case "smaller": return parentSize * 0.833
+        case "xxx-large", "-webkit-xxx-large": return root * 3
+        case "smaller": return parentSize / 1.2
         case "larger": return parentSize * 1.2
         default:
             guard let parsed = CSSLengthResolver.parse(raw) else { return nil }
@@ -1139,19 +1453,10 @@ enum ComputedStylePropertyApplier {
             guard comps.count == 4 else { return nil }
             return UIColor(red: comps[0]/255, green: comps[1]/255, blue: comps[2]/255, alpha: comps[3])
         }
-        switch raw {
-        case "black": return .black
-        case "white": return .white
-        case "red": return .red
-        case "green": return .green
-        case "blue": return .blue
-        case "gray", "grey": return .gray
-        case "yellow": return .yellow
-        case "orange": return .orange
-        case "purple": return .purple
-        case "cyan": return .cyan
-        case "magenta": return .magenta
-        default: return nil
-        }
+        // CSS's values, not UIKit's: `UIColor.gray` is 127.5 and
+        // `UIColor.green` is #00FF00 where CSS has 128 and #008000.
+        guard let named = CSSNamedColors.table[raw] else { return nil }
+        return UIColor(red: CGFloat(named.red) / 255, green: CGFloat(named.green) / 255,
+                       blue: CGFloat(named.blue) / 255, alpha: 1)
     }
 }

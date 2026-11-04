@@ -471,7 +471,7 @@ struct BrowserLayoutFloatLayoutTests {
                 "85% must resolve against the 196pt float content box, not the 400pt viewport")
         #expect(abs((floatBox.lines.first?.contentX ?? -1) - 14.7) < 0.001,
                 "text-align:center must use the float's 196pt content width")
-        let strutDescent = -InlineLayout.font(for:floatBox.style).descender
+        let strutDescent = InlineLayout.halfLeadingBox(InlineLayout.font(for: floatBox.style), lineHeight: nil).below
         #expect(abs(floatBox.frame.height - (166.6 + strutDescent)) < 0.001,
                 "A baseline-aligned inline image contributes its height above the baseline; the parent text strut still contributes descent below it")
     }

@@ -186,6 +186,11 @@ final class FloatContext {
         }
     }
 
+    /// Re-adds a float recorded from another context, already placed.
+    func restore(_ float: ActiveFloat) {
+        activeFloats.append(float)
+    }
+
     /// Maximum bottom extent of all active floats.
     var maxBottom: CGFloat {
         activeFloats.map { $0.bottom }.max() ?? 0

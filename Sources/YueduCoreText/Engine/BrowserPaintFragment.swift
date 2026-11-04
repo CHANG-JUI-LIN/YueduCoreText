@@ -95,7 +95,12 @@ extension BrowserScrollDocument {
                             bounds = bounds.union(CGRect(x: item.rect.minX + ink.minX,
                                 y: item.baselineY - ink.maxY, width: ink.width, height: ink.height))
                         }
-                        if phase == .glyphs { bounds = bounds.union(item.rect.rawValue) }
+                        if phase == .glyphs {
+                            bounds = bounds.union(item.rect.rawValue)
+                            // CSS decorations paint with the glyphs and can
+                            // reach past the line box (a vertical underline).
+                            bounds = bounds.union(TextDecorationPainter.extent(of: item))
+                        }
                     }
                     // One pixel includes the antialiased ink at a fractional edge.
                     if !bounds.isNull { bounds = bounds.insetBy(dx: -1 / scale, dy: -1 / scale) }

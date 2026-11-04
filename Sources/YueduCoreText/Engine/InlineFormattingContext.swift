@@ -45,6 +45,8 @@ struct InlineFormattingContext {
     let fontCache: InlineFontCache?
     /// The book's CJK typography (`BrowserLayoutConfig.cjkTypographyStyle`).
     let cjkTypographyStyle: CJKTypographyStyle?
+    /// List markers on this context's first line (`BlockBox.listMarkers`).
+    let listMarkers: [ListMarker]
 
     init(
         containingInlineSize: CGFloat,
@@ -59,7 +61,8 @@ struct InlineFormattingContext {
         firstLineConstraint: InlineFirstLineConstraint = .none,
         paragraphStyle: ComputedStyle? = nil,
         fontCache: InlineFontCache? = nil,
-        cjkTypographyStyle: CJKTypographyStyle? = nil
+        cjkTypographyStyle: CJKTypographyStyle? = nil,
+        listMarkers: [ListMarker] = []
     ) {
         self.containingInlineSize = containingInlineSize
         self.rootFontSize = rootFontSize
@@ -74,6 +77,7 @@ struct InlineFormattingContext {
         self.paragraphStyle = paragraphStyle
         self.fontCache = fontCache
         self.cjkTypographyStyle = cjkTypographyStyle
+        self.listMarkers = listMarkers
     }
 
     var baseInterval: InlineInterval {

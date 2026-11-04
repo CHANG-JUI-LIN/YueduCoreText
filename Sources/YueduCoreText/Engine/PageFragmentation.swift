@@ -86,6 +86,9 @@ public struct TextFragment {
     /// horizontal and centres it in the cell.
     var isCombinedUpright = false
     var paintTransform: PaintTransform? = nil
+    /// Relative to the baseline and the inline start, so moving the fragment
+    /// moves them with it.
+    var textDecorations: [TextDecorationPaint] = []
 
     public init(
         sourceRange: NSRange,
@@ -142,6 +145,10 @@ public struct FillFragment {
     /// Walker-private identity used to replace a provisional fragment once the
     /// box end is known. It never participates in layout, paint, or hit-test.
     public let decorationID: Int
+    /// A list marker's bullet, drawn in its list item's text color, or a box
+    /// whose border is `currentColor`: a theme change that recolors text
+    /// recolors it too (`DisplayListBuilder.build`).
+    public let followsTextColor: Bool
     /// True for the injected page-canvas fill that carries the document's own
     /// `background-color`. Paired with the `isBackgroundPaint` image fragment:
     /// together they ARE the authored page surface, which a reader-chosen
@@ -162,7 +169,8 @@ public struct FillFragment {
         writingMode: ReaderWritingMode,
         fragmentPosition: BlockDecorationFragmentPosition = .single,
         decorationID: Int = -1,
-        isBackgroundPaint: Bool = false
+        isBackgroundPaint: Bool = false,
+        followsTextColor: Bool = false
     ) {
         self.rect = rect
         self.documentRect = documentRect
@@ -177,6 +185,7 @@ public struct FillFragment {
         self.fragmentPosition = fragmentPosition
         self.decorationID = decorationID
         self.isBackgroundPaint = isBackgroundPaint
+        self.followsTextColor = followsTextColor
     }
 
     var paintTransform: PaintTransform? = nil
@@ -304,6 +313,7 @@ struct PageWalker {
         var lineSerial: Int? = nil
         /// Rotation about the owning box's center, in DOCUMENT coordinates.
         var rotation: PaintTransform? = nil
+        var textDecorations: [TextDecorationPaint] = []
     }
 
     struct StepRuby {
@@ -329,6 +339,9 @@ struct PageWalker {
         var rotation: PaintTransform? = nil
         /// Set inside an inline-block: its box belongs to the line it sits on.
         var lineSerial: Int? = nil
+        /// A list marker's bullet, or a box with a `currentColor` border
+        /// (`FillFragment.followsTextColor`).
+        var followsTextColor = false
     }
 
     struct StepFillEnd {
@@ -367,6 +380,9 @@ struct PageWalker {
         var lineIndex = 0
         var runIndex = 0
         var inlineDecorationsEmitted = false
+        /// The next of the current line's list markers to emit.
+        var listMarkerIndex = 0
+        var unanchoredListMarkerEmitted = false
         var fillsEmitted = false
         var decorationStarted = false
         var decorationEndEmitted = false
@@ -605,14 +621,15 @@ struct PageWalker {
                         rect: boxRect,
                         color: bg,
                         cornerRadius: frame.box.style.borderRadius,
-                        borderTop: Self.edge(frame.box.borders.top, frame.box.style.borderTopStyle, frame.box.style.borderColor),
-                        borderBottom: Self.edge(frame.box.borders.bottom, frame.box.style.borderBottomStyle, frame.box.style.borderColor),
-                        borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderColor),
-                        borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderColor),
+                        borderTop: Self.edge(frame.box.borders.top, frame.box.style.borderTopStyle, frame.box.style.borderTopColor, currentColor: frame.box.style.color),
+                        borderBottom: Self.edge(frame.box.borders.bottom, frame.box.style.borderBottomStyle, frame.box.style.borderBottomColor, currentColor: frame.box.style.color),
+                        borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderLeftColor, currentColor: frame.box.style.color),
+                        borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderRightColor, currentColor: frame.box.style.color),
                         nodeID: frame.box.debugNodeID,
                         writingMode: writingMode,
                         rotation: frame.rotation,
-                        lineSerial: frame.sharedLineSerial
+                        lineSerial: frame.sharedLineSerial,
+                        followsTextColor: Self.bordersFollowTextColor(frame.box.style, widths: frame.box.borders)
                     ))
                 }
                 // A box with a border but no background still emits its full
@@ -625,17 +642,41 @@ struct PageWalker {
                         rect: boxRect,
                         color: .clear,
                         cornerRadius: frame.box.style.borderRadius,
-                        borderTop: Self.edge(frame.box.borders.top, frame.box.style.borderTopStyle, frame.box.style.borderColor),
-                        borderBottom: Self.edge(frame.box.borders.bottom, frame.box.style.borderBottomStyle, frame.box.style.borderColor),
-                        borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderColor),
-                        borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderColor),
+                        borderTop: Self.edge(frame.box.borders.top, frame.box.style.borderTopStyle, frame.box.style.borderTopColor, currentColor: frame.box.style.color),
+                        borderBottom: Self.edge(frame.box.borders.bottom, frame.box.style.borderBottomStyle, frame.box.style.borderBottomColor, currentColor: frame.box.style.color),
+                        borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderLeftColor, currentColor: frame.box.style.color),
+                        borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderRightColor, currentColor: frame.box.style.color),
                         nodeID: frame.box.debugNodeID,
                         writingMode: writingMode,
                         rotation: frame.rotation,
-                        lineSerial: frame.sharedLineSerial
+                        lineSerial: frame.sharedLineSerial,
+                        followsTextColor: Self.bordersFollowTextColor(frame.box.style, widths: frame.box.borders)
                     ))
                 }
                 continue
+            }
+            if let marker = stack[index].box.unanchoredListMarker, !stack[index].unanchoredListMarkerEmitted {
+                // No line takes this item's marker: it sits on a line of its own
+                // at the top of the item's content, which an empty item makes
+                // room for (BlockLayout) and an item starting with a block image
+                // does not (measured).
+                stack[index].unanchoredListMarkerEmitted = true
+                let frame = stack[index]
+                let serial: Int
+                if let shared = frame.sharedLineSerial {
+                    serial = shared
+                } else {
+                    lineSerialCounter += 1
+                    serial = lineSerialCounter
+                }
+                let top = frame.contentOrigin.y
+                let line = marker.ownLine
+                return listMarkerStep(
+                    marker, borderStart: frame.borderX,
+                    lineBox: CGRect(x: frame.contentOrigin.x, y: top,
+                                    width: frame.box.contentSize.width, height: line.above + line.below),
+                    baseline: top + line.above, sourceLocation: marker.sourceLocation,
+                    lineSerial: serial, rotation: frame.rotation)
             }
             if stack[index].childIndex < stack[index].box.children.count {
                 let child = stack[index].box.children[stack[index].childIndex]
@@ -718,17 +759,38 @@ struct PageWalker {
                                         dx: frame.contentOrigin.x + line.contentX, dy: frame.contentOrigin.y)),
                                     color: style.backgroundColor ?? .clear,
                                     cornerRadius: style.borderRadius,
-                                    borderTop: Self.edge(style.borderTopWidth, style.borderTopStyle, style.borderColor),
-                                    borderBottom: Self.edge(style.borderBottomWidth, style.borderBottomStyle, style.borderColor),
-                                    borderLeft: decoration.paintsStartEdge ? Self.edge(style.borderLeftWidth, style.borderLeftStyle, style.borderColor) : .zero,
-                                    borderRight: decoration.paintsEndEdge ? Self.edge(style.borderRightWidth, style.borderRightStyle, style.borderColor) : .zero,
+                                    borderTop: Self.edge(style.borderTopWidth, style.borderTopStyle, style.borderTopColor, currentColor: style.color),
+                                    borderBottom: Self.edge(style.borderBottomWidth, style.borderBottomStyle, style.borderBottomColor, currentColor: style.color),
+                                    borderLeft: decoration.paintsStartEdge ? Self.edge(style.borderLeftWidth, style.borderLeftStyle, style.borderLeftColor, currentColor: style.color) : .zero,
+                                    borderRight: decoration.paintsEndEdge ? Self.edge(style.borderRightWidth, style.borderRightStyle, style.borderRightColor, currentColor: style.color) : .zero,
                                     nodeID: decoration.owner.nodeID, writingMode: writingMode,
-                                    rotation: frame.rotation
+                                    rotation: frame.rotation,
+                                    followsTextColor: Self.bordersFollowTextColor(style, widths: EdgeSizes(
+                                        top: style.borderTopWidth, right: decoration.paintsEndEdge ? style.borderRightWidth : 0,
+                                        bottom: style.borderBottomWidth, left: decoration.paintsStartEdge ? style.borderLeftWidth : 0))
                                 )
                             },
                             lineSerial: currentLineSerial
                         ))
                     }
+                }
+                if stack[index].listMarkerIndex < line.listMarkers.count {
+                    let placed = line.listMarkers[stack[index].listMarkerIndex]
+                    stack[index].listMarkerIndex += 1
+                    let frame = stack[index]
+                    // The item is this box or one of its ancestors, so it is on
+                    // the stack; its border box start is where the marker ends.
+                    guard let item = stack.last(where: { $0.box === placed.marker.listItem }) else {
+                        assertionFailure("a list marker's line is outside its list item")
+                        continue
+                    }
+                    return listMarkerStep(
+                        placed.marker, borderStart: item.borderX + placed.floatShift,
+                        lineBox: CGRect(x: frame.contentOrigin.x + line.contentX, y: frame.contentOrigin.y + line.top,
+                                        width: frame.box.contentSize.width, height: line.height),
+                        baseline: frame.contentOrigin.y + line.baseline + placed.blockShift,
+                        sourceLocation: line.runs.first?.sourceRange.location ?? placed.marker.sourceLocation,
+                        lineSerial: currentLineSerial, rotation: item.rotation)
                 }
                 if stack[index].runIndex < line.runs.count {
                     let run = line.runs[stack[index].runIndex]
@@ -855,14 +917,20 @@ struct PageWalker {
                         font: run.font,
                         color: run.style.color ?? .black,
                         ctLine: line.ctLine,
-                        sourceMapping: .linear(shapedRange: run.shapedRange ?? run.sourceRange),
-                        renderedTextOverride: nil,
+                        // Generated text maps whole onto its empty source,
+                        // as a ruby annotation does onto its base.
+                        sourceMapping: run.generatedText == nil
+                            ? .linear(shapedRange: run.shapedRange ?? run.sourceRange)
+                            : .annotation(shapedRange: run.shapedRange ?? run.sourceRange),
+                        renderedTextOverride: run.generatedText,
                         lineSerial: currentLineSerial,
-                        rotation: frame.rotation
+                        rotation: frame.rotation,
+                        textDecorations: run.textDecorations
                     ))
                 }
                 stack[index].lineIndex += 1
                 stack[index].runIndex = 0
+                stack[index].listMarkerIndex = 0
                 stack[index].inlineDecorationsEmitted = false
                 continue
             }
@@ -879,8 +947,63 @@ struct PageWalker {
         return nil
     }
 
-    private static func edge(_ width: CGFloat, _ style: BorderStyle, _ color: UIColor?) -> BorderEdge {
-        BorderEdge(width: width, color: color ?? .black, style: width > 0 ? style : .none)
+    /// A list marker on the line box `lineBox` (document coordinates), paged
+    /// with that line: a counter as zero-length text with no source of its own
+    /// (`.wholeRange`, so selection, carets and links pass it by), a bullet as
+    /// a fill placed like the line's inline decorations.
+    private func listMarkerStep(
+        _ marker: ListMarker, borderStart: CGFloat, lineBox: CGRect, baseline: CGFloat,
+        sourceLocation: Int, lineSerial: Int, rotation: PaintTransform?
+    ) -> Step {
+        switch marker.paint(borderStart: borderStart, baseline: baseline) {
+        case .text(let x, let width):
+            guard case .text(let ctLine, let string, _) = marker.content else { preconditionFailure() }
+            return .text(StepText(
+                sourceRange: NSRange(location: sourceLocation, length: 0),
+                nodeID: marker.nodeID,
+                linkTarget: nil,
+                writingMode: writingMode,
+                rect: DocumentRect(rawValue: CGRect(x: x, y: lineBox.minY, width: width, height: lineBox.height)),
+                baselineY: baseline,
+                font: marker.font,
+                color: marker.color,
+                ctLine: ctLine,
+                sourceMapping: .wholeRange,
+                renderedTextOverride: string,
+                lineSerial: lineSerial,
+                rotation: rotation
+            ))
+        case .shape(let rect, let isFilled, let cornerRadius):
+            let edge = isFilled ? BorderEdge.zero : BorderEdge(width: 1, color: marker.color, style: .solid)
+            return .inlineLineStart(StepInlineLineStart(
+                placementRect: DocumentRect(rawValue: lineBox),
+                fills: [StepFill(
+                    rect: DocumentRect(rawValue: rect),
+                    color: isFilled ? marker.color : .clear,
+                    cornerRadius: cornerRadius,
+                    borderTop: edge, borderBottom: edge, borderLeft: edge, borderRight: edge,
+                    nodeID: marker.nodeID,
+                    writingMode: writingMode,
+                    rotation: rotation,
+                    followsTextColor: true
+                )],
+                lineSerial: lineSerial
+            ))
+        }
+    }
+
+    /// One side as painted: a nil colour is `currentColor`, the element's own
+    /// text colour (measured: `border: 2px solid; color: blue` paints blue).
+    private static func edge(_ width: CGFloat, _ style: BorderStyle, _ color: UIColor?,
+                             currentColor: UIColor?) -> BorderEdge {
+        BorderEdge(width: width, color: color ?? currentColor ?? .black, style: width > 0 ? style : .none)
+    }
+
+    /// True when a painted side takes `currentColor`: the fill then follows a
+    /// theme change as the text does.
+    private static func bordersFollowTextColor(_ style: ComputedStyle, widths: EdgeSizes) -> Bool {
+        (widths.top > 0 && style.borderTopColor == nil) || (widths.right > 0 && style.borderRightColor == nil)
+            || (widths.bottom > 0 && style.borderBottomColor == nil) || (widths.left > 0 && style.borderLeftColor == nil)
     }
 
     /// Feeds one step through the paging rules; returns a COMPLETED page when
@@ -1056,7 +1179,8 @@ struct PageWalker {
                 documentRect: fill.rect, color: fill.color, cornerRadius: fill.cornerRadius,
                 borderTop: fill.borderTop, borderBottom: fill.borderBottom,
                 borderLeft: fill.borderLeft, borderRight: fill.borderRight,
-                nodeID: fill.nodeID, writingMode: fill.writingMode
+                nodeID: fill.nodeID, writingMode: fill.writingMode,
+                followsTextColor: fill.followsTextColor
             )
             fragment.paintTransform = pageTransform(fill.rotation, displacementY: flowShift, pageIndex: currentIndex)
             appendToCurrentPage(.fill(fragment), lineSerial: step.lineSerial)
@@ -1100,6 +1224,7 @@ struct PageWalker {
                 renderedTextOverride: step.renderedTextOverride
             )
             fragment.isCombinedUpright = step.isCombinedUpright
+            fragment.textDecorations = step.textDecorations
             fragment.paintTransform = pageTransform(step.rotation, displacementY: 0, pageIndex: 0)
             appendToCurrentPage(.text(fragment), lineSerial: step.lineSerial)
             return nil
@@ -1139,6 +1264,7 @@ struct PageWalker {
             renderedTextOverride: step.renderedTextOverride
         )
         fragment.isCombinedUpright = step.isCombinedUpright
+        fragment.textDecorations = step.textDecorations
         fragment.paintTransform = pageTransform(
             step.rotation,
             displacementY: adjustedDocY - step.rect.minY,
@@ -1246,7 +1372,8 @@ struct PageWalker {
                 borderTop: step.borderTop, borderBottom: step.borderBottom,
                 borderLeft: step.borderLeft, borderRight: step.borderRight,
                 nodeID: step.nodeID,
-                writingMode: step.writingMode
+                writingMode: step.writingMode,
+                followsTextColor: step.followsTextColor
             )
             fragment.paintTransform = pageTransform(step.rotation, displacementY: 0, pageIndex: 0)
             appendToCurrentPage(.fill(fragment), lineSerial: step.lineSerial)
@@ -1391,7 +1518,8 @@ struct PageWalker {
             nodeID: decoration.step.nodeID,
             writingMode: decoration.step.writingMode,
             fragmentPosition: position,
-            decorationID: decoration.id
+            decorationID: decoration.id,
+            followsTextColor: decoration.step.followsTextColor
         )
         fragment.paintTransform = pageTransform(
             decoration.step.rotation,
@@ -1733,6 +1861,7 @@ extension TextFragment {
             renderedTextOverride: renderedTextOverride
         )
         moved.isCombinedUpright = isCombinedUpright
+        moved.textDecorations = textDecorations
         moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: dy)
         return moved
     }
@@ -1772,7 +1901,8 @@ extension FillFragment {
             writingMode: writingMode,
             fragmentPosition: fragmentPosition,
             decorationID: decorationID,
-            isBackgroundPaint: isBackgroundPaint
+            isBackgroundPaint: isBackgroundPaint,
+            followsTextColor: followsTextColor
         )
         moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: rect.rawValue.minY - self.rect.rawValue.minY)
         return moved

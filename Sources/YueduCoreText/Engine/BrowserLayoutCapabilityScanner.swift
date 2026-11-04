@@ -19,6 +19,7 @@ public enum UnsupportedFeature: Equatable, Sendable, CustomStringConvertible {
     case textIndent             // outside the Phase 4E1 resolved subset
     case unparseableLayoutCSS   // CSS we cannot parse that could affect layout
     case unknownBlockDisplay    // display: flex/grid/table/… mapped here too
+    case listMarker             // a list item that would draw an inside marker
 
     public var description: String {
         switch self {
@@ -36,6 +37,7 @@ public enum UnsupportedFeature: Equatable, Sendable, CustomStringConvertible {
         case .textIndent: return "text-indent"
         case .unparseableLayoutCSS: return "unparseable-layout-css"
         case .unknownBlockDisplay: return "unknown-block-display"
+        case .listMarker: return "list-marker"
         }
     }
 }

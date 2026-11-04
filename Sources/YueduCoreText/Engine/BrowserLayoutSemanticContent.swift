@@ -66,7 +66,8 @@ enum BrowserLayoutSemanticContent {
                             attributes: attributes, svgRenderability: nil
                         ),
                         style: node.style, children: [], nodeID: node.nodeID,
-                        linkTarget: node.linkTarget, anchorID: node.anchorID
+                        linkTarget: node.linkTarget, anchorID: node.anchorID,
+                        listItemOrdinal: node.listItemOrdinal
                     )
                 }
             }
@@ -81,7 +82,8 @@ enum BrowserLayoutSemanticContent {
             return ComputedStyleNode(
                 tag: node.tag, semanticElement: node.semanticElement, style: node.style,
                 children: children, nodeID: node.nodeID,
-                linkTarget: node.linkTarget, anchorID: node.anchorID
+                linkTarget: node.linkTarget, anchorID: node.anchorID,
+                listItemOrdinal: node.listItemOrdinal
             )
         }
         let transformed = transform(root)
@@ -128,5 +130,69 @@ enum BrowserLayoutSemanticContent {
         return (ipaHints + rubyHints.filter { ruby in
             !ipaHints.contains { NSIntersectionRange($0.range, ruby.range).length > 0 }
         }).sorted { $0.range.location < $1.range.location }
+    }
+}
+
+extension DisplayTextItem {
+    /// A list item's counter (`listMarkerStep`): the only text the engine draws
+    /// that owns no source characters, placed at a zero-length range where its
+    /// item's first line starts. A bullet is a fill, not text. Ruby annotations
+    /// carry their base's range, so they never match; generated content
+    /// (`::before`), once drawn, would, and needs its own test then.
+    var isListMarker: Bool {
+        sourceRange.length == 0 && renderedTextOverride != nil
+    }
+}
+
+extension DisplayList {
+    /// What VoiceOver reads for a page or scroll tile that draws this list.
+    /// `pageText` is the source text at `pageRange`, and `paragraphRanges` the
+    /// chapter's (`BrowserContinuousLayout.paragraphRanges`), as the host
+    /// already holds both for selection.
+    ///
+    /// - The source has nothing between two blocks ("序幕" and "那天" run
+    ///   together), so each paragraph that starts on the page starts a line.
+    /// - A counter drawn here is read where its item starts, as "1." or "一、"
+    ///   (list-marker design §14, decision 1): on a line of its own start,
+    ///   without the suffix's trailing space, a space before the text. Bullets
+    ///   are shapes and say nothing.
+    /// - What starts at the end of `pageRange` belongs to the next page. A
+    ///   scroll tile also draws the edge lines of its neighbours, so counting
+    ///   the end would read the next tile's first number twice. An item with no
+    ///   text at the very end of a page therefore goes unread; it has nothing
+    ///   to say.
+    /// - A picture's U+FFFC says nothing.
+    ///
+    /// For speech only. Offsets, search and listening (TTS) use the source
+    /// text, which this leaves alone.
+    public func spokenText(pageText: String, pageRange: NSRange, paragraphRanges: [NSRange]) -> String {
+        let page = pageText as NSString
+        func offset(_ location: Int) -> Int? {
+            let offset = location - pageRange.location
+            return offset >= 0 && offset < page.length ? offset : nil
+        }
+        // What the source does not say, by where it is said: a line break, and
+        // the numbers of the items starting there. Two can start at one place
+        // (`<li><ol><li>`, or an empty item and the next); markers are drawn in
+        // document order, and each place keeps it.
+        var breaks: [Int: [Substring]] = [:]
+        for paragraph in paragraphRanges {
+            if let offset = offset(paragraph.location), breaks[offset] == nil { breaks[offset] = [] }
+        }
+        for case .text(let text) in items where text.isListMarker {
+            guard let drawn = text.renderedTextOverride, let offset = offset(text.sourceRange.location) else { continue }
+            var number = Substring(drawn)
+            while number.last?.isWhitespace == true { number.removeLast() }
+            breaks[offset, default: []].append(number)
+        }
+        var spoken = ""
+        var cursor = 0
+        for (offset, numbers) in breaks.sorted(by: { $0.key < $1.key }) {
+            spoken += page.substring(with: NSRange(location: cursor, length: offset - cursor))
+            spoken += "\n" + numbers.map { "\($0) " }.joined(separator: "\n")
+            cursor = offset
+        }
+        spoken += page.substring(from: cursor)
+        return spoken.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
