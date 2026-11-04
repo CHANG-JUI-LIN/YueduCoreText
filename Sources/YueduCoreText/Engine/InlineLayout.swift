@@ -30,6 +30,15 @@ struct InlineRun {
     /// Generated content (a `q`'s quotation marks): `text` is shaped and
     /// drawn, and `sourceRange` is empty where it stands.
     var isGeneratedText = false
+    /// The text starts with a collapsible space that follows another across
+    /// an element's boundary, so it collapses (CSS Text 3 §4.1.1): it stays in
+    /// the source text, which reading positions count, and is shaped as a
+    /// zero-width space. Measured, WKWebView iOS 27.2: `甲乙 <span> 丙丁</span>`
+    /// keeps one space between them.
+    var collapsesLeadingSpace = false
+
+    /// `text` as it is shaped.
+    var shapedText: String { collapsesLeadingSpace ? "\u{200B}" + text.dropFirst() : text }
 
     init(
         text: String,
@@ -212,6 +221,9 @@ enum InlineLayout {
                         attributes: textAttributes(for: run.style, resolver: fontResolver, font: resolveFont(run.style))
                     ))
                 }
+                if run.collapsesLeadingSpace {
+                    attributed.replaceCharacters(in: NSRange(location: runAttributedStart[index], length: 1), with: "\u{200B}")
+                }
             }
             // Only genuine text runs shift with the text baseline; replaced
             // and delegate-backed runs align by their own box. Across a
@@ -263,6 +275,36 @@ enum InlineLayout {
         // strut with the text's own font and line-height outvoted it by an ULP.
         func inlineBox(_ font: UIFont, lineHeight: CGFloat?) -> (above: CGFloat, below: CGFloat) {
             halfLeadingBox(font, lineHeight: lineHeight)
+        }
+        // A text range's inline box, as WebKit sizes it from its primary font
+        // and the fonts that fall back for it (`enclosingAscentDescentWithFallbackFonts`):
+        // a fallback font counts only at `line-height: normal`, with its own
+        // content area and no leading. The primary is the font the run asked
+        // for (`asked`), and its fallbacks are the ones Core Text's cascade
+        // picks for it over the range's text, not a CJK stand-in: WebKit draws
+        // Han in the system font through the system's own cascade. Measured,
+        // WKWebView iOS 27.2 (S001h): Han in Georgia, the system font, Helvetica
+        // and PingFang keep a 25.5px line at 25.5; at `normal` Georgia's grows
+        // to PingFang TC's 19 + 6, the system font's to its cascade's 17 + 5.
+        func textBox(asked: UIFont, requested: CGFloat?, range: NSRange,
+                     language: Any?) -> (above: CGFloat, below: CGFloat) {
+            guard requested == nil else { return inlineBox(asked, lineHeight: requested) }
+            var box = inlineBox(asked, lineHeight: nil)
+            let text = (attributed.string as NSString).substring(with: range)
+            let utf16 = Array(text.utf16)
+            var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
+            if CTFontGetGlyphsForCharacters(asked as CTFont, utf16, &glyphs, utf16.count) { return box }
+            var attributes: [NSAttributedString.Key: Any] = [.font: asked]
+            attributes[kCTLanguageAttributeName as NSAttributedString.Key] = language
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+            for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+                guard let font = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] else { continue }
+                let fallback = font as! CTFont as UIFont
+                guard fallback.fontName != asked.fontName else { continue }
+                let content = roundedContentExtent(fallback)
+                box = (max(box.above, content.ascent), max(box.below, content.descent))
+            }
+            return box
         }
         func lineMetrics(_ info: CoreTextLineBreaker.LineBreak) -> (height: CGFloat, baseline: CGFloat) {
             var above: CGFloat = -.greatestFiniteMagnitude
@@ -339,7 +381,7 @@ enum InlineLayout {
                     // range keeps at least its own ink height unless the rule
                     // also set a line-height, so its enlarged glyphs never
                     // reach into the neighbouring lines.
-                    attributed.enumerateAttributes(in: part) { attributes, _, _ in
+                    attributed.enumerateAttributes(in: part) { attributes, range, _ in
                         let used = attributes[.font] as? UIFont ?? font
                         // A CJK stand-in draws the run's own text: only a font a rule
                         // chose makes this a range with a font of its own.
@@ -352,7 +394,8 @@ enum InlineLayout {
                         } else if asked.fontName != font.fontName || asked.pointSize != font.pointSize {
                             requested = max(requested ?? ink, ink)
                         }
-                        let box = inlineBox(used, lineHeight: requested)
+                        let box = textBox(asked: asked, requested: requested, range: range,
+                                          language: attributes[kCTLanguageAttributeName as NSAttributedString.Key])
                         // A baseline-shifted range drags its inline box along,
                         // growing the line box on the side it shifted towards.
                         let shift = attributes[.baselineOffset] as? CGFloat ?? 0
@@ -499,9 +542,16 @@ enum InlineLayout {
                 lineRuns[lineRuns.count - 1].generatedText = last.generatedText
             }
 
-            // Collapsing whitespace modes remove leading whitespace at the
-            // START of a rendered line (e.g. after a <br> or pre-line newline).
-            trimLineLeadingWhitespace(from: &lineRuns, sourceText: sourceText)
+            // Collapsible spaces at a line's start are removed, and those at its
+            // end hang where the source keeps them (CSS Text 3 §4.1.2): neither
+            // takes part in aligning the line, and the start's leave no gap.
+            // Measured, WKWebView iOS 27.2 (S001h): `甲乙<br/> 丙丁` starts 丙丁 at
+            // the line's start; a centred `甲乙 <span>丙丁 </span><br/>` centres
+            // 甲乙 丙丁, an image between spaces on its own line the image alone.
+            let hangingStart = trimLineLeadingWhitespace(from: &lineRuns, line: shapedLine, sourceText: sourceText)
+            // A justified line's width already leaves its trailing spaces out.
+            let hangingEnd = shapedLine === breakInfo.line
+                ? hangingTrailingAdvance(of: lineRuns, in: shapedLine, sourceText: sourceText as NSString) : 0
 
             // The FINAL line of the whole text stream also trims trailing whitespace.
             if breakInfo.range.location + breakInfo.range.length >= attributed.length {
@@ -513,10 +563,10 @@ enum InlineLayout {
             let top = yTop
             let alignSlack = alignmentOffset(
                 alignment: alignment,
-                lineWidth: usedWidth,
+                lineWidth: usedWidth - hangingStart - hangingEnd,
                 maxWidth: interval.lineWidth
             )
-            let contentX = interval.lineX + alignSlack
+            let contentX = interval.lineX + alignSlack - hangingStart
             if let root = context.paragraphStyle ?? lineRuns.first?.style {
                 lineRuns = TextDecorationLayout.decorate(lineRuns, root: root, writingMode: context.writingMode,
                                                          font: resolveFont)
@@ -745,22 +795,26 @@ enum InlineLayout {
     }
 
     /// Removes leading whitespace from the first run of a line when the run's
-    /// whitespace mode collapses spaces (normal/nowrap/preLine).
-    private static func trimLineLeadingWhitespace(from runs: inout [LineRun], sourceText: String) {
+    /// whitespace mode collapses spaces (normal/nowrap/preLine), and returns
+    /// its advance in `line`, which the line's start leaves out.
+    private static func trimLineLeadingWhitespace(from runs: inout [LineRun], line: CTLine, sourceText: String) -> CGFloat {
         let ns = sourceText as NSString
+        var removed: CGFloat = 0
         while var first = runs.first {
-            if first.isAtomicUnit { return }
+            if first.isAtomicUnit { return removed }
             let mode = first.style.whiteSpace
-            guard mode == .normal || mode == .nowrap || mode == .preLine else { return }
+            guard mode == .normal || mode == .nowrap || mode == .preLine else { return removed }
             guard first.sourceRange.location >= 0,
-                  first.sourceRange.location + first.sourceRange.length <= ns.length else { return }
+                  first.sourceRange.location + first.sourceRange.length <= ns.length else { return removed }
             var advance = 0
             while advance < first.sourceRange.length {
                 let c = ns.character(at: first.sourceRange.location + advance)
                 if c == 0x20 || c == 0x09 { advance += 1 } else { break }
             }
-            guard advance > 0 else { return }
-            let spaceWidth: CGFloat = {
+            guard advance > 0 else { return removed }
+            let spaceWidth: CGFloat = first.shapedRange.map {
+                shapedAdvance(in: line, range: NSRange(location: $0.location, length: advance))
+            } ?? {
                 let space = NSAttributedString(string: String(repeating: " ", count: advance),
                                                attributes: [.font: first.font])
                 let spaceLine = CTLineCreateWithAttributedString(space)
@@ -785,11 +839,40 @@ enum InlineLayout {
                 )
                 first.inlineDecorations = runs[0].inlineDecorations
                 runs[0] = first
-                return
+                return removed + spaceWidth
             }
             // The first run was entirely whitespace: drop it and re-check.
+            removed += first.width
             runs.removeFirst()
         }
+        return removed
+    }
+
+    /// The advance in `line` of the collapsible spaces that end it, before the
+    /// forced break that ends it if one does: they hang (CSS Text 3 §4.1.2).
+    /// Spaces the breaker left out of `line` add nothing.
+    private static func hangingTrailingAdvance(of runs: [LineRun], in line: CTLine, sourceText ns: NSString) -> CGFloat {
+        var advance: CGFloat = 0
+        var atLineEnd = true
+        for run in runs.reversed() {
+            if run.isDecorationEdge, run.width == 0 { continue }
+            let mode = run.style.whiteSpace
+            guard !run.isAtomicUnit, !run.isDecorationEdge, let shaped = run.shapedRange,
+                  mode == .normal || mode == .nowrap || mode == .preLine,
+                  run.sourceRange.location >= 0, NSMaxRange(run.sourceRange) <= ns.length else { return advance }
+            var end = run.sourceRange.length
+            if atLineEnd {
+                while end > 0, [10, 13, 0x2028, 0x2029].contains(Int(ns.character(at: run.sourceRange.location + end - 1))) {
+                    end -= 1
+                }
+                atLineEnd = false
+            }
+            var start = end
+            while start > 0, [0x20, 0x09].contains(ns.character(at: run.sourceRange.location + start - 1)) { start -= 1 }
+            advance += shapedAdvance(in: line, range: NSRange(location: shaped.location + start, length: end - start))
+            if start > 0 { return advance }
+        }
+        return advance
     }
 
     /// Removes trailing whitespace from the last run of a line for collapsing whitespace modes.

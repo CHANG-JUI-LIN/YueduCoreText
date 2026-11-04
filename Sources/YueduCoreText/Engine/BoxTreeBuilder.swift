@@ -209,7 +209,7 @@ enum BoxTreeBuilder {
         if node.tag == "::first-letter", boxStyle.isFloated, boxStyle.width == .auto {
             let attributed = NSMutableAttributedString()
             for run in pendingInline {
-                attributed.append(NSAttributedString(string: run.text, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))
+                attributed.append(NSAttributedString(string: run.shapedText, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))
             }
             let line = CTLineCreateWithAttributedString(attributed)
             boxStyle.width = .px(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
@@ -386,7 +386,7 @@ enum BoxTreeBuilder {
                 segmentBoxes += preferredOuterWidth(of: unit, available: available, config: config)
                 continue
             }
-            segment.append(NSAttributedString(string: run.text, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))
+            segment.append(NSAttributedString(string: run.shapedText, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))
         }
         flushSegment()
         return maxWidth
@@ -853,15 +853,22 @@ enum BoxTreeBuilder {
             registerAnchors(&anchorStack, anchors: &anchors, at: sourceText.currentOffset)
         }
         let range = sourceText.append(collapsed)
+        func collapses(_ mode: WhiteSpaceMode) -> Bool { mode == .normal || mode == .nowrap || mode == .preLine }
+        let collapsesLeadingSpace = collapses(style.whiteSpace) && collapsed.hasPrefix(" ")
+            && runs.last(where: { $0.decorationEdge == nil }).map {
+                !$0.isAtomicUnit && !$0.isGeneratedText && collapses($0.style.whiteSpace) && $0.text.hasSuffix(" ")
+            } == true
         // Authored 縦中横 in vertical text: each combined part keeps its characters in
         // sourceText and becomes one upright cell, like a ruby base.
         let segments = combinesUpright && !isWhitespaceOnly
             ? style.textCombineUpright.segments(of: collapsed) : [(text: collapsed, combined: false)]
         guard segments.contains(where: \.combined) else {
-            runs.append(InlineRun(
+            var run = InlineRun(
                 text: collapsed, style: style,
                 sourceRange: range, nodeID: nodeID, linkTarget: link
-            ))
+            )
+            run.collapsesLeadingSpace = collapsesLeadingSpace
+            runs.append(run)
             return
         }
         var location = range.location
@@ -875,7 +882,9 @@ enum BoxTreeBuilder {
                                                   nodeID: nodeID, linkTarget: link)
                 ))
             } else {
-                runs.append(InlineRun(text: segment.text, style: style, sourceRange: part, nodeID: nodeID, linkTarget: link))
+                var run = InlineRun(text: segment.text, style: style, sourceRange: part, nodeID: nodeID, linkTarget: link)
+                run.collapsesLeadingSpace = collapsesLeadingSpace && part.location == range.location
+                runs.append(run)
             }
         }
     }

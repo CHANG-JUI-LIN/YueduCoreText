@@ -1,6 +1,7 @@
 import Testing
 import UIKit
 @testable import YueduCoreText
+import YueduCoreTextTypography
 
 /// Shared helpers for the browser-layout test suites.
 enum BrowserLayoutTestSupport {
@@ -30,17 +31,24 @@ enum BrowserLayoutTestSupport {
     /// The reference document WebKit was measured with (S001: 17px PingFang
     /// SC at line-height 1.5, an 8px body margin, `lang="zh-Hant"`) holding
     /// `body`: 366 wide, or a 776 tall vertical-rl page.
+    /// `rootFamilies` replaces the reader's font: `[]` is the app's own default,
+    /// the system font, with CJK text in its language's font. `cjk` is the
+    /// app's CJK typography, which draws Han in a stand-in font.
     static func webKitReference(
-        _ body: String, css: String = "", vertical: Bool = false, lang: String? = "zh-Hant"
+        _ body: String, css: String = "", vertical: Bool = false, lang: String? = "zh-Hant",
+        rootFamilies: [String] = ["PingFangSC-Regular"], cjk: CJKTypographyStyle? = nil,
+        imageLoader: (@Sendable (String) -> UIImage?)? = nil
     ) async throws -> (pages: [PageFragments], doc: BrowserLayoutDocument) {
-        let reference = "html{font-size:17px;line-height:1.5;text-align:justify;font-family:\"PingFang SC\"}"
+        let family = rootFamilies.isEmpty ? "" : "font-family:\"PingFang SC\""
+        let reference = "html{font-size:17px;line-height:1.5;text-align:justify;\(family)}"
         let width: CGFloat = vertical ? 3000 : 366
         let height: CGFloat = vertical ? 776 : 20_000
         var config = BrowserLayoutConfig(renderWidth: width, renderHeight: height, rootFontSize: 17,
-                                         fontFamilies: ["PingFangSC-Regular"], textColor: .black, backgroundColor: .white)
+                                         fontFamilies: rootFamilies, textColor: .black, backgroundColor: .white)
         config.writingMode = vertical ? .verticalRTL : .horizontal
+        config.cjkTypographyStyle = cjk
         let html = "<html\(lang.map { " lang=\"\($0)\"" } ?? "")><body>\(body)</body></html>"
-        let doc = BrowserLayoutDocument(html: html, cssTexts: [reference, css], config: config)
+        let doc = BrowserLayoutDocument(html: html, cssTexts: [reference, css], config: config, imageLoader: imageLoader)
         let pages = try await doc.renderPages(containerSize: CGSize(width: width, height: height))
         return (pages, doc)
     }

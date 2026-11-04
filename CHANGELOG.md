@@ -2,6 +2,21 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.13.1] - 2026-11-04
+
+Line boxes and the spaces at a line's edges, as WebKit sizes and places them (measured in a WKWebView, iOS 27.2). 0.13.0's rounding made both visible: a book in the system font gained half a point a line, and a centred picture between spaces moved.
+
+### Fixed
+
+- A CJK stand-in font no longer grows a line at a fixed `line-height`. A text's inline box is sized from the font the text asked for; the fonts Core Text falls back to count only at `line-height: normal`, each with its own content area, and Han in the system font falls back through the system's cascade, not the stand-in. In the system font at 1.5 a line with Han was 26 tall where WebKit's is 25.5; at `normal`, Han in Georgia now takes PingFang TC's 25 and in the system font 22, where both were 20.
+- Collapsible spaces at the start of a line are removed. A line after a `<br>` followed by a space or a line break in the source started a space in.
+- Collapsible spaces at the end of a line, before a `<br>` or at the block's end, take no part in aligning it. A centred line that ended in one sat half a space left of centre, a right-aligned one a whole space.
+- A collapsible space right after another across an element's boundary (`甲乙 <span> 丙丁</span>`) takes no room (CSS Text 3 §4.1.1). It stays in `sourceText`.
+
+### Migration
+
+Lines after a `<br>` move left by a space where the source has whitespace after it, centred and right-aligned lines move by their trailing spaces, and lines in a font without CJK glyphs change height, so pages and scroll heights move. Offsets into `sourceText` do not.
+
 ## [0.13.0] - 2026-11-04
 
 List items draw their markers, and the user-agent stylesheet is WebKit's html.css (iOS 27.2) wherever the engine lays the element out: block margins, headings, `hr`, monospace, inline elements, `big`/`small`/`sup`/`sub`, text decorations, `q`'s quotation marks and `<font>`. The positions, sizes and colours were measured in a WKWebView; the wavy, dotted, dashed and double decoration lines follow WebKit's source and were not measured. The one deliberate difference is that `medium` is the reader's root font size where WebKit's is a fixed 16px. Most chapters lay out differently: see Migration.
