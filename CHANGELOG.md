@@ -2,6 +2,14 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.14.1] - 2026-11-04
+
+The emphasis-mark values are public, so an app's own text engine can read the properties and pick the characters that take a mark exactly as this one does. Nothing is laid out or drawn differently.
+
+### Added
+
+- In `YueduCoreTextTypography`: `TextEmphasisValue` parses `text-emphasis-style`, `text-emphasis-position` and the `text-emphasis` shorthand; `TextEmphasisStyle`, `TextEmphasisShape` and `TextEmphasisPosition` hold the values; `TextEmphasisStyle.mark(vertical:)` gives the mark's characters, and `TextEmphasisPosition.isOver(language:)` resolves `auto`. `TextEmphasisCharacters.receivesMark(_:)` says whether a character takes a mark (CSS Text Decoration 3 §3.4, as measured against WebKit).
+
 ## [0.14.0] - 2026-11-04
 
 Emphasis marks: `text-emphasis` is drawn as WebKit draws it, in both writing modes, and lines grow to hold the marks (measured in a WKWebView, iOS 27.2). Aozora Bunko's 傍点 use it. Separately, the normal line spacing now rounds as WebKit rounds it on iOS.

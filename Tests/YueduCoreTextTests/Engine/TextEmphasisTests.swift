@@ -1,6 +1,7 @@
 import Testing
 import UIKit
 @testable import YueduCoreText
+import YueduCoreTextTypography
 
 /// `text-emphasis` against a WKWebView (iOS 27.2, the app's S001i and S001j
 /// fixtures, device pixel ratio 3): which characters take a mark, how much a

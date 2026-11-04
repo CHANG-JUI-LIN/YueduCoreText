@@ -22,6 +22,13 @@ frames confined to the layout operation or queue that creates them.
 - ``VerticalGlyphKind``
 - ``VerticalLayoutConfig``
 
+### Emphasis Marks
+
+- ``TextEmphasisValue``
+- ``TextEmphasisStyle``
+- ``TextEmphasisPosition``
+- ``TextEmphasisCharacters``
+
 ### Core Text Construction
 
 - ``CoreTextFramesetterFactory``
