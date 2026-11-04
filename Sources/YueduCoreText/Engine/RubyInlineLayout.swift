@@ -45,15 +45,26 @@ struct RubyBox {
     var inlineBoxAscent: CGFloat = 0
     var inlineBoxDescent: CGFloat = 0
     let base: RubyLine
+    /// The ruby's own annotation, over the whole base.
     let annotation: RubyLine
     let baseOffsetX: CGFloat
+    /// How far each base piece is moved along the line from where `base.line` sets it: past
+    /// the room each inner ruby before it takes, and to its centre within an inner ruby. All zero
+    /// unless an inner annotation is wider than its base.
+    var basePieceShifts: [CGFloat] = []
     let annotationOffsetX: CGFloat
     /// From the base's baseline to the annotation's, along the block axis (up is negative).
     let annotationBaselineOffset: CGFloat
-    /// The unit's `outer` annotation.
-    var outer: RubyLine? = nil
-    var outerOffsetX: CGFloat = 0
-    var outerBaselineOffset: CGFloat = 0
+    /// The unit's inner annotations, each placed as the ruby's own one is.
+    var inner: [PlacedRubyAnnotation] = []
+}
+
+/// An inner ruby's annotation in its ruby box: its line, and where it is drawn from the box's
+/// start and the base's baseline.
+struct PlacedRubyAnnotation {
+    let line: RubyLine
+    let offsetX: CGFloat
+    let baselineOffset: CGFloat
 }
 
 enum RubyInlineLayout {
@@ -89,22 +100,9 @@ enum RubyInlineLayout {
             attributedSource: attributedSource, writingMode: writingMode,
             cjkTypographyStyle: cjkTypographyStyle
         )
-        let annotation = shape(
-            unit.annotation.pieces.map {
-                InputPiece(
-                    text: $0.text,
-                    style: $0.style,
-                    sourceRange: unit.sourceRange,
-                    nodeID: $0.nodeID,
-                    linkTarget: $0.linkTarget ?? unit.linkTarget
-                )
-            },
-            fontResolver: fontResolver, fonts: fonts, writingMode: writingMode,
-            cjkTypographyStyle: cjkTypographyStyle
-        )
-        let outer = unit.outer.map { outer in
+        func annotationLine(_ annotation: RubyAnnotation) -> RubyLine {
             shape(
-                outer.pieces.map {
+                annotation.pieces.map {
                     InputPiece(text: $0.text, style: $0.style, sourceRange: unit.sourceRange,
                                nodeID: $0.nodeID, linkTarget: $0.linkTarget ?? unit.linkTarget)
                 },
@@ -112,39 +110,80 @@ enum RubyInlineLayout {
                 cjkTypographyStyle: cjkTypographyStyle
             )
         }
-        let advance = max(base.width, annotation.width, outer?.width ?? 0)
-        // Each side's annotations stack outward from the base's content box, the inner one first:
+        let annotation = annotationLine(unit.annotation)
+        let innerLines = unit.inner.map { annotationLine($0.annotation) }
+
+        // An inner ruby takes the room of its base or its annotation, whichever is longer, its base
+        // centred in it; the outer base runs on past it. Measured, WKWebView iOS 26.5 (S001o, S001p):
+        // 制 under （ママ） takes 34 and 肘 follows at 34; 目的 then 欸 under （疑） then 已, 76.5.
+        var shifts = [CGFloat](repeating: 0, count: base.pieces.count)
+        var innerStarts: [CGFloat] = []
+        var extra: CGFloat = 0
+        var next = 0
+        for (inner, line) in zip(unit.inner, innerLines) {
+            for index in next..<inner.pieces.lowerBound { shifts[index] = extra }
+            let first = base.pieces[inner.pieces.lowerBound], last = base.pieces[inner.pieces.upperBound - 1]
+            let width = last.x + last.width - first.x
+            let room = max(width, line.width)
+            innerStarts.append(first.x + extra)
+            for index in inner.pieces { shifts[index] = extra + (room - width) / 2 }
+            extra += room - width
+            next = inner.pieces.upperBound
+        }
+        for index in next..<base.pieces.count { shifts[index] = extra }
+        let baseWidth = base.width + extra
+        let advance = max(baseWidth, annotation.width)
+        let baseOffsetX = (advance - baseWidth) / 2
+
+        // Each side's annotations stack outward from the base's content box, the inner ones first:
         // one over the base stands on what is under it, one under the base hangs from what is over it.
         // Measured, WKWebView iOS 27.2 (S001m, S001n; 17px PingFang at 1.5): an 8.5px annotation's
         // baseline 22 over the base's or 16 under it, 19 either side of a vertical line's centre,
-        // and 13 further for a second one on the same side.
+        // and 13 further for a second one on the same side. An inner ruby over part of the base
+        // lifts the outer annotation over all of it (iOS 26.5, S001o: 辞 then 義 under ママ, じぎ
+        // over both at 35).
         var overEdge = base.ascent, underEdge = base.descent
-        func place(_ line: RubyLine, position: RubyPosition) -> CGFloat {
+        func place(_ line: RubyLine, position: RubyPosition, from edges: (over: CGFloat, under: CGFloat)) -> CGFloat {
             if position == .under {
-                defer { underEdge += line.ascent + line.descent }
-                return underEdge + line.ascent
+                underEdge = max(underEdge, edges.under + line.ascent + line.descent)
+                return edges.under + line.ascent
             }
-            defer { overEdge += line.ascent + line.descent }
-            return -overEdge - line.descent
+            overEdge = max(overEdge, edges.over + line.ascent + line.descent)
+            return -edges.over - line.descent
         }
-        let annotationBaselineOffset = place(annotation, position: unit.position)
-        // A block's first line holds the base's own inline box, its half-leading box, and the
-        // annotations; an outer annotation on the side the inner one leaves free stands beyond
-        // that box for the line's sake: two-sided readings grow a 1.5 line to 51.25, not the 51
-        // their content and annotations reach.
         let leading = leadingBox(of: unit, base: base, fontResolver: fontResolver, writingMode: writingMode)
-        var ascent = max(overEdge, leading.above), descent = max(underEdge, leading.below)
-        let outerBaselineOffset = outer.map { line -> CGFloat in
-            if unit.outerPosition == .under {
-                descent += line.ascent + line.descent
-            } else {
-                ascent += line.ascent + line.descent
+        var ascent: CGFloat, descent: CGFloat
+        let annotationBaselineOffset: CGFloat
+        var placedInner: [PlacedRubyAnnotation] = []
+        if unit.inner.isEmpty {
+            annotationBaselineOffset = place(annotation, position: unit.position, from: (base.ascent, base.descent))
+            ascent = max(overEdge, leading.above)
+            descent = max(underEdge, leading.below)
+        } else {
+            for ((inner, line), start) in zip(zip(unit.inner, innerLines), innerStarts) {
+                let first = base.pieces[inner.pieces.lowerBound], last = base.pieces[inner.pieces.upperBound - 1]
+                let room = max(last.x + last.width - first.x, line.width)
+                placedInner.append(PlacedRubyAnnotation(
+                    line: line,
+                    offsetX: baseOffsetX + start + (room - line.width) / 2,
+                    baselineOffset: place(line, position: inner.position, from: (base.ascent, base.descent))))
             }
-            return place(line, position: unit.outerPosition)
+            // A block's first line holds the base's own inline box, its half-leading box, and the
+            // inner annotations; the outer annotation stands beyond that box for the line's sake:
+            // two-sided readings grow a 1.5 line to 51.25, not the 51 their content and
+            // annotations reach.
+            ascent = max(overEdge, leading.above)
+            descent = max(underEdge, leading.below)
+            annotationBaselineOffset = place(annotation, position: unit.position, from: (overEdge, underEdge))
+            if unit.position == .under {
+                descent += annotation.ascent + annotation.descent
+            } else {
+                ascent += annotation.ascent + annotation.descent
+            }
         }
         // On later lines, each ruby container adds the leading its annotations need past its
         // line-height, all of it on its annotation's side, the outer container counting the inner
-        // one's annotation too. Measured, WKWebView iOS 27.2 (S001m, S001n rows u2-ua): 18.75 under
+        // ones' annotations too. Measured, WKWebView iOS 27.2 (S001m, S001n rows u2-ua): 18.75 under
         // a 1.5 line where the first line takes 19, 31.75 over it for 32, and a reading on each
         // side 31.75 either way where the first line takes 32 and 19.25.
         let inlineBox = leading.above + leading.below
@@ -158,9 +197,12 @@ enum RubyInlineLayout {
                 following.ascent = max(following.ascent, leading.above + extra)
             }
         }
-        let innerHeight = annotation.ascent + annotation.descent
-        grow(unit.position, by: content + innerHeight)
-        if let outer { grow(unit.outerPosition, by: content + innerHeight + outer.ascent + outer.descent) }
+        var innerHeight: CGFloat = 0
+        for (inner, line) in zip(unit.inner, innerLines) {
+            grow(inner.position, by: content + line.ascent + line.descent)
+            innerHeight = max(innerHeight, line.ascent + line.descent)
+        }
+        grow(unit.position, by: content + innerHeight + annotation.ascent + annotation.descent)
         var box = RubyBox(
             unit: unit,
             advance: advance,
@@ -168,19 +210,16 @@ enum RubyInlineLayout {
             descent: descent,
             base: base,
             annotation: annotation,
-            baseOffsetX: (advance - base.width) / 2,
+            baseOffsetX: baseOffsetX,
             annotationOffsetX: (advance - annotation.width) / 2,
             annotationBaselineOffset: annotationBaselineOffset
         )
+        box.basePieceShifts = shifts
+        box.inner = placedInner
         box.followingAscent = following.ascent
         box.followingDescent = following.descent
         box.inlineBoxAscent = leading.above
         box.inlineBoxDescent = leading.below
-        if let outer, let outerBaselineOffset {
-            box.outer = outer
-            box.outerOffsetX = (advance - outer.width) / 2
-            box.outerBaselineOffset = outerBaselineOffset
-        }
         return box
     }
 

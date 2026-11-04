@@ -1317,9 +1317,9 @@ struct PageWalker {
     ) -> Fragment {
         let ruby = step.ruby
         let baseBaseline = step.baseBaselineY + displacementY
-        var children: [Fragment] = ruby.base.pieces.map { piece in
+        var children: [Fragment] = zip(ruby.base.pieces, ruby.basePieceShifts).map { piece, shift in
             let document = DocumentRect(rawValue: CGRect(
-                x: step.originX + ruby.baseOffsetX + piece.x,
+                x: step.originX + ruby.baseOffsetX + shift + piece.x,
                 y: baseBaseline - ruby.base.ascent,
                 width: piece.width,
                 height: ruby.base.ascent + ruby.base.descent
@@ -1344,10 +1344,8 @@ struct PageWalker {
             return .text(fragment)
         }
 
-        var annotations = [(ruby.annotation, ruby.annotationOffsetX, ruby.annotationBaselineOffset)]
-        if let outer = ruby.outer {
-            annotations.append((outer, ruby.outerOffsetX, ruby.outerBaselineOffset))
-        }
+        let annotations = ruby.inner.map { ($0.line, $0.offsetX, $0.baselineOffset) }
+            + [(ruby.annotation, ruby.annotationOffsetX, ruby.annotationBaselineOffset)]
         for (annotation, offsetX, baselineOffset) in annotations {
             let annotationBaseline = baseBaseline + baselineOffset
             children.append(contentsOf: annotation.pieces.map { piece in

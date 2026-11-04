@@ -27,6 +27,9 @@ struct BrowserLayoutRubySubsetTests {
             "<p><ruby style='-webkit-ruby-position:after'>漢<rt>かん</rt></ruby></p>",
             "<p><ruby style='ruby-position:under'><ruby style='ruby-position:over'>漢字<rt>かんじ</rt></ruby><rt>カンジ</rt></ruby></p>",
             "<p><ruby><ruby>漢字<rp>(</rp><rt>かんじ</rt><rp>)</rp></ruby> <rt>ママ</rt></ruby></p>",
+            "<p><ruby>外<ruby>內<rt>n</rt></ruby><rt>w</rt></ruby></p>",
+            "<p><ruby><span><ruby>來<rt>き</rt></ruby>た</span><rt>北</rt></ruby></p>",
+            "<p><ruby><ruby>萬<rt>m</rt></ruby>更<ruby>椽<rt>m</rt></ruby><rt>w</rt></ruby></p>",
         ] {
             let root = try tree(body)
             #expect(HorizontalRubySupport.validate(root).isSupported)
@@ -50,7 +53,6 @@ struct BrowserLayoutRubySubsetTests {
             "<p><ruby>漢</ruby></p>",
             "<p><ruby>漢<rt>a</rt><rt>b</rt></ruby></p>",
             "<p><ruby>漢<rtc><rt>a</rt></rtc></ruby></p>",
-            "<p><ruby>外<ruby>內<rt>n</rt></ruby><rt>w</rt></ruby></p>",
             "<p><ruby><ruby>內<rt>n</rt>字<rt>z</rt></ruby><rt>w</rt></ruby></p>",
             "<p><ruby><ruby><ruby>內<rt>n</rt></ruby><rt>m</rt></ruby><rt>w</rt></ruby></p>",
             "<p><ruby><ruby>內<rt>n</rt></ruby><rt>w</rt><rt>x</rt></ruby></p>",
@@ -212,16 +214,17 @@ struct BrowserLayoutRubyMeasurementTests {
                 + "<rt>ながいカンジ</rt></ruby>")
         #expect(result.sourceText == "漢字")
         let box = try #require(BrowserLayoutRubyTestProbe.rubyBoxes(in: result.rootBox).only)
-        let outer = try #require(box.outer)
-        #expect(box.annotation.pieces.map(\.text).joined() == "かんじ" && outer.pieces.map(\.text).joined() == "ながいカンジ")
-        let base = box.base, inner = box.annotation
+        let placed = try #require(box.inner.only)
+        let outer = box.annotation, inner = placed.line
+        #expect(inner.pieces.map(\.text).joined() == "かんじ" && outer.pieces.map(\.text).joined() == "ながいカンジ")
+        let base = box.base
         let innerHeight = inner.ascent + inner.descent, outerHeight = outer.ascent + outer.descent
         let innerOffset = sides.inner == "over" ? -base.ascent - inner.descent : base.descent + inner.ascent
-        #expect(abs(box.annotationBaselineOffset - innerOffset) < 0.01)
+        #expect(abs(placed.baselineOffset - innerOffset) < 0.01)
         let beyond = sides.inner == sides.outer ? innerHeight : 0
         let outerOffset = sides.outer == "over"
             ? -base.ascent - beyond - outer.descent : base.descent + beyond + outer.ascent
-        #expect(abs(box.outerBaselineOffset - outerOffset) < 0.01)
+        #expect(abs(box.annotationBaselineOffset - outerOffset) < 0.01)
         // Each side holds the base's inline box, then the outer annotation beyond it.
         let ascent = max(base.ascent + (sides.inner == "over" ? innerHeight : 0), box.inlineBoxAscent)
             + (sides.outer == "over" ? outerHeight : 0)
@@ -230,9 +233,9 @@ struct BrowserLayoutRubyMeasurementTests {
         #expect(abs(box.ascent - ascent) < 0.01)
         #expect(abs(box.descent - descent) < 0.01)
         #expect(abs(box.advance - outer.width) < 0.01)
-        #expect(abs(box.outerOffsetX) < 0.01)
+        #expect(abs(box.annotationOffsetX) < 0.01)
         #expect(abs(box.baseOffsetX - (box.advance - base.width) / 2) < 0.01)
-        #expect(abs(box.annotationOffsetX - (box.advance - inner.width) / 2) < 0.01)
+        #expect(abs(placed.offsetX - (box.advance - inner.width) / 2) < 0.01)
     }
 
     /// The reading spoken for a base is the annotation over it; a left one is often a gloss.
@@ -244,6 +247,7 @@ struct BrowserLayoutRubyMeasurementTests {
         #expect(try reading("<ruby style='ruby-position:over'><ruby style='ruby-position:under'>刺<rt>テフダ</rt></ruby><rt>し</rt></ruby>") == "し")
         #expect(try reading("<ruby><ruby>刺<rt>し</rt></ruby><rt>ママ</rt></ruby>") == "し")
         #expect(try reading("<ruby style='ruby-position:under'>刺<rt>テフダ</rt></ruby>") == "テフダ")
+        #expect(try reading("<ruby>辞<ruby>義<rt>ママ</rt></ruby><rt>じぎ</rt></ruby>") == "じぎ")
     }
 
     @Test func lineBreakerNeverSlicesRubyBaseOrAnnotation() throws {

@@ -8,7 +8,7 @@
 
 適合需要自行掌握繪製與互動的原生文件或閱讀介面。你的 App 提供資源、承載畫面；套件負責解析、計算樣式、排版、分頁與繪製。
 
-[0.16.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.16.0) · [可執行範例](Examples/StandaloneConsumer) · [進階整合指南（英文）](docs/EngineIntegration.md) · [更新紀錄](CHANGELOG.md)
+[0.17.0 版本](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.17.0) · [可執行範例](Examples/StandaloneConsumer) · [進階整合指南（英文）](docs/EngineIntegration.md) · [更新紀錄](CHANGELOG.md)
 
 ## 環境要求與安裝
 
@@ -16,14 +16,14 @@
 - HTML/CSS 引擎從 **0.3.0** 開始提供。0.2.1 及更早版本只有原有工具 API。
 - 主產品依賴 `YueduCoreTextTypography` 與 **SwiftSoup 2.13.7**。
 
-在 Xcode 選擇 **File → Add Package Dependencies**，輸入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，將 **YueduCoreText** 產品加入你的 target。使用 0.16.x 時，選擇 **Up to Next Minor Version**，起始版本填 **0.16.0**。
+在 Xcode 選擇 **File → Add Package Dependencies**，輸入 `https://github.com/CHANG-JUI-LIN/YueduCoreText`，將 **YueduCoreText** 產品加入你的 target。使用 0.17.x 時，選擇 **Up to Next Minor Version**，起始版本填 **0.17.0**。
 
 若使用 Swift Package，將以下內容加入 `Package.dependencies`：
 
 ```swift
 .package(
     url: "https://github.com/CHANG-JUI-LIN/YueduCoreText",
-    .upToNextMinor(from: "0.16.0")
+    .upToNextMinor(from: "0.17.0")
 )
 ```
 
@@ -143,7 +143,7 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 
 ## 支援範圍
 
-0.16.0 會排直排裡的圖片，行內與區塊都行：圖片直立，行內圖片照 WebKit 的位置置中在它那一欄。0.15.0 會排在基字下方的注音（`ruby-position: under`）與兩側都有讀音的巢狀 ruby（青空文庫就這樣寫），注音與行高都照 WebKit 的位置。0.14.0 會畫 `text-emphasis` 著重號（青空文庫的傍點就是），橫排直排都畫，行會長高容納它們。0.13.0 會畫清單符號，區塊邊距、標題、`hr`、行內元素、文字裝飾線和 `q` 都照 WebKit 的預設樣式表，大部分章節的版面會變（見 [changelog](CHANGELOG.md)）。0.12.0 新增 `BrowserChapterDocument.principalWritingMode`，宿主可以讓每份文件用它自己的書寫方向排版。0.11.0 讓每張圖片在 sourceText 裡佔一個 U+FFFC，整頁圖片的頁面因此有自己的位置。圖片之後的位移各往後移一；對照 0.10 存下的位移請用 `BrowserPictureOffsets.migrated(_:)` 換算一次（見[更新紀錄](CHANGELOG.md)）。這一版也把 inline-block 排成單一方塊、支援分隔邊框表格，並讀取 viewport 單位、`letter-spacing`、`vertical-align: super/sub` 與 `rotate()`。
+0.17.0 會排基字裡除了文字還有 ruby 的 ruby（青空文庫在一段詞上標讀音、其中一字另有注記時就這樣寫），並公開 `VerticalAlignShift`：WebKit 把 `super` 與 `sub` 移多遠。0.16.0 會排直排裡的圖片，行內與區塊都行：圖片直立，行內圖片照 WebKit 的位置置中在它那一欄。0.15.0 會排在基字下方的注音（`ruby-position: under`）與兩側都有讀音的巢狀 ruby（青空文庫就這樣寫），注音與行高都照 WebKit 的位置。0.14.0 會畫 `text-emphasis` 著重號（青空文庫的傍點就是），橫排直排都畫，行會長高容納它們。0.13.0 會畫清單符號，區塊邊距、標題、`hr`、行內元素、文字裝飾線和 `q` 都照 WebKit 的預設樣式表，大部分章節的版面會變（見 [changelog](CHANGELOG.md)）。0.12.0 新增 `BrowserChapterDocument.principalWritingMode`，宿主可以讓每份文件用它自己的書寫方向排版。0.11.0 讓每張圖片在 sourceText 裡佔一個 U+FFFC，整頁圖片的頁面因此有自己的位置。圖片之後的位移各往後移一；對照 0.10 存下的位移請用 `BrowserPictureOffsets.migrated(_:)` 換算一次（見[更新紀錄](CHANGELOG.md)）。這一版也把 inline-block 排成單一方塊、支援分隔邊框表格，並讀取 viewport 單位、`letter-spacing`、`vertical-align: super/sub` 與 `rotate()`。
 
 0.10.0 讓章節的解析與評估結果跨隔離域移交：`BrowserChapterDocument.parse(input:)` 與 `BrowserChapterDocument.evaluate(_:configuration:writingMode:)` 不在呼叫端的 actor 上執行，並以 `sending` 交回 document 與 evaluation。兩個型別仍不是 Sendable，因為它們持有章節的 DOM 與宿主設定裡的閉包。0.10.1 的文件補充：交給 `evaluate` 的設定必須是 disconnected 的值，請在 nonisolated 函式裡建立，不要在 actor 隔離的方法裡建立。
 
@@ -205,7 +205,7 @@ xcodebuild -scheme YueduCoreTextConsumer \
   -destination "$YUEDU_TEST_DESTINATION" -parallel-testing-enabled NO test
 ```
 
-範例是一個附測試的小型 library，不是現成閱讀器 App。它使用 repo 內的本機套件；相同 public API 也可透過已發布的 0.16.0 取得。
+範例是一個附測試的小型 library，不是現成閱讀器 App。它使用 repo 內的本機套件；相同 public API 也可透過已發布的 0.17.0 取得。
 
 CI 在 iOS Simulator 執行套件與只使用 public API 的獨立 consumer 測試，並保留 `.xcresult` 產物；已驗證的版本、工具鏈與結果請見 [CI 執行紀錄](https://github.com/CHANG-JUI-LIN/YueduCoreText/actions)。本文件不宣稱真機效能。
 

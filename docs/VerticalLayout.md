@@ -50,8 +50,9 @@ inline-block that is not an image, max-width, non-pixel explicit block widths,
 min-width/min-height, alternate nested writing modes, vertical-lr,
 text-combine-upright inside or around ruby, unknown text-combine values and
 non-mixed text-orientation report unsupported.
-Ruby with an rtc, inter-character ruby, nested ruby of any shape but one inner
-ruby with one outer annotation (0.15), and alternate alignment/merge are
+Ruby with an rtc, inter-character ruby, nested ruby but one level deep (since
+0.17 a ruby's base may hold inner rubies of one base and one rt each beside its
+text, under one outer annotation), and alternate alignment/merge are
 unsupported in both modes. Existing exclusions (tables, flex/grid,
 positioned content, scripts, etc.) still apply. No full CSS Writing Modes or
 EPUB compliance is claimed.

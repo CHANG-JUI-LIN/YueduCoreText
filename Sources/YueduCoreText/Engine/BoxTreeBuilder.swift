@@ -939,12 +939,14 @@ enum BoxTreeBuilder {
 
         for structure in structures {
             var baseRuns: [InlineRun] = []
+            var inner: [RubyInnerAnnotation] = []
             var localAnchors = anchorStack
             if let own = node.anchorID { localAnchors.append(own) }
             collectRubyBase(
                 structure.baseChildren,
-                inheritedNode: structure.baseNode ?? node,
+                inheritedNode: node,
                 runs: &baseRuns,
+                inner: &inner,
                 sourceText: &sourceText,
                 anchors: &anchors,
                 anchorStack: &localAnchors
@@ -971,11 +973,6 @@ enum BoxTreeBuilder {
                 pieces: &annotationPieces
             )
             annotationPieces = trimRubyAnnotationEdges(annotationPieces)
-            var outerPieces: [RubyAnnotationPiece] = []
-            if let outer = structure.outer {
-                collectRubyAnnotation(outer.children, inheritedNode: outer, pieces: &outerPieces)
-                outerPieces = trimRubyAnnotationEdges(outerPieces)
-            }
             let range = NSRange(
                 location: first.sourceRange.location,
                 length: NSMaxRange(last.sourceRange) - first.sourceRange.location
@@ -991,10 +988,7 @@ enum BoxTreeBuilder {
                 alignment: node.style.rubyAlign,
                 position: structure.annotation.style.rubyPosition
             )
-            if let outer = structure.outer {
-                unit.outer = RubyAnnotation(pieces: outerPieces)
-                unit.outerPosition = outer.style.rubyPosition
-            }
+            unit.inner = inner
             runs.append(InlineRun(
                 text: "\u{FFFC}",
                 style: node.style,
@@ -1006,10 +1000,13 @@ enum BoxTreeBuilder {
         }
     }
 
+    /// A ruby's base text, as runs; each inner ruby's base joins them and its annotation goes
+    /// to `inner`, over the runs it covers.
     private static func collectRubyBase(
         _ children: [StyleTreeChild],
         inheritedNode: ComputedStyleNode,
         runs: inout [InlineRun],
+        inner: inout [RubyInnerAnnotation],
         sourceText: inout SourceTextBuilder,
         anchors: inout [String: Int],
         anchorStack: inout [String]
@@ -1032,14 +1029,25 @@ enum BoxTreeBuilder {
                 guard element.tag != "rp" else { continue }
                 var nestedAnchors = anchorStack
                 if let own = element.anchorID { nestedAnchors.append(own) }
+                let structure = element.tag == "ruby" ? HorizontalRubySupport.innerRuby(element) : nil
+                let start = runs.count
                 collectRubyBase(
-                    element.children,
+                    structure?.baseChildren ?? element.children,
                     inheritedNode: element,
                     runs: &runs,
+                    inner: &inner,
                     sourceText: &sourceText,
                     anchors: &anchors,
                     anchorStack: &nestedAnchors
                 )
+                if let structure, runs.count > start {
+                    var pieces: [RubyAnnotationPiece] = []
+                    collectRubyAnnotation(structure.annotation.children, inheritedNode: structure.annotation, pieces: &pieces)
+                    inner.append(RubyInnerAnnotation(
+                        pieces: start..<runs.count,
+                        annotation: RubyAnnotation(pieces: trimRubyAnnotationEdges(pieces)),
+                        position: structure.annotation.style.rubyPosition))
+                }
             }
         }
     }

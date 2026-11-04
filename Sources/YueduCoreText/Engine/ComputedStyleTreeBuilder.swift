@@ -774,10 +774,9 @@ enum ComputedStylePropertyApplier {
         case "vertical-align":
             // super/sub shift the baseline; top/middle/bottom align table
             // cells. Length values degrade to baseline instead of rejecting
-            // the chapter. The shift matches WebKit
-            // (InlineLineBoxVerticalAligner): the PARENT box's font-size / 3 + 1
-            // up (sub: / 5 + 1 down), from the parent's own shifted baseline
-            // (measured: a `sup` in a `sup` sits 6.67 + 5.72 up).
+            // the chapter. The shift is WebKit's (`VerticalAlignShift`), from
+            // the parent's own shifted baseline (measured: a `sup` in a `sup`
+            // sits 6.67 + 5.72 up).
             let parentShift = ctx.parent.verticalAlignOffset
             switch value {
             case "baseline":
@@ -785,10 +784,10 @@ enum ComputedStylePropertyApplier {
                 style.verticalAlignOffset = parentShift
             case "super", "-epub-super":
                 style.verticalAlign = .sup
-                style.verticalAlignOffset = parentShift + ctx.parent.fontSize / 3 + 1
+                style.verticalAlignOffset = parentShift + VerticalAlignShift.superscript(parentFontSize: ctx.parent.fontSize)
             case "sub", "-epub-sub":
                 style.verticalAlign = .sub
-                style.verticalAlignOffset = parentShift - (ctx.parent.fontSize / 5 + 1)
+                style.verticalAlignOffset = parentShift - VerticalAlignShift.subscript(parentFontSize: ctx.parent.fontSize)
             case "top":
                 style.verticalAlign = .top
                 style.verticalAlignOffset = parentShift

@@ -2,6 +2,31 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.17.0] - 2026-11-04
+
+A ruby whose base holds rubies beside its text, as Aozora Bunko writes a reading over a phrase when one of its characters carries a note of its own. Annotations sit, and lines grow, as WebKit sets them (measured in a WKWebView, iOS 26.5: the app's fixtures S001o and S001p).
+
+### Added
+
+- A ruby's base may hold inner rubies beside its text and inline elements: `<ruby>辞<ruby>義<rt>ママ</rt></ruby><rt>じぎ</rt></ruby>`. Each inner ruby has one base and one `rt`.
+  - An inner ruby is as wide as the wider of its base and its annotation, its base centred in it. The outer base runs on past it.
+  - The outer annotation spans the whole base, inner rubies and all. On a side it shares with an inner annotation it stands beyond it: in 17px PingFang at 1.5, 35 over the base's baseline, or 32 from the column's centre. On a side of its own it sits where a single annotation does: 22 over or 16 under, 19 either side of the column.
+  - Lines grow as for the nested ruby of 0.15.
+  - The pronunciation hint is the outer annotation. When one inner ruby holds the whole base, the 0.15 rule still applies.
+  - A ruby nested deeper, an inner ruby with more than one pair, and an `rtc` are still not laid out.
+- `VerticalAlignShift` in YueduCoreTextTypography: how far WebKit moves a box's baseline for `vertical-align: super` (the parent's font size / 3 + 1) and `sub` (/ 5 + 1), whatever the box's own size. The engine uses it.
+
+### Unchanged
+
+- `vertical-align: super` and `sub` already set as WebKit does. `ScriptShiftReferenceTests` pins 上付き, 下付き, 訓点 and 割り注 as the Aozora converter writes them, in both writing modes (the app's fixtures S013 and S013a).
+
+### Known issues
+
+- WebKit spaces a base around under a wider annotation (`ruby-align: space-around`); the engine centres it, its characters together.
+- An inner annotation wider than its base overhangs the outer base's text beside it in WebKit, by up to half its font size; the engine keeps it within the inner ruby. A base character after such a ruby sits 4.25 further along than in WebKit.
+- Kana annotations fall back to Hiragino Sans, whose kerning narrows pairs such as ハイ and ザイ; WebKit sets them unkerned. A 14-kana annotation is 118.15 long, where WebKit's is 119.
+- A superscript in `vertical-rl` widens its column by 4.28; WebKit on iOS 26.5 widens it by 3.66.
+
 ## [0.16.1] - 2026-11-04
 
 A chapter of thousands of rubies styles and lays out several times faster. Layout is unchanged: every fragment of the measured chapter lands where it did.
