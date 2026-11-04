@@ -38,13 +38,21 @@ Horizontal configuration continues to reject authored vertical layout.
   ignored, scaled horizontally to fit when wider than an em) and centred in
   the square. Nothing combines automatically. The property is ignored in
   horizontal text, as CSS has it.
+- Images (`img`), inline and as blocks (since 0.16). An image stays upright at
+  its used size: its height runs along the column, its width across it, so
+  `width` and `height` keep their physical meaning. An inline image is centred
+  on the column's central baseline and the column widens to hold it; a block
+  image is a block as wide as the image. As in horizontal text, an image longer
+  than its column scales to it, where WebKit lets it overflow.
 
-Vertical replaced elements/images, floats, max-width, non-pixel explicit block
-widths, min-width/min-height, alternate nested writing modes, vertical-lr,
+Vertical floats, an image as a ruby's base, `svg`, `video`, `audio`, an
+inline-block that is not an image, max-width, non-pixel explicit block widths,
+min-width/min-height, alternate nested writing modes, vertical-lr,
 text-combine-upright inside or around ruby, unknown text-combine values and
 non-mixed text-orientation report unsupported.
-Nested ruby, rtc, under/inter-character ruby and alternate alignment/merge are
-also unsupported in both modes. Existing exclusions (tables, flex/grid,
+Ruby with an rtc, inter-character ruby, nested ruby of any shape but one inner
+ruby with one outer annotation (0.15), and alternate alignment/merge are
+unsupported in both modes. Existing exclusions (tables, flex/grid,
 positioned content, scripts, etc.) still apply. No full CSS Writing Modes or
 EPUB compliance is claimed.
 

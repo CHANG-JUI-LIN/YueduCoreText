@@ -122,13 +122,18 @@ enum LogicalFlow {
     }
 }
 
-/// Initial vertical scope: normal-flow text, ruby and authored 縦中横. Replaced
-/// elements, floats, inline-blocks and constrained block-axis dimensions need their
-/// own vertical acceptance coverage before admission. Consumers receive a fact, never an empty page.
+/// Vertical scope: normal-flow text, ruby, authored 縦中横, and images inline or as
+/// blocks: upright, an inline one centred on the column's central baseline (WKWebView,
+/// the app's fixture S005a). An image as a ruby's base, other replaced elements, floats,
+/// inline-blocks and constrained block-axis dimensions need their own vertical acceptance
+/// coverage before admission. Consumers receive a fact, never an empty page.
 enum VerticalTextSupport {
     static func accepts(_ node: ComputedStyleNode, inRuby: Bool = false) -> Bool {
-        if ["img", "svg", "video", "audio", "table"].contains(node.tag) || node.style.isFloated
-            || node.style.display == .inlineBlock || node.style.maxWidth != nil { return false }
+        // An img is `inline-block` by the UA sheet, and laid out as a replaced element
+        // whatever its display; only another element's inline-block is a block container.
+        let image = node.tag == "img"
+        if ["svg", "video", "audio", "table"].contains(node.tag) || (image && inRuby) || node.style.isFloated
+            || (node.style.display == .inlineBlock && !image) || node.style.maxWidth != nil { return false }
         switch node.style.width {
         case .auto, .px: break
         default: return false

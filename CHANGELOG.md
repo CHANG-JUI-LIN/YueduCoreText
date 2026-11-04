@@ -2,6 +2,26 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.16.0] - 2026-11-04
+
+Images in vertical writing: inline and as blocks, as WebKit sets them (measured in a WKWebView, iOS 26.5). A vertical chapter with an image used to be reported unsupported.
+
+### Added
+
+- An `img` in `vertical-rl`, inline or as a block. It stays upright at its used size: its height runs down the column, its width lies across it.
+  - An inline image is centred on the column's central baseline, and the column widens to hold it: it is as wide as its widest box. A 40-wide image widens a 25.5 column to 40; a 17-wide one leaves it alone.
+  - A block image is a block as wide as the image. `text-align` centres an inline image down its column, as horizontally it centres one across the line.
+  - `width` and `height`, as attributes or CSS, keep their physical meaning: `width` is across the column.
+
+### Unchanged
+
+- An image longer than its column scales to it, as one wider than its line does horizontally. WebKit lets it overflow the column.
+- Still unsupported in vertical writing: a floated image, an image as a ruby's base, `svg`, `video`, `audio`, an inline-block that is not an image, and `max-width`.
+
+### Known issues
+
+- WebKit on iOS 26.5 sets a plain 17px column at line-height 1.5 25 wide, where iOS 27.2 sets 25.5. The engine follows 27.2. The image measurements are pinned relative to the text beside them, so they hold on either.
+
 ## [0.15.0] - 2026-11-04
 
 Ruby on either side of its base, and on both: `ruby-position: under` and nested ruby, as Aozora Bunko writes its 左ルビ and its readings on both sides of a word. Annotations sit, and lines grow, as WebKit sets them (measured in a WKWebView, iOS 27.2).

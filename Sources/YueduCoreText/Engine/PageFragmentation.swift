@@ -869,7 +869,7 @@ struct PageWalker {
                     if let atomic = run.atomic {
                         let rect = DocumentRect(rawValue: CGRect(
                             x: frame.contentOrigin.x + line.contentX + run.x,
-                            y: frame.contentOrigin.y + line.baseline - atomic.usedSize.height,
+                            y: frame.contentOrigin.y + line.baseline - (atomic.usedSize.height - atomic.descent),
                             width: atomic.usedSize.width,
                             height: atomic.usedSize.height
                         ))

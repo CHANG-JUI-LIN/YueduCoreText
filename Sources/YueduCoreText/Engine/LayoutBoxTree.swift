@@ -20,19 +20,26 @@ struct AtomicInline {
     /// could not be tapped.
     let nodeID: Int
     let linkTarget: String?
+    /// How far an inline image reaches below its line's baseline. Zero sets its
+    /// bottom on the baseline (CSS 2.1 §10.8.1). In vertical writing it is half its
+    /// block size: WebKit centres an image on the column's central baseline
+    /// (measured, WKWebView iOS 26.5, the app's fixture S005a).
+    let descent: CGFloat
 
     init(
         source: String,
         image: UIImage,
         usedSize: CGSize,
         nodeID: Int = -1,
-        linkTarget: String? = nil
+        linkTarget: String? = nil,
+        descent: CGFloat = 0
     ) {
         self.source = source
         self.image = image
         self.usedSize = usedSize
         self.nodeID = nodeID
         self.linkTarget = linkTarget
+        self.descent = descent
     }
 }
 

@@ -201,10 +201,11 @@ enum InlineLayout {
             } else if let atomic = run.atomic {
                 // CSS 2.1 §10.8.1: an inline replaced element with
                 // `vertical-align: baseline` sits with its BOTTOM margin edge ON
-                // the baseline — ascent = its full height, descent = 0.
+                // the baseline. Across a vertical line it is centred on the
+                // central baseline instead (`AtomicInline.descent`).
                 let box = AtomicInlineBox(width: atomic.usedSize.width,
-                                          ascent: atomic.usedSize.height,
-                                          descent: 0)
+                                          ascent: atomic.usedSize.height - atomic.descent,
+                                          descent: atomic.descent)
                 delegateBoxes.append(box)
                 var callbacks = AtomicInlineBox.callbacks
                 let delegate = CTRunDelegateCreate(&callbacks, Unmanaged.passRetained(box).toOpaque())
@@ -336,19 +337,22 @@ enum InlineLayout {
                     below = max(below, markerLineExtent / 2)
                 }
             }
-            // A vertical line of text alone: every inline box sits on the
+            // A vertical line of text and images: every inline box sits on the
             // central baseline, its line-height split evenly either side and
             // carried by its baseline shift, the root inline box among them
             // (measured, WebKit iOS 27.2: a `big` at 1.5 widens a 25.5 column
             // to 30.58, a `sup` to 30.03, a `sub` to 27.77, a 30px span to 45,
             // whether the shifted text stands upright or lies on its side).
-            // A line with ruby, a replaced element, an inline-block or a
-            // combined cell keeps the Core Text extent below.
-            let verticalTextOnly = context.writingMode != .horizontal && runs.indices.allSatisfy { index in
+            // An image stands on it too, centred across the column (measured,
+            // WKWebView iOS 26.5, fixture S005a: a 40-wide image widens a 25
+            // column to 40, a 60×60 one to 60, a 17×17 one not at all).
+            // A line with ruby, an inline-block or a combined cell keeps the
+            // Core Text extent below.
+            let centredColumn = context.writingMode != .horizontal && runs.indices.allSatisfy { index in
                 let run = runs[index]
                 let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
                 return part.length == 0 || run.decorationEdge != nil
-                    || (run.atomic == nil && run.ruby == nil && run.inlineBlock == nil && run.combined == nil)
+                    || (run.ruby == nil && run.inlineBlock == nil && run.combined == nil)
             }
             for (index, run) in runs.enumerated() {
                 let part = NSIntersectionRange(info.range, NSRange(location: runAttributedStart[index], length: shapedLength(of: run)))
@@ -360,7 +364,11 @@ enum InlineLayout {
                 // 27.2, redchamber-vertical spine 92: a `sup` at `normal` in a
                 // 160% column widens it 1.06, not the 6.67 its block's would.
                 let cssRequested = run.style.lineHeight
-                if verticalTextOnly {
+                if centredColumn, let atomic = run.atomic {
+                    // Its own box, unshifted, as the walker places it.
+                    above = max(above, atomic.usedSize.height - atomic.descent)
+                    below = max(below, atomic.descent)
+                } else if centredColumn {
                     // The style's shift, not the attribute: text on its side
                     // also carries `CJKTypography`'s centring offset there.
                     let shift = run.style.verticalAlignOffset
@@ -443,7 +451,7 @@ enum InlineLayout {
                     }
                 }
             }
-            if verticalTextOnly, let root = context.paragraphStyle ?? runs.first?.style {
+            if centredColumn, let root = context.paragraphStyle ?? runs.first?.style {
                 // The root inline box, in the block's font and line-height.
                 let content = roundedContentExtent(resolveFont(root))
                 let half = (cssHeight ?? content.ascent + content.descent) / 2
@@ -451,7 +459,7 @@ enum InlineLayout {
                 below = max(below, half)
             }
             if !above.isFinite || !below.isFinite { above = info.ascent; below = info.descent }
-            if context.writingMode != .horizontal, !verticalTextOnly {
+            if context.writingMode != .horizontal, !centredColumn {
                 let requested = cssHeight ?? 0
                 let leading = max(0, requested - info.ascent - info.descent) / 2
                 above = max(above, info.ascent + leading); below = max(below, info.descent + leading)

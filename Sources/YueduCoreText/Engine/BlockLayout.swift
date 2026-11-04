@@ -59,6 +59,7 @@ enum BlockLayout {
             in: box,
             containingInlineSize: containerWidth,
             rootFontSize: rootFontSize,
+            textWritingMode: textWritingMode ?? writingMode,
             viewportHeight: viewportHeight,
             viewportWidth: viewportWidth
         )
@@ -139,6 +140,7 @@ enum BlockLayout {
                 in: child,
                 containingInlineSize: box.contentSize.width,
                 rootFontSize: rootFontSize,
+                textWritingMode: textWritingMode ?? writingMode,
                 viewportHeight: viewportHeight,
                 viewportWidth: viewportWidth
             )
@@ -365,6 +367,7 @@ enum BlockLayout {
                 box.inlineRuns,
                 containingInlineSize: box.contentSize.width,
                 rootFontSize: rootFontSize,
+                textWritingMode: textWritingMode ?? writingMode,
                 fragmentHeight: fragmentHeight,
                 viewportHeight: viewportHeight,
                 viewportWidth: viewportWidth
@@ -696,16 +699,24 @@ enum BlockLayout {
         )
     }
 
+    /// A replaced element's intrinsic size in the layout's axes: inline along the line, block
+    /// across it. Its style is already in those axes (`LogicalFlow.styleTree`), and an image
+    /// in vertical writing stays upright, so its height runs along the column.
+    private static func intrinsicSize(of image: UIImage, textWritingMode: ReaderWritingMode) -> CGSize {
+        LogicalFlow.size(image.size, mode: textWritingMode)
+    }
+
     private static func resolveBlockReplacedSize(
         in box: BlockBox,
         containingInlineSize: CGFloat,
         rootFontSize: CGFloat,
+        textWritingMode: ReaderWritingMode,
         viewportHeight: CGFloat? = nil,
         viewportWidth: CGFloat? = nil
     ) {
         guard let attachment = box.imageAttachment else { return }
         let usedSize = resolveReplacedSize(
-            intrinsic: attachment.image.size,
+            intrinsic: intrinsicSize(of: attachment.image, textWritingMode: textWritingMode),
             style: box.style,
             containerWidth: containingInlineSize,
             rootFontSize: rootFontSize,
@@ -726,6 +737,7 @@ enum BlockLayout {
         _ runs: [InlineRun],
         containingInlineSize: CGFloat,
         rootFontSize: CGFloat,
+        textWritingMode: ReaderWritingMode,
         fragmentHeight: CGFloat? = nil,
         viewportHeight: CGFloat? = nil,
         viewportWidth: CGFloat? = nil
@@ -733,7 +745,7 @@ enum BlockLayout {
         runs.map { run in
             guard let atomic = run.atomic else { return run }
             var usedSize = resolveReplacedSize(
-                intrinsic: atomic.image.size,
+                intrinsic: intrinsicSize(of: atomic.image, textWritingMode: textWritingMode),
                 style: run.style,
                 containerWidth: containingInlineSize,
                 rootFontSize: rootFontSize,
@@ -747,7 +759,8 @@ enum BlockLayout {
                 let scale = fragmentHeight / usedSize.height
                 usedSize = CGSize(width: max(1, usedSize.width * scale), height: fragmentHeight)
             }
-            guard usedSize != atomic.usedSize else { return run }
+            let descent = textWritingMode == .horizontal ? 0 : usedSize.height / 2
+            guard usedSize != atomic.usedSize || descent != atomic.descent else { return run }
             var resolved = InlineRun(
                 text: run.text,
                 style: run.style,
@@ -760,7 +773,8 @@ enum BlockLayout {
                     image: atomic.image,
                     usedSize: usedSize,
                     nodeID: atomic.nodeID,
-                    linkTarget: atomic.linkTarget
+                    linkTarget: atomic.linkTarget,
+                    descent: descent
                 )
             )
             resolved.attributedSource = run.attributedSource
