@@ -27,6 +27,18 @@ struct SourceTextBuilder {
         pictureOffsets.append(currentOffset)
         return append("\u{FFFC}")
     }
+
+    /// Where a picture the client added to the chapter sits (`BrowserAddedContent`): before the
+    /// next character of the source, owning none of it. The source text, every offset in it
+    /// and `pictureOffsets` are what they are without the picture.
+    func addedPictureRange() -> NSRange {
+        NSRange(location: currentOffset, length: 0)
+    }
+
+    /// A picture's place in the source: a character of its own, or none for one the client added.
+    mutating func pictureRange(for node: ComputedStyleNode) -> NSRange {
+        BrowserAddedContent.marks(node) ? addedPictureRange() : appendPicture()
+    }
 }
 
 /// ComputedStyleNode tree → block box tree, preserving DOM order.
@@ -125,7 +137,7 @@ enum BoxTreeBuilder {
                         let attachment = makeBlockImage(for: elementNode, imageLoader: imageLoader)
                         let box = BlockBox(style: elementNode.style, boxType: .block)
                         box.imageAttachment = attachment
-                        box.imageSourceRange = sourceText.appendPicture()
+                        box.imageSourceRange = sourceText.pictureRange(for: elementNode)
                         Self.attachDebugIdentity(box, node: elementNode)
                         kids.append(box)
                     } else {
@@ -1168,7 +1180,7 @@ enum BoxTreeBuilder {
         sourceText: inout SourceTextBuilder,
         imageLoader: (String) -> UIImage?
     ) {
-        let range = sourceText.appendPicture()
+        let range = sourceText.pictureRange(for: node)
         let src = node.semanticElement?.attribute("src") ?? ""
         let image = imageLoader(src)
         let intrinsic = image?.size ?? .zero

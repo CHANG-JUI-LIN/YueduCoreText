@@ -136,8 +136,9 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 | 連結區域 | `LinkInteractionRegionSet.build(from:spineIndex:anchors:)` |
 | Anchor 位移 | `session.anchorOffsets` 或 `continuous.anchorOffsets` |
 | 每頁文字範圍 | `BrowserPageGeometry.buildPageRanges(_:sourceText:)` |
+| 外加圖片的頁 | `BrowserPageGeometry.buildPageAddedStarts(_:sourceText:)` |
 
-所有文字位移都指向經過空白折疊的 **sourceText，單位為 UTF-16**，不是 HTML 原始碼位移，也不是 Swift `String.count`。請使用 `NSString`／`NSRange` 處理。每張圖片在 sourceText 裡佔一個 U+FFFC（0.11 起；`pictureOffsets` 列出它們）。單文件範例的 `spineIndex: 0` 只是宿主提供的文件編號，不要求建立 EPUB 容器。
+所有文字位移都指向經過空白折疊的 **sourceText，單位為 UTF-16**，不是 HTML 原始碼位移，也不是 Swift `String.count`。請使用 `NSString`／`NSRange` 處理。每張圖片在 sourceText 裡佔一個 U+FFFC（0.11 起；`pictureOffsets` 列出它們）。宿主用 `data-added-content` 加進章節的圖片（`BrowserAddedContent`，0.19 起：評論數氣泡、卡片）不佔字元，有沒有它，位移指的都是同一處。單文件範例的 `spineIndex: 0` 只是宿主提供的文件編號，不要求建立 EPUB 容器。
 
 分頁 display list 使用左上原點、y 軸向下的**頁面座標**；連續 display list 使用**文件座標**；tile 查詢結果使用 **tile 局部座標**。宿主負責 view/window 座標轉換，命中測試與繪製必須使用相同座標空間。Ruby 註音的幾何資訊映射到所屬的正文範圍。
 

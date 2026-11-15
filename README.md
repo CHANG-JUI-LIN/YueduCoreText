@@ -136,8 +136,9 @@ Load resources before layout:
 | Link regions | `LinkInteractionRegionSet.build(from:spineIndex:anchors:)` |
 | Anchor offsets | `session.anchorOffsets` or `continuous.anchorOffsets` |
 | Page text ranges | `BrowserPageGeometry.buildPageRanges(_:sourceText:)` |
+| Pages of host-added pictures | `BrowserPageGeometry.buildPageAddedStarts(_:sourceText:)` |
 
-All text offsets address the engine's whitespace-collapsed **sourceText in UTF-16**, not raw HTML offsets or Swift `String.count`. Use `NSString`/`NSRange` when working with them. Each picture takes one U+FFFC of the source text (since 0.11; `pictureOffsets` lists them). In the single-document example, `spineIndex: 0` is simply the host's document identifier; no EPUB container is required.
+All text offsets address the engine's whitespace-collapsed **sourceText in UTF-16**, not raw HTML offsets or Swift `String.count`. Use `NSString`/`NSRange` when working with them. Each picture takes one U+FFFC of the source text (since 0.11; `pictureOffsets` lists them). A picture the host adds to a chapter with `data-added-content` (`BrowserAddedContent`, since 0.19: a comment badge, a card) takes none, so offsets mean the same place with it and without it. In the single-document example, `spineIndex: 0` is simply the host's document identifier; no EPUB container is required.
 
 Page display lists use top-left, y-down **page coordinates**. Continuous display lists use **document coordinates**. Tile results use **tile-local coordinates**. Your host converts view/window coordinates; hit testing and drawing must use the same space. Ruby annotation geometry maps to the owning base-text range.
 

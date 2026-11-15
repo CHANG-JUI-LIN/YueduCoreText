@@ -136,8 +136,9 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 | 链接区域 | `LinkInteractionRegionSet.build(from:spineIndex:anchors:)` |
 | 锚点偏移 | `session.anchorOffsets` 或 `continuous.anchorOffsets` |
 | 每页文字范围 | `BrowserPageGeometry.buildPageRanges(_:sourceText:)` |
+| 外加图片的页 | `BrowserPageGeometry.buildPageAddedStarts(_:sourceText:)` |
 
-所有文字偏移都指向经过空白折叠的 **sourceText，单位为 UTF-16**，不是 HTML 源代码偏移，也不是 Swift `String.count`。请使用 `NSString`／`NSRange` 处理。每张图片在 sourceText 里占一个 U+FFFC（0.11 起；`pictureOffsets` 列出它们）。单文档示例的 `spineIndex: 0` 只是宿主提供的文档编号，不要求建立 EPUB 容器。
+所有文字偏移都指向经过空白折叠的 **sourceText，单位为 UTF-16**，不是 HTML 源代码偏移，也不是 Swift `String.count`。请使用 `NSString`／`NSRange` 处理。每张图片在 sourceText 里占一个 U+FFFC（0.11 起；`pictureOffsets` 列出它们）。宿主用 `data-added-content` 加进章节的图片（`BrowserAddedContent`，0.19 起：评论数气泡、卡片）不占字符，有没有它，偏移指的都是同一处。单文档示例的 `spineIndex: 0` 只是宿主提供的文档编号，不要求建立 EPUB 容器。
 
 分页 display list 使用左上原点、y 轴向下的**页面坐标**；连续 display list 使用**文档坐标**；tile 查询结果使用 **tile 局部坐标**。宿主负责 view/window 坐标转换，命中测试与绘制必须使用相同坐标空间。Ruby 注音的几何信息映射到所属的正文范围。
 

@@ -2,6 +2,24 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.19.0] - 2026-11-16
+
+Pictures a client adds to a chapter that are not part of the book: a comment badge at the end of a paragraph, a card under one or after the chapter.
+
+### Added
+
+- `BrowserAddedContent.attributeName` (`data-added-content`): an `<img>` carrying the attribute, inline or `display: block`, is laid out and drawn as any picture, and owns no character of the chapter's source text.
+  - The source text, every offset in it, `pictureOffsets` and the paragraph ranges are what they are without the picture: a reading position, a bookmark or a highlight made with it there means the same place once it is gone, and the other way round. An added picture's `sourceRange` is empty, at the place of the character after it.
+  - Inside an `<a href>` it is a link region like any other picture, so a tap reaches the client with the `href` as written.
+  - One that does not load draws nothing and takes nothing.
+  - `ImageFragment.isAddedContent` tells such a picture from the book's own, which each take one character.
+- `BrowserPageGeometry.buildPageAddedStarts(_:sourceText:)` and `BrowserPageGeometry.pageIndex(forCharOffset:addedIndex:ranges:addedStarts:sourceText:)`: a page that shows nothing but added pictures shares its range's location with the page after it, or with the chapter's end, so it is found by the picture it starts with as well. The picture is named by its index among the added pictures at its place in the source, in document order: the same picture however the chapter is paginated. A host that turns pages by position carries that index beside the offset; without one, or once the pictures are gone, the position is the source character's own page.
+
+### Unchanged
+
+- A chapter with no added picture lays out, paginates and reports its positions exactly as in 0.18.1. Every picture of the book still takes its one U+FFFC.
+- Scroll layout places an offset as before: an added picture standing before the paragraph at that offset is where the offset lands.
+
 ## [0.18.1] - 2026-11-05
 
 ### Fixed
