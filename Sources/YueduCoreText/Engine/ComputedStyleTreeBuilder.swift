@@ -294,7 +294,7 @@ final class ComputedStyleTreeBuilder {
                 let childNode = ComputedStyleNode(
                     tag: child.tagName().lowercased(),
                     semanticElement: semanticElement,
-                    style: style,
+                    style: FlexSupport.containerStyle(style),
                     children: children(of: child, path: semanticElement.semanticPath, parentStyle: style,
                                        parentElement: child, inheritedLink: childLink),
                     nodeID: nextNodeID,
@@ -308,6 +308,11 @@ final class ComputedStyleTreeBuilder {
                 }
                 result.append(.element(childNode))
             }
+        }
+        if let item = FlexSupport.singleItem(of: result, container: parentStyle, nodeID: nextNodeID,
+                                                 linkTarget: inheritedLink) {
+            nextNodeID += 1
+            return [.element(item)]
         }
         return applyingFirstLetter(to: Self.wrappingStrayTableCells(result, parent: parentStyle),
                                    element: element, style: parentStyle)
@@ -780,6 +785,9 @@ enum ComputedStylePropertyApplier {
             case "inline": display = .inline
             case "inline-block": display = .inlineBlock
             case "inline-table": display = .inlineBlock
+            // A flex container is a block or an inline-block on the outside.
+            case "flex": display = .block
+            case "inline-flex": display = .inlineBlock
             case "table": display = .table
             case "table-row-group": display = .tableRowGroup
             case "table-header-group": display = .tableHeaderGroup
@@ -800,8 +808,15 @@ enum ComputedStylePropertyApplier {
             }
             style.display = display
             style.isInlineTable = value == "inline-table"
+            style.isFlexContainer = value == "flex" || value == "inline-flex"
             if display == .none { style.isHidden = true }
             style.isListItem = value == "list-item"
+        case "justify-content":
+            if let alignment = FlexAlignment.parse(value) { style.justifyContent = alignment }
+        case "align-items":
+            if let alignment = FlexAlignment.parse(value) { style.alignItems = alignment }
+        case "flex-direction":
+            style.flexIsColumn = value.hasPrefix("column")
         case "list-style-type":
             switch value {
             case "inherit", "unset": style.listStyleType = ctx.parent.listStyleType

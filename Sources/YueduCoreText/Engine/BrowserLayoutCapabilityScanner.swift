@@ -198,16 +198,18 @@ public enum BrowserLayoutCapabilityScanner {
             return .positioned
         }
         if k == "display" {
-            if v.contains("flex") || v.contains("grid") { return .unknownBlockDisplay }
+            // A flex container is admitted by what it holds (`FlexSupport`).
+            if v.contains("grid") { return .unknownBlockDisplay }
             // Table roles are admitted structurally by TableSupport; the column,
             // caption and inline-table roles are not in the subset.
             if v.contains("table"), !TableSupport.supportedDisplayValues.contains(v) { return .table }
         }
-        if k == "flex" || k == "flex-direction" || k == "flex-wrap" || k == "flex-basis"
-            || k == "flex-grow" || k == "flex-shrink" || k == "justify-content"
-            || k == "align-items" || k.hasPrefix("grid-") || k == "gap" {
-            return .flexGrid
-        }
+        // Flex properties change nothing a single flex item shows beyond what
+        // `FlexSupport` reads; a container with more than one item is turned
+        // away there, whatever it declares. A reversed direction would flip
+        // even one item's alignment.
+        if k == "flex-direction", v.hasSuffix("reverse") { return .flexGrid }
+        if k.hasPrefix("grid-") { return .flexGrid }
         if v.contains("calc(") || v.contains("min(") || v.contains("max(") || v.contains("clamp(") {
             return .calcOrModernFunctions
         }

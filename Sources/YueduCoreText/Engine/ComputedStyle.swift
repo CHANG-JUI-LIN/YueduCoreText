@@ -13,6 +13,25 @@ struct EdgeSizes: Equatable {
     var vertical: CGFloat { top + bottom }
 }
 
+/// Where a flex container puts its items along one of its axes, as far as a
+/// single item can tell the values apart.
+enum FlexAlignment: Equatable {
+    case start, center, end, stretch
+
+    /// `justify-content` and `align-items` values. With one item,
+    /// `space-between` is `start` and `space-around`/`space-evenly` are
+    /// `center` (CSS Flexbox §8.2). nil = not a value.
+    static func parse(_ value: String) -> FlexAlignment? {
+        switch value {
+        case "flex-start", "start", "left", "normal", "space-between", "baseline", "first baseline": return .start
+        case "center", "space-around", "space-evenly": return .center
+        case "flex-end", "end", "right", "last baseline": return .end
+        case "stretch": return .stretch
+        default: return nil
+        }
+    }
+}
+
 enum CSSDisplay: Equatable {
     case block, inline, inlineBlock, none
     case table, tableRowGroup, tableHeaderGroup, tableFooterGroup, tableRow, tableCell
@@ -264,6 +283,14 @@ struct ComputedStyle: Equatable {
     /// (`display` says so); `TableSupport` uses this to turn away one that
     /// holds table rows or cells of its own. Not inherited.
     var isInlineTable = false
+    /// `display: flex` or `inline-flex`. The box itself is a block or an
+    /// inline-block (`display` says so); its content is laid out by
+    /// `FlexSupport`. None of the four is inherited.
+    var isFlexContainer = false
+    /// `flex-direction: column`.
+    var flexIsColumn = false
+    var justifyContent = FlexAlignment.start
+    var alignItems = FlexAlignment.stretch
     /// `border-spacing` horizontal/vertical. nil = the UA default (2px), applied
     /// to tables by `UserAgentStyle`; kept as lengths because em resolves
     /// against the table's font size at layout time.

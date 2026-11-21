@@ -40,10 +40,10 @@ struct SharedEvaluationEquivalenceTests {
         // The cascade never styles <head>; the standalone scanner matched every element.
         Self.expectSameVerdict(Self.input(
             "<html><head><title>t</title></head><body><p>x</p></body></html>",
-            css: ["title { display: flex }"]), "head-only rule")
+            css: ["title { display: grid }"]), "head-only rule")
         let verdict = BrowserLayoutCapabilityScanner.scan(input: Self.input(
             "<html><head><title>t</title></head><body><p>x</p></body></html>",
-            css: ["title { display: flex }"]))
+            css: ["title { display: grid }"]))
         #expect(verdict.unsupportedFeatures == [.unknownBlockDisplay])
     }
 
@@ -53,8 +53,8 @@ struct SharedEvaluationEquivalenceTests {
         <section hidden><span class="attr">x</span></section><p>visible</p></body></html>
         """
         Self.expectSameVerdict(Self.input(html, css: [".deep { position: absolute }"]), "hidden descendant rule")
-        Self.expectSameVerdict(Self.input(html, css: [".attr { flex: 1 }"]), "hidden-attribute descendant rule")
-        let verdict = BrowserLayoutCapabilityScanner.scan(input: Self.input(html, css: [".deep { position: absolute }", ".attr { gap: 1px }"]))
+        Self.expectSameVerdict(Self.input(html, css: [".attr { grid-row: 1 }"]), "hidden-attribute descendant rule")
+        let verdict = BrowserLayoutCapabilityScanner.scan(input: Self.input(html, css: [".deep { position: absolute }", ".attr { grid-gap: 1px }"]))
         #expect(verdict.unsupportedFeatures == [.positioned, .flexGrid])
     }
 
