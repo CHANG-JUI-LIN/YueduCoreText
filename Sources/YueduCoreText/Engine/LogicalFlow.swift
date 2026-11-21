@@ -175,8 +175,11 @@ enum VerticalTextSupport {
     static func accepts(_ node: ComputedStyleNode, inRuby: Bool = false) -> Bool {
         // An img is `inline-block` by the UA sheet, and laid out as a replaced element
         // whatever its display; only another element's inline-block is a block container.
+        // An svg that only wraps one picture (the usual cover page) is that
+        // picture: a replaced element, like an img.
         let image = node.tag == "img"
-        if ["svg", "video", "audio", "table"].contains(node.tag) || (image && inRuby) || node.style.isFloated
+            || node.semanticElement.map { BoxTreeBuilder.svgWrappedImageSource($0) != nil } == true
+        if (node.tag == "svg" && !image) || ["video", "audio", "table"].contains(node.tag) || (image && inRuby) || node.style.isFloated
             || (node.style.display == .inlineBlock && !image) || node.style.maxWidth != nil { return false }
         // A width that is a length whatever the container: `1em` on an inline
         // mark is the same physical width as its px value. A percentage or a

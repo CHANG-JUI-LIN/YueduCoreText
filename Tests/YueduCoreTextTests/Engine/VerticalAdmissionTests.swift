@@ -59,6 +59,20 @@ struct VerticalAdmissionTests {
         #expect(Self.scan(html, css: "img { width: \(width); }").unsupportedFeatures == [.verticalWritingMode])
     }
 
+    /// The cover page of the same template: an svg holding one picture.
+    @Test func anSVGThatOnlyWrapsAPictureIsInScope() {
+        let cover = """
+            <html><head></head><body><div class="main">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" height="100%" viewBox="0 0 1442 2048">
+            <image width="1442" height="2048" xlink:href="cover.jpg"/></svg></div></body></html>
+            """
+        let result = Self.scan(cover, css: "html, body { margin: 0; padding: 0; font-size: 0; } svg { margin: 0; padding: 0; }")
+        #expect(result.supported, "\(result.unsupportedFeatures)")
+        // Real vector content is not a picture.
+        let drawing = "<html><head></head><body><svg width=\"10\" height=\"10\"><circle r=\"4\"/></svg></body></html>"
+        #expect(Self.scan(drawing, css: "").unsupportedFeatures.contains(.verticalWritingMode))
+    }
+
     @MainActor
     @Test func anEmWideMarkIsDrawnOneEmAcrossItsColumn() async throws {
         var config = BrowserLayoutConfig(renderWidth: 300, renderHeight: 400, rootFontSize: 20,
