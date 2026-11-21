@@ -60,6 +60,9 @@ enum BlockLayout {
             containingInlineSize: containerWidth,
             rootFontSize: rootFontSize,
             textWritingMode: textWritingMode ?? writingMode,
+            continuousPictureBlockLimit: fragmentHeight == nil ? pictureBlockLimit(
+                fragmentHeight: nil, viewportHeight: viewportHeight,
+                textWritingMode: textWritingMode ?? writingMode) : nil,
             viewportHeight: viewportHeight,
             viewportWidth: viewportWidth
         )
@@ -141,6 +144,9 @@ enum BlockLayout {
                 containingInlineSize: box.contentSize.width,
                 rootFontSize: rootFontSize,
                 textWritingMode: textWritingMode ?? writingMode,
+                continuousPictureBlockLimit: fragmentHeight == nil ? pictureBlockLimit(
+                    fragmentHeight: nil, viewportHeight: viewportHeight,
+                    textWritingMode: textWritingMode ?? writingMode) : nil,
                 viewportHeight: viewportHeight,
                 viewportWidth: viewportWidth
             )
@@ -730,16 +736,30 @@ enum BlockLayout {
         LogicalFlow.size(image.size, mode: textWritingMode)
     }
 
+    /// The most of the block axis a picture may take. A page's extent in paged layout. In
+    /// continuous layout of vertical text, which scrolls sideways, the screen's: a column is as
+    /// tall as the screen, so a portrait picture fitted only to the column came out wider than
+    /// the screen (a 1442×2048 cover, 550pt across a 440pt screen) and showed in two halves.
+    /// Continuous horizontal layout has no limit: the column is as wide as the screen, and a
+    /// picture taller than it is a long strip meant to be scrolled.
+    static func pictureBlockLimit(fragmentHeight: CGFloat?, viewportHeight: CGFloat?,
+                                  textWritingMode: ReaderWritingMode) -> CGFloat? {
+        if let fragmentHeight { return fragmentHeight }
+        guard textWritingMode != .horizontal, let viewportHeight, viewportHeight > 0 else { return nil }
+        return viewportHeight
+    }
+
     private static func resolveBlockReplacedSize(
         in box: BlockBox,
         containingInlineSize: CGFloat,
         rootFontSize: CGFloat,
         textWritingMode: ReaderWritingMode,
+        continuousPictureBlockLimit: CGFloat? = nil,
         viewportHeight: CGFloat? = nil,
         viewportWidth: CGFloat? = nil
     ) {
         guard let attachment = box.imageAttachment else { return }
-        let usedSize = resolveReplacedSize(
+        var usedSize = resolveReplacedSize(
             intrinsic: intrinsicSize(of: attachment.image, textWritingMode: textWritingMode),
             style: box.style,
             containerWidth: containingInlineSize,
@@ -747,6 +767,11 @@ enum BlockLayout {
             viewportHeight: viewportHeight,
             viewportWidth: viewportWidth
         )
+        // Paged layout fits a block picture to its page in PageWalker; continuous vertical
+        // layout has no later stage, so the screen's limit applies here.
+        if let limit = continuousPictureBlockLimit, usedSize.height > limit {
+            usedSize = CGSize(width: max(1, usedSize.width * limit / usedSize.height), height: limit)
+        }
         guard usedSize != attachment.usedSize else { return }
         box.imageAttachment = AtomicInline(
             source: attachment.source,
@@ -779,9 +804,10 @@ enum BlockLayout {
             // An inline image taller than a full fragment must scale here, not
             // in PageWalker: line breaking, alignment, and line metrics all read
             // the used size, and a later shrink would leave them stale.
-            if let fragmentHeight, usedSize.height > fragmentHeight {
-                let scale = fragmentHeight / usedSize.height
-                usedSize = CGSize(width: max(1, usedSize.width * scale), height: fragmentHeight)
+            if let limit = pictureBlockLimit(fragmentHeight: fragmentHeight, viewportHeight: viewportHeight,
+                                             textWritingMode: textWritingMode), usedSize.height > limit {
+                let scale = limit / usedSize.height
+                usedSize = CGSize(width: max(1, usedSize.width * scale), height: limit)
             }
             let descent = textWritingMode == .horizontal ? 0 : usedSize.height / 2
             guard usedSize != atomic.usedSize || descent != atomic.descent else { return run }
