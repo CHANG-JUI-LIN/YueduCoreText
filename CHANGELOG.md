@@ -2,6 +2,13 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.25.0] - 2026-11-22
+
+### Added
+
+- `position: absolute` for a block pinned by `top` and `left` or `right` inside a positioned block made of blocks: out of the flow, its containing block the parent's padding box, shrunk to its content when it declares no width. `position: relative` makes a block that containing block; its own offsets are not applied. Boxes are painted in document order (`z-index` is parsed, not applied). Any other use of `absolute`, and `fixed` and `sticky`, is still reported as `positioned`.
+- `box-sizing: border-box`: a declared width, height, minimum or maximum measures the border box.
+
 ## [0.24.1] - 2026-11-22
 
 ### Fixed
