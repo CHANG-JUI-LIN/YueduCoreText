@@ -125,3 +125,54 @@ struct EmptySVGTests {
         #expect(pages.count == 1)
     }
 }
+
+/// A block with nothing in it has one margin, not two (CSS 2.1 §8.3.1): its
+/// block-start and block-end margins adjoin, and join the margins either side.
+@MainActor
+struct SelfCollapsingBlockTests {
+    private static let page = CGSize(width: 400, height: 800)
+
+    private static func tops(_ body: String, css: String) throws -> [CGFloat] {
+        let config = BrowserLayoutConfig(
+            renderWidth: page.width, renderHeight: page.height, rootFontSize: 20,
+            fontFamilies: ["PingFangSC-Regular"], textColor: .black, backgroundColor: .white)
+        let doc = BrowserLayoutDocument(html: "<html><body>\(body)</body></html>",
+                                        cssTexts: ["body { margin: 0 } p { margin: 0; line-height: 30px } " + css],
+                                        config: config, imageLoader: { _ in nil })
+        let root = try doc.makeLayout(containerSize: page).rootBox
+        var result: [CGFloat] = []
+        func walk(_ box: BlockBox, _ y: CGFloat) {
+            let top = y + box.frame.rawValue.minY
+            if !box.lines.isEmpty { result.append(top) }
+            let inner = top + box.borders.top + box.padding.top
+            for child in box.children { walk(child, inner) }
+        }
+        walk(root, -root.frame.rawValue.minY)
+        return result
+    }
+
+    @Test func anEmptyBlockBetweenTwoParagraphsIsOneMargin() throws {
+        let tops = try Self.tops("<p>a</p><div class=\"gap\"></div><p>b</p>", css: ".gap { margin: 20px 0 }")
+        #expect(tops.count == 2)
+        #expect(abs(tops[1] - tops[0] - 50) < 0.01)
+    }
+
+    @Test func itsMarginsJoinTheNeighboursMargins() throws {
+        let tops = try Self.tops("<p class=\"m\">a</p><div class=\"gap\"></div><p class=\"m\">b</p>",
+                                 css: ".gap { margin: 20px 0 10px } .m { margin: 40px 0 }")
+        #expect(abs(tops[1] - tops[0] - 70) < 0.01)
+    }
+
+    @Test func anEmptyFirstChildLeavesOneMarginAboveThePadding() throws {
+        // The h1's two 30px margins are one, which is all that separates the
+        // box's padding edge from the paragraph.
+        let tops = try Self.tops("<div class=\"box\"><h1></h1><p>a</p></div>",
+                                 css: ".box { padding-top: 10px } h1 { margin: 30px 0; font-size: 20px }")
+        #expect(abs(try #require(tops.first) - 40) < 0.01)
+    }
+
+    @Test func aBlockWithAHeightKeepsBothMargins() throws {
+        let tops = try Self.tops("<p>a</p><div class=\"gap\"></div><p>b</p>", css: ".gap { margin: 20px 0; height: 1px }")
+        #expect(abs(tops[1] - tops[0] - 71) < 0.01)
+    }
+}

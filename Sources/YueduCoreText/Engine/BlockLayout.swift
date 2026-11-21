@@ -327,9 +327,33 @@ enum BlockLayout {
                 // Likewise its last child's block-end margin may have left
                 // through the child's end and joined the child's own.
                 let grownMarginBlockEnd = LogicalGeometry.blockEnd(edge: child.margins, mode: writingMode)
-                cursorBlock = child.logicalBlockOrigin + borderBoxBlockExtent + grownMarginBlockEnd
-                previousBlockEndMargin = grownMarginBlockEnd
-                hasInFlowChild = true
+                if borderBoxBlockExtent == 0, isSelfCollapsing(child) {
+                    // CSS 2.1 §8.3.1: a box with nothing in it and no height
+                    // has adjoining block-start and block-end margins. They
+                    // are one margin, which joins whatever margin it meets on
+                    // either side. Stacked instead, an empty `<h1>` above a
+                    // cover pushed it down by both margins (45.6 for
+                    // WebKit's 22.8).
+                    if marginFoldedIntoParent {
+                        // Still nothing in flow before the next child, whose
+                        // margin leaves through this box's start as well.
+                        LogicalGeometry.setBlockStart(
+                            Margins.collapse(LogicalGeometry.blockStart(edge: box.margins, mode: writingMode),
+                                             grownMarginBlockEnd),
+                            of: &box.margins, mode: writingMode)
+                    } else {
+                        let before = previousBlockEndMargin ?? 0
+                        let joined = Margins.collapse(
+                            before, Margins.collapse(grownMarginBlockStart, grownMarginBlockEnd))
+                        cursorBlock = cursorBlock - before + joined
+                        previousBlockEndMargin = joined
+                        hasInFlowChild = true
+                    }
+                } else {
+                    cursorBlock = child.logicalBlockOrigin + borderBoxBlockExtent + grownMarginBlockEnd
+                    previousBlockEndMargin = grownMarginBlockEnd
+                    hasInFlowChild = true
+                }
             }
         }
 
@@ -792,6 +816,27 @@ extension BlockLayout {
     /// page's inset.
     static func establishesBlockFormattingContext(_ box: BlockBox) -> Bool {
         box.style.isFloated || box.isInlineBlock || box.style.display == .tableCell
+    }
+
+    /// A laid-out box of no block extent whose own block-start and block-end
+    /// margins adjoin (CSS 2.1 §8.3.1): no line, picture, marker or table, no
+    /// height or minimum height of its own, and no formatting context that
+    /// would keep its margins in. Floats inside it are out of its flow.
+    static func isSelfCollapsing(_ box: BlockBox) -> Bool {
+        guard box.lines.isEmpty, box.inlineRuns.isEmpty, box.imageAttachment == nil,
+              box.unanchoredListMarker == nil,
+              box.style.height.isAutoForMarginCollapsing,
+              box.style.cssClear == .none,
+              !establishesBlockFormattingContext(box) else { return false }
+        switch box.style.minHeight {
+        case nil, .auto?: break
+        default: return false
+        }
+        switch box.style.display {
+        case .table, .tableRowGroup, .tableHeaderGroup, .tableFooterGroup, .tableRow, .tableCell: return false
+        default: break
+        }
+        return box.children.allSatisfy { $0.isFloated || isSelfCollapsing($0) }
     }
 }
 

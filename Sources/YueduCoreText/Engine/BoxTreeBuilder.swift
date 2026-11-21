@@ -1201,10 +1201,26 @@ enum BoxTreeBuilder {
     /// what an svg with nothing in it draws. Layout reads a picture's size
     /// from the image itself.
     private static func blankImage(size: CGSize) -> UIImage {
+        // A few pixels are enough for nothing, but a bitmap is a whole number
+        // of them and the picture's proportions are read back from it: 8 across
+        // made a 563×751 viewBox 8×11, a picture 15pt too tall in a 366pt
+        // column. Take the smallest width whose height is a whole number to
+        // within a thousandth (3×4 for that one).
+        let ratio = size.height / size.width
+        func isWhole(_ width: Int) -> Bool {
+            let height: CGFloat = CGFloat(width) * ratio
+            guard height >= 0.5 else { return false }
+            let error: CGFloat = height.rounded() / height - 1
+            return abs(error) < 0.001
+        }
+        let across: Int = (1...64).first(where: isWhole) ?? 64
+        let pixels = CGSize(width: CGFloat(across), height: max(1, (CGFloat(across) * ratio).rounded()))
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 8 / max(8, min(size.width, size.height))
+        format.scale = 1
         format.opaque = false
-        return UIGraphicsImageRenderer(size: size, format: format).image { _ in }
+        let bitmap = UIGraphicsImageRenderer(size: pixels, format: format).image { _ in }
+        guard let cgImage = bitmap.cgImage else { return bitmap }
+        return UIImage(cgImage: cgImage, scale: pixels.width / size.width, orientation: .up)
     }
 
     /// An `<svg>` with nothing to draw (`SVGRenderability.empty`) is the
