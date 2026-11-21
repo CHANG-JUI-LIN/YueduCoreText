@@ -259,6 +259,17 @@ enum CSSListStylePosition: Equatable {
     }
 }
 
+/// See `ComputedStyle.positioningStorage`.
+struct Positioning: Equatable {
+    var position: CSSPosition = .static
+    var insetTop: CSSLength? = nil
+    var insetRight: CSSLength? = nil
+    var insetBottom: CSSLength? = nil
+    var insetLeft: CSSLength? = nil
+    var zIndex: Int? = nil
+    var boxSizingBorderBox = false
+}
+
 struct ComputedStyle: Equatable {
     var display: CSSDisplay = .block
     var isHidden = false
@@ -269,19 +280,51 @@ struct ComputedStyle: Equatable {
     /// browser renders those as ordinary blocks. Anything that dispatches on the
     /// CLASS NAME instead of this computed value floats 89% of them wrongly.
     var cssFloat: CSSFloat = .none
+    /// `position`, the four insets, `z-index` and `box-sizing`: almost no element declares
+    /// one, so they are kept out of line (an empty array is one word). The style is copied
+    /// by value throughout layout, deep in recursion on 512 KB stacks, and every stored field
+    /// is paid for in each of those copies.
+    private var positioningStorage: [Positioning] = []
+    private var positioning: Positioning {
+        get { positioningStorage.first ?? Positioning() }
+        set {
+            if newValue == Positioning() { positioningStorage = [] } else { positioningStorage = [newValue] }
+        }
+    }
     /// Used `position`. `fixed` and `sticky` are parsed so admission can tell
     /// them from the two the engine lays out (`PositionSupport`).
-    var position: CSSPosition = .static
+    var position: CSSPosition {
+        get { positioning.position }
+        set { positioning.position = newValue }
+    }
     /// `top`, `right`, `bottom`, `left`; nil is `auto`. Not inherited.
-    var insetTop: CSSLength? = nil
-    var insetRight: CSSLength? = nil
-    var insetBottom: CSSLength? = nil
-    var insetLeft: CSSLength? = nil
+    var insetTop: CSSLength? {
+        get { positioning.insetTop }
+        set { positioning.insetTop = newValue }
+    }
+    var insetRight: CSSLength? {
+        get { positioning.insetRight }
+        set { positioning.insetRight = newValue }
+    }
+    var insetBottom: CSSLength? {
+        get { positioning.insetBottom }
+        set { positioning.insetBottom = newValue }
+    }
+    var insetLeft: CSSLength? {
+        get { positioning.insetLeft }
+        set { positioning.insetLeft = newValue }
+    }
     /// nil is `auto`. Orders positioned siblings when they are painted.
-    var zIndex: Int? = nil
+    var zIndex: Int? {
+        get { positioning.zIndex }
+        set { positioning.zIndex = newValue }
+    }
     /// `box-sizing: border-box`: `width`, `height` and their minimums and
     /// maximums measure the border box, not the content box. Not inherited.
-    var boxSizingBorderBox = false
+    var boxSizingBorderBox: Bool {
+        get { positioning.boxSizingBorderBox }
+        set { positioning.boxSizingBorderBox = newValue }
+    }
     /// Out of the flow at a place of its own (CSS 2.1 §9.6).
     var isAbsolutelyPositioned: Bool { position == .absolute }
     /// Used `clear`. Same strict rule.
