@@ -105,7 +105,7 @@ public enum CSSMediaQuery {
         case .px(let value): return value
         case .pt(let value): return value * 96 / 72
         case .em(let value), .rem(let value): return value * 16
-        case .percent, .vh, .vw, .auto: return nil
+        case .percent, .vh, .vw, .auto, .calc: return nil
         }
     }
 

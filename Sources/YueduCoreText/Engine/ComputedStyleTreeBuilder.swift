@@ -827,9 +827,9 @@ enum ComputedStylePropertyApplier {
             default: break
             }
         case "top": style.insetTop = Self.inset(value, current: style.insetTop)
-        case "right": style.insetRight = Self.inset(value, current: style.insetRight)
+        case "right": style.insetRight = Self.inset(value, current: style.insetRight, takesCalc: true)
         case "bottom": style.insetBottom = Self.inset(value, current: style.insetBottom)
-        case "left": style.insetLeft = Self.inset(value, current: style.insetLeft)
+        case "left": style.insetLeft = Self.inset(value, current: style.insetLeft, takesCalc: true)
         case "box-sizing", "-webkit-box-sizing":
             switch value {
             case "border-box": style.boxSizingBorderBox = true
@@ -1161,13 +1161,13 @@ enum ComputedStylePropertyApplier {
             } else {
                 style.textCombineUpright = TextCombineUpright.parse(value)
             }
-        case "width": if let l = CSSLengthResolver.parse(value) { style.width = l }
+        case "width": if let l = Self.inlineAxisLength(value) { style.width = l }
         case "height": if let l = CSSLengthResolver.parse(value) { style.height = l }
         case "transform", "-webkit-transform":
             style.transformRotate = Self.parseTransformRotate(value)
         case "min-height": style.minHeight = CSSLengthResolver.parse(value)
         case "max-height": style.maxHeight = CSSLengthResolver.parse(value)
-        case "max-width": if let l = CSSLengthResolver.parse(value) { style.maxWidth = l }
+        case "max-width": if let l = Self.inlineAxisLength(value) { style.maxWidth = l }
         case "max-inline-size":
             // `none` lifts an earlier limit on the same side; an unparseable value is dropped.
             let length = value == "none" ? nil : CSSLengthResolver.parse(value)
@@ -1181,16 +1181,16 @@ enum ComputedStylePropertyApplier {
             if ctx.writingMode == .horizontal { style.minWidth = length } else { style.minHeight = length }
         case "margin": applyMarginShorthand(value, to: &style)
         case "margin-top": if let l = CSSLengthResolver.parse(value) { style.marginTop = l }
-        case "margin-right": if let l = CSSLengthResolver.parse(value) { style.marginRight = l }
+        case "margin-right": if let l = Self.inlineAxisLength(value) { style.marginRight = l }
         case "margin-bottom": if let l = CSSLengthResolver.parse(value) { style.marginBottom = l }
-        case "margin-left": if let l = CSSLengthResolver.parse(value) { style.marginLeft = l }
+        case "margin-left": if let l = Self.inlineAxisLength(value) { style.marginLeft = l }
         case "padding":
             let parts = value.split(separator: " ").map(String.init).map { CSSLengthResolver.parse($0) }
             assignPadding(parts, to: &style)
         case "padding-top": if let l = CSSLengthResolver.parse(value) { style.paddingTop = l }
-        case "padding-right": if let l = CSSLengthResolver.parse(value) { style.paddingRight = l }
+        case "padding-right": if let l = Self.inlineAxisLength(value) { style.paddingRight = l }
         case "padding-bottom": if let l = CSSLengthResolver.parse(value) { style.paddingBottom = l }
-        case "padding-left": if let l = CSSLengthResolver.parse(value) { style.paddingLeft = l }
+        case "padding-left": if let l = Self.inlineAxisLength(value) { style.paddingLeft = l }
         case "border-top-width": if let length = borderLength(value) { style.pendingBorderTopWidth = length }
         case "border-right-width": if let length = borderLength(value) { style.pendingBorderRightWidth = length }
         case "border-bottom-width": if let length = borderLength(value) { style.pendingBorderBottomWidth = length }
@@ -1300,8 +1300,16 @@ enum ComputedStylePropertyApplier {
     /// none rather than being half-applied.
     /// `top`/`right`/`bottom`/`left`: nil for `auto`; an unparseable value is
     /// dropped and leaves what was there.
-    fileprivate static func inset(_ value: String, current: CSSLength?) -> CSSLength? {
-        guard let length = CSSLengthResolver.parse(value) else { return current }
+    /// A length of a property measured along the inline axis, whose percentages layout
+    /// resolves against the containing block's width: these take `calc()` too
+    /// (`BrowserLayoutCapabilityScanner.takesCalc`).
+    fileprivate static func inlineAxisLength(_ value: String) -> CSSLength? {
+        CSSLengthResolver.parse(value) ?? CSSLengthResolver.parseCalc(value)
+    }
+
+    fileprivate static func inset(_ value: String, current: CSSLength?, takesCalc: Bool = false) -> CSSLength? {
+        guard let length = CSSLengthResolver.parse(value) ?? (takesCalc ? CSSLengthResolver.parseCalc(value) : nil)
+        else { return current }
         return length == .auto ? nil : length
     }
 

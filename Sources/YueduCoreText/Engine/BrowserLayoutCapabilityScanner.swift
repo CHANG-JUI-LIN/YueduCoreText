@@ -95,6 +95,12 @@ public struct BrowserLayoutCapabilityResult: Equatable, Sendable {
 /// Production admission goes through `BrowserChapterDocument.evaluate`, which
 /// judges the same facts and keeps the style tree for the layout that follows.
 public enum BrowserLayoutCapabilityScanner {
+    /// The properties whose `calc()` the engine computes: the ones `ComputedStyleTreeBuilder`
+    /// parses with `inlineAxisLength`, whose percentages resolve against the containing
+    /// block's width.
+    static let takesCalc: Set<String> = [
+        "width", "max-width", "margin-left", "margin-right", "padding-left", "padding-right", "left", "right",
+    ]
 
     public static func scan(input: CSSFrontendInput, writingMode: ReaderWritingMode = .horizontal) -> BrowserLayoutCapabilityResult {
         scan(input: input, writingMode: writingMode, configuration: .init())
@@ -212,6 +218,10 @@ public enum BrowserLayoutCapabilityScanner {
         if k == "flex-direction", v.hasSuffix("reverse") { return .flexGrid }
         if k.hasPrefix("grid-") { return .flexGrid }
         if v.contains("calc(") || v.contains("min(") || v.contains("max(") || v.contains("clamp(") {
+            // A sum of lengths and percentages on a property measured across the page is laid
+            // out (`CSSLengthResolver.parseCalc`); in vertical text those properties run down
+            // the column, and admission turns the chapter away there (`CalcSupport`).
+            if takesCalc.contains(k), CSSLengthResolver.parseCalc(v) != nil { return nil }
             return .calcOrModernFunctions
         }
         if k == "writing-mode"

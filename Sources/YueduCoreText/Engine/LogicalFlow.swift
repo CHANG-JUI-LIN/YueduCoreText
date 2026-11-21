@@ -186,7 +186,7 @@ enum VerticalTextSupport {
         // viewport unit resolves against an axis this scope has not covered.
         switch node.style.width {
         case .auto, .px, .pt, .em, .rem: break
-        case .percent, .vh, .vw: return false
+        case .percent, .vh, .vw, .calc: return false
         }
         // A combined run is one upright cell of plain text: never ruby, nor inside it.
         let ruby = inRuby || ["ruby", "rb", "rt", "rtc", "rp"].contains(node.tag)

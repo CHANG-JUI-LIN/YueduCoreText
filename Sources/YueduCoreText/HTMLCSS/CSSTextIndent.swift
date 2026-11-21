@@ -94,7 +94,7 @@ private extension CSSLength {
              .rem(let candidate), .percent(let candidate),
              .vh(let candidate), .vw(let candidate):
             value = candidate
-        case .auto:
+        case .auto, .calc:
             return nil
         }
         return value >= 0 && value.isFinite ? value : nil
