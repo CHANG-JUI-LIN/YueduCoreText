@@ -76,13 +76,16 @@ public enum SwiftSoupHTMLSemanticAdapter {
 
     private static func svgRenderability(of element: Element) -> SVGRenderability? {
         guard element.tagName().lowercased() == "svg" else { return nil }
-        guard let images = try? element.select("image").array(), images.count == 1,
-              let image = images.first else {
-            return .unsupportedVector
-        }
         let drawable = (try? element.select(
             "path, rect, circle, ellipse, line, polyline, polygon, text, textPath, use, g, symbol, marker, pattern, mask, foreignObject"
         ).array()) ?? []
+        let images = (try? element.select("image").array()) ?? []
+        // An svg left with only its own tag (a cover whose picture was taken
+        // out) draws nothing.
+        if images.isEmpty, drawable.isEmpty { return .empty }
+        guard images.count == 1, let image = images.first else {
+            return .unsupportedVector
+        }
         guard drawable.isEmpty else { return .unsupportedVector }
         for attribute in ["xlink:href", "href"] {
             if let href = try? image.attr(attribute), !href.isEmpty {

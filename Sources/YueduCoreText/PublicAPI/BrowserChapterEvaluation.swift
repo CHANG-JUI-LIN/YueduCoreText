@@ -197,9 +197,7 @@ enum BrowserChapterAdmission {
             reasons.append(.mathML)
         }
         let svgs = (try? doc.select("svg").array()) ?? []
-        if svgs.contains(where: {
-            BoxTreeBuilder.svgWrappedImageSource(SwiftSoupHTMLSemanticAdapter.snapshot($0)) == nil
-        }) {
+        if svgs.contains(where: { SwiftSoupHTMLSemanticAdapter.snapshot($0).svgRenderability == .unsupportedVector }) {
             reasons.append(.unsupportedSVG)
         }
 

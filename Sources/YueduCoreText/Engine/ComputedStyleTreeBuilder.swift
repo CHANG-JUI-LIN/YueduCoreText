@@ -577,6 +577,8 @@ final class ComputedStyleTreeBuilder {
         }
         if tag == "q" { style.quoteDepth = parent.quoteDepth + 1 }
         if semanticElement.attribute("hidden") != nil { style.isHidden = true }
+        // An svg with nothing to draw takes no part in the layout.
+        if semanticElement.svgRenderability == .empty { style.isHidden = true }
         if closedDialog, style.display == .none { style.isHidden = true }
         if case .length(let length) = style.textIndent {
             switch length {

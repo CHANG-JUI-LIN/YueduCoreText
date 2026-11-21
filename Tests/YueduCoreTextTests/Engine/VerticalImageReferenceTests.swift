@@ -175,7 +175,7 @@ struct VerticalImageReferenceTests {
         ("<p><ruby><img src=\"mark.png\"/><rt>よみ</rt></ruby></p>", ""),
         ("<p>甲<img class=\"f\" src=\"mark.png\"/>乙</p>", "img.f { float: right; }"),
         ("<p>甲<span class=\"i\">丙</span>乙</p>", "span.i { display: inline-block; }"),
-        ("<p>甲<svg width=\"10\" height=\"10\"></svg>乙</p>", ""),
+        ("<p>甲<svg width=\"10\" height=\"10\"><circle r=\"4\"/></svg>乙</p>", ""),
     ])
     func whatStillFallsBack(html: String, css: String) {
         let features = BrowserLayoutCapabilityScanner.scan(

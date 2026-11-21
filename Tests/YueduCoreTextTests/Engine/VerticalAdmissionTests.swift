@@ -79,6 +79,10 @@ struct VerticalAdmissionTests {
             """
         let result = Self.scan(cover, css: "html, body { margin: 0; padding: 0; font-size: 0; } svg { margin: 0; padding: 0; }")
         #expect(result.supported, "\(result.unsupportedFeatures)")
+        // An svg with nothing in it draws nothing and is no reason to fall back, in either mode.
+        let empty = "<html><head></head><body><p>甲</p><svg width=\"100%\" height=\"100%\" viewBox=\"0 0 563 751\"></svg></body></html>"
+        #expect(Self.scan(empty, css: "").supported)
+        #expect(BrowserLayoutCapabilityScanner.scan(html: empty, cssTexts: []).supported)
         // Real vector content is not a picture.
         let drawing = "<html><head></head><body><svg width=\"10\" height=\"10\"><circle r=\"4\"/></svg></body></html>"
         #expect(Self.scan(drawing, css: "").unsupportedFeatures.contains(.verticalWritingMode))
