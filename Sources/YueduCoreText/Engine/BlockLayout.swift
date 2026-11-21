@@ -137,40 +137,11 @@ enum BlockLayout {
             // A caller that will discard this tree stops here (see `LayoutAbandonment`).
             if Task.isCancelled, LayoutAbandonment.whenCancelled { break }
             if child.isAbsolutelyPositioned, writingMode == .horizontal {
-                // Out of the flow (CSS 2.1 §9.6): it takes no room, and no
-                // margin or float of this box's content meets it. Its
-                // containing block is this box's padding box (§10.1), which
-                // admission guarantees is positioned (`PositionSupport`).
-                let paddingBoxWidth = box.contentSize.width + box.padding.left + box.padding.right
-                func used(_ length: CSSLength?) -> CGFloat? {
-                    guard let length else { return nil }
-                    return CSSLengthResolver.resolve(
-                        length, emBase: child.style.fontSize, remBase: rootFontSize, percentBase: paddingBoxWidth,
-                        viewportHeight: viewportHeight, viewportWidth: viewportWidth)
-                }
-                let left = used(child.style.insetLeft), right = used(child.style.insetRight)
-                // Both sides given and no width: the box fills what is between them (§10.3.7).
-                var available = paddingBoxWidth
-                if child.style.width == .auto, let left, let right { available = max(0, paddingBoxWidth - left - right) }
-                layOut(
-                    root: child, containerWidth: available, rootFontSize: rootFontSize,
-                    writingMode: writingMode, textWritingMode: textWritingMode,
-                    floatContext: nil, blockOffsetY: 0, sourceText: sourceText,
-                    fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
-                    fragmentHeight: fragmentHeight,
-                    viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
-                )
-                let size = child.frame.rawValue.size
-                let x: CGFloat
-                if let left {
-                    x = -box.padding.left + left + child.margins.left
-                } else {
-                    x = box.contentSize.width + box.padding.right - (right ?? 0) - child.margins.right - size.width
-                }
-                let y = -box.padding.top + (used(child.style.insetTop) ?? 0) + child.margins.top
-                child.logicalInlineOrigin = x
-                child.logicalBlockOrigin = y
-                child.frame = ParentLocalRect(rawValue: CGRect(origin: CGPoint(x: x, y: y), size: size))
+                layOutAbsolutelyPositioned(
+                    child, in: box, rootFontSize: rootFontSize, textWritingMode: textWritingMode,
+                    sourceText: sourceText, fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
+                    fragmentHeight: fragmentHeight, viewportHeight: viewportHeight, viewportWidth: viewportWidth,
+                    viewport: viewport)
                 continue
             }
             // Resolve the child's used box model before positioning it. Reading
@@ -779,6 +750,52 @@ enum BlockLayout {
     /// in vertical writing stays upright, so its height runs along the column.
     private static func intrinsicSize(of image: UIImage, textWritingMode: ReaderWritingMode) -> CGSize {
         LogicalFlow.size(image.size, mode: textWritingMode)
+    }
+
+    /// Lays out an absolutely positioned child of `box` and places it (horizontal writing).
+    /// A function of its own, not a branch of `layOut`: every local here would otherwise
+    /// widen the frame of a function that recurses once per level of nesting, on threads
+    /// with a 512 KB stack.
+    private static func layOutAbsolutelyPositioned(
+        _ child: BlockBox, in box: BlockBox, rootFontSize: CGFloat, textWritingMode: ReaderWritingMode?,
+        sourceText: String, fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?,
+        cjkTypographyStyle: CJKTypographyStyle?, fragmentHeight: CGFloat?,
+        viewportHeight: CGFloat?, viewportWidth: CGFloat?, viewport: BrowserViewportLayoutState?
+    ) {
+        // Out of the flow (CSS 2.1 §9.6): it takes no room, and no
+        // margin or float of this box's content meets it. Its
+        // containing block is this box's padding box (§10.1), which
+        // admission guarantees is positioned (`PositionSupport`).
+        let paddingBoxWidth = box.contentSize.width + box.padding.left + box.padding.right
+        func used(_ length: CSSLength?) -> CGFloat? {
+            guard let length else { return nil }
+            return CSSLengthResolver.resolve(
+                length, emBase: child.style.fontSize, remBase: rootFontSize, percentBase: paddingBoxWidth,
+                viewportHeight: viewportHeight, viewportWidth: viewportWidth)
+        }
+        let left = used(child.style.insetLeft), right = used(child.style.insetRight)
+        // Both sides given and no width: the box fills what is between them (§10.3.7).
+        var available = paddingBoxWidth
+        if child.style.width == .auto, let left, let right { available = max(0, paddingBoxWidth - left - right) }
+        layOut(
+            root: child, containerWidth: available, rootFontSize: rootFontSize,
+            writingMode: .horizontal, textWritingMode: textWritingMode,
+            floatContext: nil, blockOffsetY: 0, sourceText: sourceText,
+            fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
+            fragmentHeight: fragmentHeight,
+            viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
+        )
+        let size = child.frame.rawValue.size
+        let x: CGFloat
+        if let left {
+            x = -box.padding.left + left + child.margins.left
+        } else {
+            x = box.contentSize.width + box.padding.right - (right ?? 0) - child.margins.right - size.width
+        }
+        let y = -box.padding.top + (used(child.style.insetTop) ?? 0) + child.margins.top
+        child.logicalInlineOrigin = x
+        child.logicalBlockOrigin = y
+        child.frame = ParentLocalRect(rawValue: CGRect(origin: CGPoint(x: x, y: y), size: size))
     }
 
     /// The most of the block axis a picture may take. A page's extent in paged layout. In
