@@ -2,6 +2,27 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.22.0] - 2026-11-21
+
+Tables the capability scan used to turn away.
+
+### Added
+
+- `border-collapse: collapse` is laid out (CSS 2.1 §17.6.2). Every edge of the cell grid has one border, the winner among the cells, rows, row groups and the table that meet there: the widest, then the more prominent style, then the box closer to the content, then the one further up or to the left. It is centred on the grid line. Each cell holds half of its edges for layout; the table holds half of its widest outer edge on each side and has no padding; there is no border-spacing.
+  - `BorderEdge.isCentredOnEdge` marks such a border. A cell's fill carries the edges that cell paints: its top and left, its bottom in the table's last row, its right at the end of its row, so every edge is painted once. `DisplayListDrawer` draws the cell's background in its rect and these borders half a width further out.
+- A `display: table-cell` box whose parent is not a row gets the anonymous row and table of §17.2.1; cells next to each other share one row. The table is as wide as its content.
+- `display: inline-table` around content that holds no rows or cells is laid out as an inline-block, which is what its one anonymous cell amounts to. One with table structure of its own still reports `table`.
+- `<colgroup>` and `<col>` no longer reject a table. They take no part in the layout: cells size the columns.
+
+### Fixed
+
+- A column a cell gave a `width` keeps it when the table is wider or narrower than its content, and the other columns take up the difference. All columns used to scale together, so a `width: 25%` column beside a long text column shrank to a character or two.
+- A cell's own `width` is not applied again inside its column: `width: 25%` made the cell's content a quarter of the column.
+
+### Unchanged
+
+- Row spans, nested tables and `<caption>` still report `table`. A table in the separated model lays out and paints as in 0.21.0.
+
 ## [0.21.0] - 2026-11-21
 
 Chapters the capability scan used to turn away: a stylesheet with `@media`, and three shapes of vertical chapter.
