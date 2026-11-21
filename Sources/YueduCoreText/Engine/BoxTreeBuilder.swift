@@ -1323,6 +1323,13 @@ enum BoxTreeBuilder {
         style.isListItem = false
         style.cssFloat = .none
         style.cssClear = .none
+        // An anonymous box is in the flow of the box it wraps: the place and
+        // the box model are that box's alone.
+        style.position = .static
+        style.insetTop = nil; style.insetRight = nil
+        style.insetBottom = nil; style.insetLeft = nil
+        style.zIndex = nil
+        style.boxSizingBorderBox = false
         style.marginTop = .px(0); style.marginRight = .px(0)
         style.marginBottom = .px(0); style.marginLeft = .px(0)
         style.paddingTop = .px(0); style.paddingRight = .px(0)

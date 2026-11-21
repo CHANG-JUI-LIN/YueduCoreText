@@ -77,6 +77,11 @@ struct PositionedLayoutTests {
         #expect(boxes[1].contentSize == CGSize(width: 150, height: 30))
     }
 
+    @Test func aFlexLabelIsAdmitted() {
+        let flex = ".name { display: flex; align-items: center; } .score { display: inline-flex; align-items: center; justify-content: center; }"
+        #expect(scan(row, css: css + flex).supported)
+    }
+
     /// A panel's title sits in its thick top border: the insets count from the
     /// padding edge, and a box with no width is as wide as its text.
     @Test func aBoxWithNoWidthShrinksToItsTextAndCountsFromThePaddingEdge() async throws {
