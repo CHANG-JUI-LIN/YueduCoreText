@@ -11,22 +11,33 @@ public struct BrowserPageBackground: @unchecked Sendable, Equatable {
     /// `background-attachment: fixed`: placed against the screen and still
     /// while the text scrolls over it.
     public let isFixed: Bool
-    let positionX: BackgroundImageStyle.BackgroundPosition
-    let positionY: BackgroundImageStyle.BackgroundPosition
+    private let background: BrowserLayoutDocument.RootBackground
+    private let rootFontSize: CGFloat
 
-    init?(_ background: BrowserLayoutDocument.RootBackground) {
+    init?(_ background: BrowserLayoutDocument.RootBackground, rootFontSize: CGFloat) {
         guard background.color != nil || background.image != nil else { return nil }
         color = background.color
         imageSource = background.image?.source
         isFixed = background.image?.attachment == .fixed
-        positionX = background.image?.positionX ?? .percent(0)
-        positionY = background.image?.positionY ?? .percent(0)
+        self.background = background
+        self.rootFontSize = rootFontSize
     }
 
-    /// Where an image of `imageSize` goes on a page of `pageSize`: the rect
-    /// paged layout draws it at.
+    public static func == (lhs: BrowserPageBackground, rhs: BrowserPageBackground) -> Bool {
+        lhs.color == rhs.color && lhs.background.image == rhs.background.image
+            && lhs.background.fontSize == rhs.background.fontSize && lhs.rootFontSize == rhs.rootFontSize
+    }
+
+    /// How an image of `imageSize` covers a page of `pageSize`: its first
+    /// tile, the axes it repeats along, and the page as its clip — the same
+    /// placement paged layout paints. nil when nothing of it shows.
+    public func imageTiling(for imageSize: CGSize, onPageOf pageSize: CGSize) -> BackgroundTiling? {
+        background.tiling(for: imageSize, canvas: pageSize, rootFontSize: rootFontSize)
+    }
+
+    /// The first tile of `imageTiling(for:onPageOf:)`: the whole placement of
+    /// an image that does not repeat.
     public func imageRect(for imageSize: CGSize, onPageOf pageSize: CGSize) -> CGRect {
-        BrowserLayoutDocument.coverRect(for: imageSize, container: pageSize,
-                                        positionX: positionX, positionY: positionY)
+        imageTiling(for: imageSize, onPageOf: pageSize)?.tile ?? .zero
     }
 }

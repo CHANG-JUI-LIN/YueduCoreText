@@ -2,6 +2,30 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.20.0] - 2026-11-21
+
+A page's background image is sized, placed and repeated as its CSS says.
+
+### Fixed
+
+- The html/body `background-image` was painted as `cover` whatever the book declared, and `background-repeat` was parsed and never read. A 1024×57 ornament strip declared `background-size: contain; background-repeat: repeat-y; background-position: left` was scaled about fifteen times to fill the page's height. Paged layout, the whole-chapter document and `BrowserPageBackground` now resolve the image in one place, by CSS Backgrounds 3 §3:
+  - `background-size`: `auto` (the image's own size), `cover`, `contain`, and one or two lengths or percentages, where one `auto` keeps the image's proportions.
+  - `background-position`: the one- to four-value forms. One value leaves the other axis centred; `top` and `bottom` name the vertical axis wherever they stand; a keyword may carry an offset from its edge (`right 1em bottom 10%`).
+  - `background-repeat`: `repeat`, `no-repeat`, `repeat-x`, `repeat-y` and the two-value form. `space` and `round` tile as `repeat`.
+- With `cover`, the axis that overflows is placed by `background-position`: `center` crops it evenly on both sides. It used to stay at the start edge whatever the position.
+- `background-size`, `background-position`, `background-repeat` and `background-attachment` apply whether they are written above or below `background-image` in a rule. Written above it, they used to be dropped.
+- The `background` shorthand sets every longhand of the image: what it leaves out returns to its initial value. `background-image: none` and `background: none` remove the image.
+
+### Added
+
+- `BackgroundTiling`: a background image's first tile, the axes it repeats along and the area that clips it; `tiles(in:)` lists the tiles that show in a rect.
+- `DisplayImageItem.tiling`: set on a page background. `rect` is the first tile, and `DisplayListDrawer` paints every tile inside `tiling.clip`.
+- `BrowserPageBackground.imageTiling(for:onPageOf:)`: the placement a host that draws the page background itself needs. `imageRect(for:onPageOf:)` remains and returns the first tile, which is the whole placement of an image that does not repeat.
+
+### Changed
+
+- A page background with no `background-size` keeps the image's own size and repeats, as CSS says. It used to be scaled to cover the page.
+
 ## [0.19.0] - 2026-11-16
 
 Pictures a client adds to a chapter that are not part of the book: a comment badge at the end of a paragraph, a card under one or after the chapter.

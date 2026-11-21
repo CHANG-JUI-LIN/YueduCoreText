@@ -35,38 +35,41 @@ enum WhiteSpaceMode: Equatable {
     case preLine
 }
 
-/// A resolved `background-image` with its sizing/positioning keywords.
-/// Paint-only: presence never affects layout, so it never triggers a
+/// One CSS background layer: the image and where it goes (CSS Backgrounds 3
+/// §3). Paint-only: presence never affects layout, so it never triggers a
 /// capability rejection. The image source is resolved by the caller
-/// (document imageLoader) into an actual bitmap at render time.
+/// (document imageLoader) into an actual bitmap at render time; the geometry
+/// is resolved by `BackgroundImageGeometry` once that bitmap's size is known.
 struct BackgroundImageStyle: Equatable {
     /// The raw `url(...)` source as authored.
     var source: String
-    /// `background-size`: cover | contain | explicit size. nil = auto.
+    /// `background-size`. Initial value: `auto auto`.
     var size: BackgroundSize = .auto
-    /// `background-position` keywords (x, y). Default: 0% 0% (top-left).
+    /// `background-position`. Initial value: `0% 0%`.
     var positionX: BackgroundPosition = .percent(0)
     var positionY: BackgroundPosition = .percent(0)
-    /// `background-repeat`: repeat | no-repeat. Default repeat.
-    var repeatMode: BackgroundRepeatMode = .repeat
+    /// `background-repeat`, per axis. Initial value: `repeat`.
+    var repeatsX = true
+    var repeatsY = true
     /// `background-attachment`: scroll | fixed. Default scroll.
     var attachment: BackgroundAttachment = .scroll
 
     enum BackgroundSize: Equatable {
+        /// The image's own size.
         case auto
         case cover
         case contain
+        /// `<length-percentage> | auto` per axis; a percentage is of the
+        /// positioning area, and one `auto` keeps the image's proportions.
+        case explicit(width: CSSLength, height: CSSLength)
     }
 
     enum BackgroundPosition: Equatable {
-        case percent(CGFloat)     // 0…1
-        case keyword(CGFloat)     // resolved offset as fraction of slack (0…1)
-        case length(CGFloat)      // absolute offset
-    }
-
-    enum BackgroundRepeatMode: Equatable {
-        case `repeat`
-        case noRepeat
+        /// 0…1 (and beyond) of the room left over by the image, so 50% centres
+        /// it and 100% puts its far edge on the area's far edge.
+        case percent(CGFloat)
+        /// An offset from the start edge, or from the end edge (`right 1em`).
+        case length(CSSLength, fromEnd: Bool)
     }
 
     enum BackgroundAttachment: Equatable {
@@ -284,9 +287,28 @@ struct ComputedStyle: Equatable {
     var isItalic: Bool
     var color: UIColor?
     var backgroundColor: UIColor?
-    /// Authored `background-image` (paint-only; resolved to a bitmap by the
-    /// document imageLoader). nil = none.
-    var backgroundImage: BackgroundImageStyle? = nil
+    /// Authored `background-image` source; nil = none.
+    var backgroundImageSource: String? = nil
+    /// The background layer's size, position, repeat and attachment. Kept
+    /// apart from the source so a rule may declare them in any order: with
+    /// `background-size: cover` written above `background-image`, the size
+    /// must still be there when the image arrives.
+    var backgroundLayer = BackgroundImageStyle(source: "")
+    /// The layer to paint (paint-only; resolved to a bitmap by the document
+    /// imageLoader). nil = no image.
+    var backgroundImage: BackgroundImageStyle? {
+        get {
+            guard let source = backgroundImageSource else { return nil }
+            var layer = backgroundLayer
+            layer.source = source
+            return layer
+        }
+        set {
+            backgroundImageSource = newValue?.source
+            backgroundLayer = newValue ?? BackgroundImageStyle(source: "")
+            backgroundLayer.source = ""
+        }
+    }
     var textAlign: NSTextAlignment = .natural
     /// Set by WebKit's `-webkit-center`/`-left`/`-right` text alignment, which
     /// also places block children; inherited with `text-align`.

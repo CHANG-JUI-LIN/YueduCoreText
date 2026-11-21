@@ -82,7 +82,8 @@ public final class BrowserViewportSession {
             footnotes: pipeline.footnotes, pronunciationHints: pipeline.pronunciationHints,
             mediaAttachments: pipeline.mediaAttachments,
             paragraphRanges: BrowserLayoutSemanticContent.paragraphRanges(in: pipeline.rootBox),
-            pageBackground: BrowserPageBackground(BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox)))
+            pageBackground: BrowserPageBackground(BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox),
+                                                  rootFontSize: configuration.rootFontSize))
         resolveGeometry()
         updatePositionIndex()
         document = snapshot()

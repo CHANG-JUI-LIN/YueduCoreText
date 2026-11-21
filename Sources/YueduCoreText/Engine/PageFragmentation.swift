@@ -238,6 +238,9 @@ public struct ImageFragment {
     }
 
     var paintTransform: PaintTransform? = nil
+    /// A CSS background that repeats or is clipped: `rect` is its first tile.
+    /// nil draws the image once in `rect`.
+    var tiling: BackgroundTiling? = nil
 }
 
 public indirect enum Fragment {
@@ -1898,6 +1901,7 @@ extension ImageFragment {
             isBackgroundPaint: isBackgroundPaint
         )
         moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: dy)
+        moved.tiling = tiling?.offsetBy(dx: 0, dy: dy)
         return moved
     }
 }

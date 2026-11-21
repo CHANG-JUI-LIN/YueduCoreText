@@ -50,7 +50,13 @@ public enum DisplayListDrawer {
                 if skipAuthoredBackgroundPaint, i.isBackgroundPaint { continue }
                 context.saveGState()
                 if let rotation = i.paintTransform { context.concatenate(rotation.matrix) }
-                if let image = i.image {
+                if let image = i.image, let tiling = i.tiling {
+                    // A repeating or clipped CSS background: every tile that
+                    // shows in the part of its painting area being drawn.
+                    context.clip(to: tiling.clip)
+                    let dirty = context.boundingBoxOfClipPath
+                    for tile in tiling.tiles(in: dirty) { image.draw(in: tile) }
+                } else if let image = i.image {
                     image.draw(in: i.rect.rawValue)
                 } else {
                     UIColor.lightGray.setFill()

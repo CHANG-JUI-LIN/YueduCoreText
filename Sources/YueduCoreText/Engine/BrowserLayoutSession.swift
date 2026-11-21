@@ -297,25 +297,9 @@ public final class BrowserLayoutSession {
             writingMode: config.writingMode,
             isBackgroundPaint: true
         )))
-        if let bg = background.image, let image = imageLoader(bg.source) {
-            let rect = BrowserLayoutDocument.coverRect(
-                for: image.size,
-                container: canvasSize,
-                positionX: bg.positionX,
-                positionY: bg.positionY
-            )
-            fragments.append(.image(ImageFragment(
-                source: bg.source,
-                image: image,
-                sourceRange: NSRange(location: 0, length: 0),
-                nodeID: -1,
-                linkTarget: nil,
-                writingMode: config.writingMode,
-                rect: PageLocalRect(rawValue: rect),
-                documentRect: DocumentRect(rawValue: rect),
-                alt: nil,
-                isBackgroundPaint: true
-            )))
+        if let bg = background.image, let image = imageLoader(bg.source),
+           let fragment = BrowserLayoutDocument.backgroundFragment(background, image: image, canvas: canvasSize, config: config) {
+            fragments.append(.image(fragment))
         }
         fragments.append(contentsOf: page.fragments)
         return PageFragments(index: page.index, pageRect: page.pageRect, fragments: fragments)

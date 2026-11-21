@@ -217,15 +217,17 @@ extension DisplayList {
                     followsTextColor: f.followsTextColor
                 )))
             case .image(let i):
-                guard !filteringItems || i.rect.rawValue.intersects(documentRect) else { continue }
-                result.append(.image(DisplayImageItem(
+                guard !filteringItems || (i.tiling?.clip ?? i.rect.rawValue).intersects(documentRect) else { continue }
+                var item = DisplayImageItem(
                     source: i.source, image: i.image, sourceRange: i.sourceRange,
                     nodeID: i.nodeID, linkTarget: i.linkTarget, writingMode: i.writingMode,
                     rect: PageLocalRect(rawValue: i.rect.rawValue.offsetBy(
                         dx: -documentRect.minX, dy: -documentRect.minY
                     )),
                     alt: i.alt, isBackgroundPaint: i.isBackgroundPaint
-                )))
+                )
+                item.tiling = i.tiling?.offsetBy(dx: -documentRect.minX, dy: -documentRect.minY)
+                result.append(.image(item))
             }
         }
         return DisplayList(items: result)

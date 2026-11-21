@@ -220,6 +220,10 @@ public struct DisplayImageItem {
     /// Painted CSS background — draws, never hit-tests. See `ImageFragment`.
     public let isBackgroundPaint: Bool
     public var paintTransform: PaintTransform? = nil
+    /// A CSS background that repeats or is clipped: `rect` is its first tile
+    /// and the drawer paints every tile inside `tiling.clip`. nil draws the
+    /// image once in `rect`.
+    public var tiling: BackgroundTiling? = nil
 
     public init(
         source: String,
@@ -280,7 +284,7 @@ public struct DisplayList {
                 return a.image === b.image && a.source == b.source && sameRect(a.rect, b.rect)
                     && a.sourceRange == b.sourceRange && a.nodeID == b.nodeID && a.linkTarget == b.linkTarget
                     && a.writingMode == b.writingMode && a.alt == b.alt && a.isBackgroundPaint == b.isBackgroundPaint
-                    && a.paintTransform == b.paintTransform
+                    && a.paintTransform == b.paintTransform && a.tiling == b.tiling
             default: return false
             }
         }
@@ -383,6 +387,7 @@ public enum DisplayListBuilder {
                     isBackgroundPaint: i.isBackgroundPaint
                 )
                 item.paintTransform = i.paintTransform
+                item.tiling = i.tiling
                 items.append(.image(item))
             case .group(let children):
                 collect(children, into: &items, sourceText: sourceText)

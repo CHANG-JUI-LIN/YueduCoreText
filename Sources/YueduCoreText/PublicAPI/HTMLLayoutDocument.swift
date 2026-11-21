@@ -119,7 +119,8 @@ public final class BrowserContinuousLayout {
     private let imageLoader: (String) -> UIImage?
     public var backgroundImageSource: String? { BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox).image?.source }
     public var pageBackground: BrowserPageBackground? {
-        BrowserPageBackground(BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox))
+        BrowserPageBackground(BrowserLayoutDocument.bodyBackground(rootBox: pipeline.rootBox),
+                              rootFontSize: configuration.rootFontSize)
     }
     public var footnotes: [String: String] { pipeline.footnotes }
     public var mediaAttachments: [Int: EPUBMediaAttachment] { pipeline.mediaAttachments }
@@ -152,12 +153,13 @@ public final class BrowserContinuousLayout {
                 cornerRadius: 0, borderTop: .zero, borderBottom: .zero, borderLeft: .zero,
                 borderRight: .zero, nodeID: -1, writingMode: config.writingMode, isBackgroundPaint: true)))
         }
-        if paintsPageBackground, let backgroundImage = background.image, let image = imageLoader(backgroundImage.source) {
-            items.append(.image(DisplayImageItem(source: backgroundImage.source, image: image,
+        if paintsPageBackground, let backgroundImage = background.image, let image = imageLoader(backgroundImage.source),
+           let tiling = background.tiling(for: image.size, canvas: canvas.size, rootFontSize: config.rootFontSize) {
+            var item = DisplayImageItem(source: backgroundImage.source, image: image,
                 sourceRange: NSRange(location: 0, length: 0), nodeID: -1, linkTarget: nil,
-                writingMode: config.writingMode, rect: PageLocalRect(rawValue: BrowserLayoutDocument.coverRect(
-                    for: image.size, container: canvas.size, positionX: backgroundImage.positionX,
-                    positionY: backgroundImage.positionY)), alt: nil, isBackgroundPaint: true)))
+                writingMode: config.writingMode, rect: PageLocalRect(rawValue: tiling.tile), alt: nil, isBackgroundPaint: true)
+            item.tiling = tiling
+            items.append(.image(item))
         }
         items.append(contentsOf: flow.displayList.items)
         return BrowserScrollDocument(displayList: DisplayList(items: items),

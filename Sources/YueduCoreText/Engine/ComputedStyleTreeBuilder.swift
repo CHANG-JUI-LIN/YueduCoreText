@@ -824,28 +824,24 @@ enum ComputedStylePropertyApplier {
             }
         case "background-image":
             if let source = parseBackgroundImageSource(preserved) {
-                var bg = style.backgroundImage ?? BackgroundImageStyle(source: source)
-                bg.source = source
-                style.backgroundImage = bg
+                style.backgroundImageSource = source
+            } else if value == "none" {
+                style.backgroundImageSource = nil
             }
         case "background-size":
-            guard var bg = style.backgroundImage else { break }
-            bg.size = parseBackgroundSize(value)
-            style.backgroundImage = bg
+            if let size = parseBackgroundSize(value) { style.backgroundLayer.size = size }
         case "background-position":
-            guard var bg = style.backgroundImage else { break }
-            let pos = parseBackgroundPosition(value)
-            bg.positionX = pos.x
-            bg.positionY = pos.y
-            style.backgroundImage = bg
+            if let position = parseBackgroundPosition(components(value)) {
+                style.backgroundLayer.positionX = position.x
+                style.backgroundLayer.positionY = position.y
+            }
         case "background-repeat":
-            guard var bg = style.backgroundImage else { break }
-            bg.repeatMode = value.contains("no-repeat") ? .noRepeat : .repeat
-            style.backgroundImage = bg
+            if let axes = parseBackgroundRepeat(components(value)) {
+                style.backgroundLayer.repeatsX = axes.x
+                style.backgroundLayer.repeatsY = axes.y
+            }
         case "background-attachment":
-            guard var bg = style.backgroundImage else { break }
-            bg.attachment = value.contains("fixed") ? .fixed : .scroll
-            style.backgroundImage = bg
+            style.backgroundLayer.attachment = value.contains("fixed") ? .fixed : .scroll
         case "font-size":
             if let px = resolveFontSize(value, parentSize: ctx.parent.fontSize, root: ctx.rootFontSize) {
                 style.fontSize = px
@@ -1135,19 +1131,7 @@ enum ComputedStylePropertyApplier {
         case "border-radius": if let length = borderLength(value) { style.pendingBorderRadius = length }
         case "background":
             if let c = parseColor(shorthandBackgroundColor(value)) { style.backgroundColor = c }
-            if let source = parseBackgroundImageSource(preserved) {
-                var bg = style.backgroundImage ?? BackgroundImageStyle(source: source)
-                bg.source = source
-                if value.contains("no-repeat") { bg.repeatMode = .noRepeat }
-                if value.contains("cover") { bg.size = .cover }
-                else if value.contains("contain") { bg.size = .contain }
-                if value.contains("fixed") { bg.attachment = .fixed }
-                if value.contains("center") {
-                    bg.positionX = .keyword(0.5)
-                    bg.positionY = .keyword(0.5)
-                }
-                style.backgroundImage = bg
-            }
+            applyBackgroundShorthandLayer(preserved, to: &style)
         default:
             break // unimplemented properties are ignored (Phase 1)
         }
@@ -1379,48 +1363,137 @@ enum ComputedStylePropertyApplier {
         return source.isEmpty ? nil : source
     }
 
-    fileprivate static func parseBackgroundSize(_ value: String) -> BackgroundImageStyle.BackgroundSize {
-        let v = value.lowercased()
-        if v.contains("cover") { return .cover }
-        if v.contains("contain") { return .contain }
-        return .auto
+    /// The image half of the `background` shorthand: `<image> || <position>
+    /// [ / <size> ]? || <repeat> || <attachment>`. A shorthand sets every
+    /// longhand, so whatever it leaves out goes back to its initial value. A
+    /// value with neither an image nor `none` (a bare colour) leaves the
+    /// layer alone, as this engine's colour half does.
+    fileprivate static func applyBackgroundShorthandLayer(_ preserved: String, to style: inout ComputedStyle) {
+        let source = parseBackgroundImageSource(preserved)
+        var rest = preserved
+        if let open = rest.range(of: "url(", options: .caseInsensitive),
+           let close = rest[open.upperBound...].firstIndex(of: ")") {
+            rest.removeSubrange(open.lowerBound...close)
+        }
+        let tokens = components(rest.lowercased().replacingOccurrences(of: "/", with: " / "))
+        guard source != nil || tokens.contains("none") else { return }
+        var layer = BackgroundImageStyle(source: "")
+        var position: [String] = []
+        var size: [String] = []
+        var repeats: [String] = []
+        var afterSlash = false
+        for token in tokens {
+            switch token {
+            case "/": afterSlash = true
+            case "repeat", "repeat-x", "repeat-y", "no-repeat", "space", "round": repeats.append(token)
+            case "fixed": layer.attachment = .fixed
+            case "scroll", "local", "none": break
+            case "cover", "contain": size.append(token)
+            case "left", "right", "top", "bottom", "center": position.append(token)
+            default:
+                guard CSSLengthResolver.parse(token) != nil else { continue }   // a colour
+                if afterSlash { size.append(token) } else { position.append(token) }
+            }
+        }
+        if let axes = parseBackgroundRepeat(repeats) { layer.repeatsX = axes.x; layer.repeatsY = axes.y }
+        if let parsed = parseBackgroundPosition(position) { layer.positionX = parsed.x; layer.positionY = parsed.y }
+        if let parsed = parseBackgroundSize(size.joined(separator: " ")) { layer.size = parsed }
+        style.backgroundImageSource = source
+        style.backgroundLayer = layer
     }
 
-    /// Two-keyword position (x y). Keywords map to slack fractions; the layout
-    /// resolves them against the container/slack at paint time.
-    fileprivate static func parseBackgroundPosition(_ value: String) -> (x: BackgroundImageStyle.BackgroundPosition, y: BackgroundImageStyle.BackgroundPosition) {
-        let parts = value.lowercased().split(separator: " ").map(String.init)
-        func keywordFraction(_ s: String) -> CGFloat? {
-            switch s {
-            case "left", "top": return 0
-            case "center": return 0.5
-            case "right", "bottom": return 1
+    /// `cover | contain | [ <length-percentage> | auto ]{1,2}`; a single value
+    /// is the width and leaves the height `auto`. nil = not a size.
+    fileprivate static func parseBackgroundSize(_ value: String) -> BackgroundImageStyle.BackgroundSize? {
+        let parts = components(value.lowercased())
+        guard let first = parts.first, parts.count <= 2 else { return nil }
+        if parts.count == 1 {
+            if first == "cover" { return .cover }
+            if first == "contain" { return .contain }
+        }
+        guard let width = CSSLengthResolver.parse(first) else { return nil }
+        var height = CSSLength.auto
+        if parts.count == 2 {
+            guard let parsed = CSSLengthResolver.parse(parts[1]) else { return nil }
+            height = parsed
+        }
+        if width == .auto, height == .auto { return .auto }
+        return .explicit(width: width, height: height)
+    }
+
+    /// `repeat-x | repeat-y | [ repeat | no-repeat | space | round ]{1,2}`.
+    /// `space` and `round` tile like `repeat`: the image still fills the axis,
+    /// without their spacing or rescaling. nil = not a repeat value.
+    fileprivate static func parseBackgroundRepeat(_ parts: [String]) -> (x: Bool, y: Bool)? {
+        func repeats(_ keyword: String) -> Bool? {
+            switch keyword {
+            case "repeat", "space", "round": return true
+            case "no-repeat": return false
             default: return nil
             }
         }
-        // Default: 0% 0% (top-left).
-        var x: BackgroundImageStyle.BackgroundPosition = .percent(0)
-        var y: BackgroundImageStyle.BackgroundPosition = .percent(0)
-        for part in parts {
-            if part.hasSuffix("%"), let v = Double(part.dropLast()) {
-                let frac = CGFloat(v) / 100
-                if case .percent = x { x = .percent(frac); continue }
-                if case .percent = y { y = .percent(frac) }
-                continue
-            }
-            if let f = keywordFraction(part) {
-                if f == 0 || f == 0.5 || f == 1 {
-                    // First keyword → x (left/center/right); second → y.
-                    if part == "left" || part == "right" || part == "center" {
-                        if case .percent(0) = x { x = .keyword(f) } else { y = .keyword(f) }
-                    } else {
-                        // top/bottom always land on y.
-                        y = .keyword(f)
-                    }
-                }
-            }
+        switch parts.count {
+        case 1:
+            if parts[0] == "repeat-x" { return (true, false) }
+            if parts[0] == "repeat-y" { return (false, true) }
+            guard let both = repeats(parts[0]) else { return nil }
+            return (both, both)
+        case 2:
+            guard let x = repeats(parts[0]), let y = repeats(parts[1]) else { return nil }
+            return (x, y)
+        default:
+            return nil
         }
-        return (x, y)
+    }
+
+    /// CSS `<position>` in its one- to four-value forms. One value leaves the
+    /// other axis centred; `top`/`bottom` name the vertical axis wherever they
+    /// stand; a keyword may carry an offset from its edge (`right 1em bottom
+    /// 10%`). nil = not a position.
+    fileprivate static func parseBackgroundPosition(_ parts: [String]) -> (x: BackgroundImageStyle.BackgroundPosition, y: BackgroundImageStyle.BackgroundPosition)? {
+        typealias Position = BackgroundImageStyle.BackgroundPosition
+        guard (1...4).contains(parts.count) else { return nil }
+        func plain(_ token: String) -> Position? {
+            guard let length = CSSLengthResolver.parse(token), length != .auto else { return nil }
+            if case .percent(let fraction) = length { return .percent(fraction) }
+            return .length(length, fromEnd: false)
+        }
+        let horizontal = ["left": CGFloat(0), "right": 1]
+        let vertical = ["top": CGFloat(0), "bottom": 1]
+        if parts.count <= 2 {
+            func value(_ token: String, edges: [String: CGFloat]) -> Position? {
+                if let edge = edges[token] { return .percent(edge) }
+                return token == "center" ? .percent(0.5) : plain(token)
+            }
+            var first = parts[0]
+            var second = parts.count == 2 ? parts[1] : "center"
+            // `top left`, `center left`, a lone `bottom`: the keyword names its axis.
+            if vertical[first] != nil || horizontal[second] != nil { swap(&first, &second) }
+            guard let x = value(first, edges: horizontal), let y = value(second, edges: vertical) else { return nil }
+            return (x, y)
+        }
+        // Three or four values: each edge keyword may be followed by its offset.
+        var x: Position?, y: Position?
+        var index = 0
+        while index < parts.count {
+            let token = parts[index]
+            index += 1
+            var offset: CSSLength?
+            if index < parts.count, horizontal[parts[index]] == nil, vertical[parts[index]] == nil, parts[index] != "center" {
+                guard let length = CSSLengthResolver.parse(parts[index]), length != .auto else { return nil }
+                offset = length
+                index += 1
+            }
+            func edge(_ fraction: CGFloat) -> Position {
+                guard let offset else { return .percent(fraction) }
+                return .length(offset, fromEnd: fraction == 1)
+            }
+            if let fraction = horizontal[token] { guard x == nil else { return nil }; x = edge(fraction) }
+            else if let fraction = vertical[token] { guard y == nil else { return nil }; y = edge(fraction) }
+            else if token == "center", offset == nil { if x == nil { x = .percent(0.5) } else if y == nil { y = .percent(0.5) } else { return nil } }
+            else { return nil }
+        }
+        return (x ?? .percent(0.5), y ?? .percent(0.5))
     }
 
     /// Absolute keywords keep WebKit's proportions (its sizes at the default

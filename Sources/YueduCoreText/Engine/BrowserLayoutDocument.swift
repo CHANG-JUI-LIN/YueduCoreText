@@ -331,6 +331,19 @@ final class BrowserLayoutDocument {
     struct RootBackground {
         var color: UIColor?
         var image: BackgroundImageStyle?
+        /// The root box's font size: what an `em` in the image's size or
+        /// position measures.
+        var fontSize: CGFloat = 0
+
+        /// Where the image goes on a canvas of `canvas` — the page, which CSS
+        /// makes the root background's positioning and painting area. Every
+        /// place that paints a page background resolves it here. nil when
+        /// there is no image or nothing of it to paint.
+        func tiling(for imageSize: CGSize, canvas: CGSize, rootFontSize: CGFloat) -> BackgroundTiling? {
+            guard let image else { return nil }
+            return BackgroundImageGeometry.tiling(for: imageSize, style: image, area: CGRect(origin: .zero, size: canvas),
+                                                  emBase: fontSize, remBase: rootFontSize)
+        }
     }
 
     static func bodyBackground(rootBox: BlockBox) -> RootBackground {
@@ -339,54 +352,23 @@ final class BrowserLayoutDocument {
         // and must not be treated as the page background source.
         RootBackground(
             color: rootBox.style.backgroundColor,
-            image: rootBox.style.backgroundImage
+            image: rootBox.style.backgroundImage,
+            fontSize: rootBox.style.fontSize
         )
     }
 
-    /// Resolves the physical rect of a cover/contain background image inside a
-    /// container, honoring `background-position` (center → symmetric crop).
-    /// `imageSize` is the intrinsic bitmap size; `container` the content rect.
-    static func coverRect(
-        for imageSize: CGSize,
-        container: CGSize,
-        positionX: BackgroundImageStyle.BackgroundPosition,
-        positionY: BackgroundImageStyle.BackgroundPosition,
-        mode: BackgroundImageStyle.BackgroundSize = .cover
-    ) -> CGRect {
-        guard imageSize.width > 0, imageSize.height > 0, container.width > 0, container.height > 0 else {
-            return CGRect(origin: .zero, size: container)
-        }
-        var drawW: CGFloat
-        var drawH: CGFloat
-        switch mode {
-        case .cover:
-            // Scale so the image fully COVERS the container; the larger axis
-            // overflows and is cropped (symmetrically per position).
-            let scale = max(container.width / imageSize.width, container.height / imageSize.height)
-            drawW = imageSize.width * scale
-            drawH = imageSize.height * scale
-        case .contain:
-            let scale = min(container.width / imageSize.width, container.height / imageSize.height)
-            drawW = imageSize.width * scale
-            drawH = imageSize.height * scale
-        case .auto:
-            drawW = imageSize.width
-            drawH = imageSize.height
-        }
-
-        let slackX = max(0, container.width - drawW)
-        let slackY = max(0, container.height - drawH)
-        let offsetX = positionFraction(positionX) * slackX
-        let offsetY = positionFraction(positionY) * slackY
-        return CGRect(x: offsetX, y: offsetY, width: drawW, height: drawH)
-    }
-
-    private static func positionFraction(_ position: BackgroundImageStyle.BackgroundPosition) -> CGFloat {
-        switch position {
-        case .percent(let f): return min(max(f, 0), 1)
-        case .keyword(let f): return min(max(f, 0), 1)
-        case .length(let v): return v
-        }
+    /// The fragment that paints a page background image over `canvas`.
+    static func backgroundFragment(_ background: RootBackground, image: UIImage, canvas: CGSize,
+                                   config: BrowserLayoutConfig) -> ImageFragment? {
+        guard let style = background.image,
+              let tiling = background.tiling(for: image.size, canvas: canvas, rootFontSize: config.rootFontSize) else { return nil }
+        var fragment = ImageFragment(
+            source: style.source, image: image, sourceRange: NSRange(location: 0, length: 0),
+            nodeID: -1, linkTarget: nil, writingMode: config.writingMode,
+            rect: PageLocalRect(rawValue: tiling.tile), documentRect: DocumentRect(rawValue: tiling.tile),
+            alt: nil, isBackgroundPaint: true)
+        fragment.tiling = tiling
+        return fragment
     }
 
     /// Runs the full pipeline and records per-stage timing + peak memory.
@@ -444,25 +426,9 @@ final class BrowserLayoutDocument {
                     writingMode: config.writingMode,
                     isBackgroundPaint: true
                 )))
-                if let bg = background.image, let image = imageLoader(bg.source) {
-                    let rect = Self.coverRect(
-                        for: image.size,
-                        container: containerSize,
-                        positionX: bg.positionX,
-                        positionY: bg.positionY
-                    )
-                    fragments.append(.image(ImageFragment(
-                        source: bg.source,
-                        image: image,
-                        sourceRange: NSRange(location: 0, length: 0),
-                        nodeID: -1,
-                        linkTarget: nil,
-                        writingMode: config.writingMode,
-                        rect: PageLocalRect(rawValue: rect),
-                        documentRect: DocumentRect(rawValue: rect),
-                        alt: nil,
-                        isBackgroundPaint: true
-                    )))
+                if let bg = background.image, let image = imageLoader(bg.source),
+                   let fragment = Self.backgroundFragment(background, image: image, canvas: containerSize, config: config) {
+                    fragments.append(.image(fragment))
                 }
                 fragments.append(contentsOf: page.fragments)
                 pages[index] = PageFragments(index: page.index, pageRect: page.pageRect, fragments: fragments)
