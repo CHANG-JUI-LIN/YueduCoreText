@@ -293,3 +293,22 @@ struct LayoutContext {
         self.viewportWidth = viewportWidth
     }
 }
+
+/// Single fields of a box's style, for `BlockLayout.layOut`. A `ComputedStyle` is over a
+/// kilobyte and an unoptimized build copies it whole onto the caller's stack for every
+/// `box.style.x`; `layOut` recurses once per level of nesting on threads with a 512 KB
+/// stack, and two dozen such reads cost it 25 KB a level. Read through these, the copy
+/// lives in the accessor's frame and is gone when it returns.
+extension BlockBox {
+    var styleIsTable: Bool { style.display == .table }
+    var styleIsListItem: Bool { style.isListItem }
+    var styleClear: CSSClear { style.cssClear }
+    var styleFloat: CSSFloat { style.cssFloat }
+    var styleTextIndent: CSSTextIndent { style.textIndent }
+    var styleFontSize: CGFloat { style.fontSize }
+    var styleLineHeight: CGFloat? { style.lineHeight }
+    var styleHeight: CSSLength { style.height }
+    var styleMinHeight: CSSLength? { style.minHeight }
+    var styleParagraphSpacing: CGFloat { style.configParagraphSpacing }
+    var styleBoxSizingBorderBox: Bool { style.boxSizingBorderBox }
+}

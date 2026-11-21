@@ -41,7 +41,7 @@ enum BlockLayout {
         // callers are migrated. It is deliberately not a geometry input:
         // InlineFormattingContext must use this box's final content width.
         _ = inlineContainingSize
-        if box.style.display == .table, writingMode == .horizontal {
+        if box.styleIsTable, writingMode == .horizontal {
             return TableLayout.layOut(
                 table: box,
                 containerWidth: containerWidth,
@@ -122,7 +122,7 @@ enum BlockLayout {
             fc = nil
             fcInlineOffsetX = 0
         }
-        if box.style.isListItem {
+        if box.styleIsListItem {
             // Every float placed so far precedes this item; the ones placed
             // while laying out its content are its own and leave its marker be.
             box.floatsBeforeListItem = (fc?.activeFloats ?? [],
@@ -170,8 +170,8 @@ enum BlockLayout {
             child.contentSize.width = childSides.contentWidth
 
             // 1. Clearance calculation
-            if let fc = fc, child.style.cssClear != .none {
-                let clearedY = fc.clearance(for: child.style.cssClear, currentY: blockOffsetY + cursorBlock)
+            if let fc = fc, child.styleClear != .none {
+                let clearedY = fc.clearance(for: child.styleClear, currentY: blockOffsetY + cursorBlock)
                 if clearedY > blockOffsetY + cursorBlock {
                     cursorBlock = clearedY - blockOffsetY
                     // CSS 2.1 §8.3.1: clearance prevents margins from collapsing with preceding siblings
@@ -208,13 +208,13 @@ enum BlockLayout {
                 )
 
                 let placed = fc.placeFloat(
-                    side: child.style.cssFloat,
+                    side: child.styleFloat,
                     marginBoxSize: marginBoxSize,
                     margins: child.margins,
                     startY: blockOffsetY + cursorBlock,
                     inlineRange: fcInlineOffsetX ..< (fcInlineOffsetX + box.contentSize.width),
                     nodeID: child.debugNodeID,
-                    clear: child.style.cssClear
+                    clear: child.styleClear
                 )
 
                 let childLocalX = placed.borderBox.minX
@@ -246,7 +246,7 @@ enum BlockLayout {
                     marginCollapseBase = prev
                 } else if !hasInFlowChild
                             && cursorBlock == 0
-                            && child.style.cssClear == .none
+                            && child.styleClear == .none
                             && !establishesBlockFormattingContext(box)
                             && LogicalGeometry.blockStart(edge: box.borders, mode: writingMode) == 0
                             && LogicalGeometry.blockStart(edge: box.padding, mode: writingMode) == 0 {
@@ -261,8 +261,8 @@ enum BlockLayout {
                     child.logicalBlockOrigin = cursorBlock + childMarginBlockStart
                 }
 
-                if child.style.cssClear != .none, let fc = fc {
-                    let clearanceY = fc.clearance(for: child.style.cssClear, currentY: blockOffsetY + child.logicalBlockOrigin)
+                if child.styleClear != .none, let fc = fc {
+                    let clearanceY = fc.clearance(for: child.styleClear, currentY: blockOffsetY + child.logicalBlockOrigin)
                     if clearanceY > blockOffsetY + child.logicalBlockOrigin {
                         child.logicalBlockOrigin = clearanceY - blockOffsetY
                         previousBlockEndMargin = nil
@@ -424,11 +424,11 @@ enum BlockLayout {
             }
             let firstLineConstraint: InlineFirstLineConstraint
             if box.ownsFirstFormattedLine, writingMode == .horizontal {
-                switch box.style.textIndent {
+                switch box.styleTextIndent {
                 case .length(let length):
                     let usedTextIndent = CSSLengthResolver.resolve(
                         length,
-                        emBase: box.style.fontSize,
+                        emBase: box.styleFontSize,
                         remBase: rootFontSize,
                         percentBase: inlineFormattingSize
                     ) ?? 0
@@ -445,7 +445,7 @@ enum BlockLayout {
             let context = InlineFormattingContext(
                 containingInlineSize: inlineFormattingSize,
                 rootFontSize: rootFontSize,
-                lineHeight: box.style.lineHeight,
+                lineHeight: box.styleLineHeight,
                 writingMode: textWritingMode ?? writingMode,
                 sourceText: sourceText,
                 fontResolver: fontResolver,
@@ -478,7 +478,7 @@ enum BlockLayout {
         if box.lines.isEmpty, !establishesBlockFormattingContext(box), let last = previousBlockEndMargin,
            LogicalGeometry.blockEnd(edge: box.borders, mode: writingMode) == 0,
            LogicalGeometry.blockEnd(edge: box.padding, mode: writingMode) == 0,
-           box.style.height.isAutoForMarginCollapsing {
+           box.styleHeight.isAutoForMarginCollapsing {
             cursorBlock -= last
             LogicalGeometry.setBlockEnd(
                 Margins.collapse(LogicalGeometry.blockEnd(edge: box.margins, mode: writingMode), last),
@@ -503,7 +503,7 @@ enum BlockLayout {
             cursorBlock = max(cursorBlock, viewport.height(for: box))
         }
         if !box.lines.isEmpty || (viewport != nil && !box.inlineRuns.isEmpty) {
-            cursorBlock += box.style.configParagraphSpacing
+            cursorBlock += box.styleParagraphSpacing
         }
 
         // Block-level replaced element (image): its content box IS the image.
@@ -522,16 +522,16 @@ enum BlockLayout {
 
         box.contentSize.height = max(0, totalHeight)
         // `box-sizing: border-box`: a declared height measures the border box.
-        let blockBoxExtras: CGFloat = box.style.boxSizingBorderBox && box.imageAttachment == nil
+        let blockBoxExtras: CGFloat = box.styleBoxSizingBorderBox && box.imageAttachment == nil
             ? LogicalGeometry.blockAxisExtent(box.borders, mode: writingMode)
                 + LogicalGeometry.blockAxisExtent(box.padding, mode: writingMode)
             : 0
         // Percentage heights stay auto: normal-flow layout has no definite
         // containing-block height to resolve them against.
-        if case .percent = box.style.height {
+        if case .percent = box.styleHeight {
         } else if let used = CSSLengthResolver.resolve(
-            box.style.height,
-            emBase: box.style.fontSize,
+            box.styleHeight,
+            emBase: box.styleFontSize,
             remBase: rootFontSize,
             percentBase: 0,
             viewportHeight: viewportHeight,
@@ -539,10 +539,10 @@ enum BlockLayout {
         ) {
             box.contentSize.height = max(0, used - blockBoxExtras)
         }
-        if let minimum = box.style.minHeight, case .percent = minimum {
+        if let minimum = box.styleMinHeight, case .percent = minimum {
             // An indefinite block-height percentage computes to zero here.
-        } else if let minimum = box.style.minHeight,
-                  let used = CSSLengthResolver.resolve(minimum, emBase: box.style.fontSize, remBase: rootFontSize, percentBase: 0) {
+        } else if let minimum = box.styleMinHeight,
+                  let used = CSSLengthResolver.resolve(minimum, emBase: box.styleFontSize, remBase: rootFontSize, percentBase: 0) {
             box.contentSize.height = max(box.contentSize.height, used - blockBoxExtras)
         }
         box.frame = ParentLocalRect(rawValue: CGRect(

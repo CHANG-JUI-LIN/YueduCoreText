@@ -103,21 +103,11 @@ enum BoxTreeBuilder {
         for child in node.children {
             switch child {
             case .text(let raw):
-                appendTextNode(
-                    raw, style: node.style, nodeID: node.nodeID, link: node.linkTarget,
-                    combinesUpright: config.writingMode == .verticalRTL,
-                    to: &pendingInline, sourceText: &sourceText,
-                    anchors: &anchors, anchorStack: &anchorStack
-                )
+                appendText(raw, of: node, config: config, to: &pendingInline, sourceText: &sourceText,
+                           anchors: &anchors, anchorStack: &anchorStack)
             case .element(let elementNode):
                 if elementNode.tag == "br" {
-                    // Forced line break: survives every whitespace mode.
-                    let range = sourceText.append("\n")
-                    pendingInline.append(InlineRun(
-                        text: "\n", style: elementNode.style,
-                        sourceRange: range, nodeID: elementNode.nodeID,
-                        linkTarget: elementNode.linkTarget, isHardBreak: true
-                    ))
+                    appendLineBreak(elementNode, to: &pendingInline, sourceText: &sourceText)
                 } else if let element = elementNode.semanticElement,
                           let svgSource = Self.svgWrappedImageSource(element) {
                     registerAnchors(&anchorStack, ownID: elementNode.anchorID,
@@ -131,19 +121,15 @@ enum BoxTreeBuilder {
                 } else if elementNode.tag == "img" {
                     registerAnchors(&anchorStack, ownID: elementNode.anchorID,
                                     anchors: &anchors, at: sourceText.currentOffset)
-                    if elementNode.style.isFloated || elementNode.style.display == .block {
+                    if isBlockImage(elementNode) {
                         flushGroup(
                             &pendingInline,
-                            style: node.style,
+                            of: node,
                             into: &kids,
                             assignedFirstInlineContext: &assignedFirstInlineContext
                         )
-                        let attachment = makeBlockImage(for: elementNode, imageLoader: imageLoader)
-                        let box = BlockBox(style: elementNode.style, boxType: .block)
-                        box.imageAttachment = attachment
-                        box.imageSourceRange = sourceText.pictureRange(for: elementNode)
-                        Self.attachDebugIdentity(box, node: elementNode)
-                        kids.append(box)
+                        kids.append(makeBlockImageBox(for: elementNode, sourceText: &sourceText,
+                                                      imageLoader: imageLoader))
                     } else {
                         appendImageRun(elementNode, to: &pendingInline, sourceText: &sourceText,
                                        imageLoader: imageLoader)
@@ -156,10 +142,10 @@ enum BoxTreeBuilder {
                         anchors: &anchors,
                         anchorStack: &anchorStack
                     )
-                } else if formsOwnBox(elementNode.style) {
+                } else if formsOwnBox(elementNode) {
                     flushGroup(
                         &pendingInline,
-                        style: node.style,
+                        of: node,
                         into: &kids,
                         assignedFirstInlineContext: &assignedFirstInlineContext
                     )
@@ -169,14 +155,14 @@ enum BoxTreeBuilder {
                         sourceText: &sourceText, anchors: &anchors,
                         imageLoader: imageLoader, boxCount: &boxCount
                     ))
-                } else if formsAtomicInline(elementNode.style) {
+                } else if formsAtomicInline(elementNode) {
                     appendInlineBlockRun(
                         elementNode, to: &pendingInline, config: config,
                         containerWidth: containerWidth,
                         sourceText: &sourceText, anchors: &anchors, anchorStack: &anchorStack,
                         imageLoader: imageLoader, boxCount: &boxCount
                     )
-                } else if elementNode.style.display == .none {
+                } else if isUndisplayed(elementNode) {
                     continue
                 } else {
                     // A block inside inline content splits it (CSS 2.1 §9.2.1.1):
@@ -191,7 +177,7 @@ enum BoxTreeBuilder {
                     ) { block, runs, sourceText, anchors, pendingAnchors, boxCount in
                         flushGroup(
                             &runs,
-                            style: node.style,
+                            of: node,
                             into: &kids,
                             assignedFirstInlineContext: &assignedFirstInlineContext
                         )
@@ -215,12 +201,29 @@ enum BoxTreeBuilder {
         if kids.contains(where: { !$0.isOutOfFlow }) {
             flushGroup(
                 &pendingInline,
-                style: node.style,
+                of: node,
                 into: &kids,
                 assignedFirstInlineContext: &assignedFirstInlineContext
             )
         }
+        return finishBlock(for: node, kids: kids, pendingInline: pendingInline,
+                           assignedFirstInlineContext: assignedFirstInlineContext,
+                           contentStart: contentStart, containerWidth: containerWidth, config: config)
+    }
 
+    // The helpers below keep whole styles off `buildBlockInternal`'s frame. A `ComputedStyle`
+    // is over a kilobyte, an unoptimized build gives every read of `node.style` its own copy
+    // on the stack, and that function recurses once per level of nesting on threads with a
+    // 512 KB stack: with these reads inline it took 57 KB a level and seven nested `<div>`s
+    // overflowed.
+
+    /// The box for `node`, once its children are built.
+    private static func finishBlock(
+        for node: ComputedStyleNode, kids: [BlockBox], pendingInline: [InlineRun],
+        assignedFirstInlineContext: Bool, contentStart: Int, containerWidth: CGFloat,
+        config: BrowserLayoutConfig
+    ) -> BlockBox {
+        var assignedFirstInlineContext = assignedFirstInlineContext
         var boxStyle = node.style
         if node.tag == "::first-letter", boxStyle.isFloated, boxStyle.width == .auto {
             let attributed = NSMutableAttributedString()
@@ -258,6 +261,54 @@ enum BoxTreeBuilder {
             ListMarker.anchor(marker, in: box)
         }
         return box
+    }
+
+    private static func flushGroup(
+        _ runs: inout [InlineRun], of node: ComputedStyleNode, into kids: inout [BlockBox],
+        assignedFirstInlineContext: inout Bool
+    ) {
+        flushGroup(&runs, style: node.style, into: &kids, assignedFirstInlineContext: &assignedFirstInlineContext)
+    }
+
+    private static func appendLineBreak(_ node: ComputedStyleNode, to runs: inout [InlineRun],
+                                        sourceText: inout SourceTextBuilder) {
+        // Forced line break: survives every whitespace mode.
+        let range = sourceText.append("\n")
+        runs.append(InlineRun(
+            text: "\n", style: node.style,
+            sourceRange: range, nodeID: node.nodeID,
+            linkTarget: node.linkTarget, isHardBreak: true
+        ))
+    }
+
+    private static func makeBlockImageBox(for node: ComputedStyleNode, sourceText: inout SourceTextBuilder,
+                                          imageLoader: (String) -> UIImage?) -> BlockBox {
+        let attachment = makeBlockImage(for: node, imageLoader: imageLoader)
+        let box = BlockBox(style: node.style, boxType: .block)
+        box.imageAttachment = attachment
+        box.imageSourceRange = sourceText.pictureRange(for: node)
+        Self.attachDebugIdentity(box, node: node)
+        return box
+    }
+
+    private static func isBlockImage(_ node: ComputedStyleNode) -> Bool {
+        node.style.isFloated || node.style.display == .block
+    }
+    private static func formsOwnBox(_ node: ComputedStyleNode) -> Bool { formsOwnBox(node.style) }
+    private static func formsAtomicInline(_ node: ComputedStyleNode) -> Bool { formsAtomicInline(node.style) }
+    private static func isUndisplayed(_ node: ComputedStyleNode) -> Bool { node.style.display == .none }
+    private static func isTable(_ node: ComputedStyleNode) -> Bool { node.style.display == .table }
+
+    private static func appendText(
+        _ raw: String, of node: ComputedStyleNode, config: BrowserLayoutConfig, to runs: inout [InlineRun],
+        sourceText: inout SourceTextBuilder, anchors: inout [String: Int], anchorStack: inout [String]
+    ) {
+        appendTextNode(
+            raw, style: node.style, nodeID: node.nodeID, link: node.linkTarget,
+            combinesUpright: config.writingMode == .verticalRTL,
+            to: &runs, sourceText: &sourceText,
+            anchors: &anchors, anchorStack: &anchorStack
+        )
     }
 
     /// The containing-block inline size for THIS node's children: the node's
@@ -308,7 +359,7 @@ enum BoxTreeBuilder {
         imageLoader: (String) -> UIImage?,
         boxCount: inout Int
     ) -> BlockBox {
-        if node.style.display == .table {
+        if isTable(node) {
             return buildTable(
                 for: node, config: config,
                 containerWidth: containerWidth,
