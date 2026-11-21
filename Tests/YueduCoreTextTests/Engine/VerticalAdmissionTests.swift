@@ -59,6 +59,17 @@ struct VerticalAdmissionTests {
         #expect(Self.scan(html, css: "img { width: \(width); }").unsupportedFeatures == [.verticalWritingMode])
     }
 
+    /// WebKit's prefixed spelling of `text-combine-upright`, which the same
+    /// template writes beside the standard one.
+    @Test func theWebKitSpellingOfTextCombineUprightIsRead() throws {
+        let css = Self.template + " .tcy { -webkit-text-combine: horizontal; -webkit-text-combine-upright: all; text-combine-upright: all; -epub-text-combine: horizontal; }"
+        let html = "<html class=\"vrtl\"><head></head><body><p>平成<span class=\"tcy\">24</span>年</p></body></html>"
+        let result = Self.scan(html, css: css)
+        #expect(result.supported, "\(result.unsupportedFeatures)")
+        let only = Self.scan(html, css: Self.template + " .tcy { -webkit-text-combine-upright: all; }")
+        #expect(only.supported, "\(only.unsupportedFeatures)")
+    }
+
     /// The cover page of the same template: an svg holding one picture.
     @Test func anSVGThatOnlyWrapsAPictureIsInScope() {
         let cover = """

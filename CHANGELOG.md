@@ -20,6 +20,8 @@ Chapters the capability scan used to turn away: a stylesheet with `@media`, and 
 - A vertical chapter is admitted by the `writing-mode` that wins the cascade on each element. Any matched declaration other than `vertical-rl` used to reject it, so a book built on the template that writes `html { writing-mode: horizontal-tb }` and overrides it with a class on the same element was rejected chapter by chapter. A horizontal block inside a vertical chapter, a chapter laid out vertically against its own declaration and `vertical-lr` still fall back.
 - A vertical chapter accepts a `width` in `em`, `rem` or `pt` as it does one in `px`: an inline mark sized `width: 1em`. Percentages and viewport units still fall back.
 - A vertical chapter accepts an `svg` that only wraps one picture (a cover page) as the picture it is, as a horizontal chapter does.
+- `-webkit-text-combine-upright` is read as `text-combine-upright`, which it is an alias of. In a vertical chapter the prefixed spelling used to reject the chapter.
+- A `<script>` element no longer rejects a chapter. Scripts are not run, by this engine or by a host's fallback, and the element displays nothing; a book whose every chapter links an empty script file was rejected whole. `iframe`, `object`, `embed`, `canvas` and `audio` still report `scriptedInteractive`.
 
 ### Changed
 

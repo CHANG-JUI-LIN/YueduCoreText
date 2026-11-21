@@ -120,4 +120,14 @@ struct MediaQueryTests {
         #expect(scan(positioned, width: 390).unsupportedFeatures == [.positioned])
         #expect(scan(positioned, width: 800).supported)
     }
+
+    /// Not `@media`, but the same kind of rejection: an element that changes
+    /// nothing the engine or a fallback would draw.
+    @Test func aScriptElementIsNoReasonToFallBack() {
+        let html = "<html><head><script src=\"../Misc/main.js\" type=\"text/javascript\"></script></head><body><p>x</p><script>1</script></body></html>"
+        let result = BrowserLayoutCapabilityScanner.scan(html: html, cssTexts: [])
+        #expect(result.supported, "\(result.unsupportedFeatures)")
+        let canvas = "<html><body><p>x</p><canvas></canvas><script>draw()</script></body></html>"
+        #expect(BrowserLayoutCapabilityScanner.scan(html: canvas, cssTexts: []).unsupportedFeatures == [.scriptedInteractive])
+    }
 }

@@ -138,7 +138,8 @@ public enum BrowserLayoutCapabilityScanner {
             if ["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"].contains(k) {
                 return v == "vertical-rl" || v == "inherit" ? nil : .verticalWritingMode
             }
-            if ["text-combine-upright", "-epub-text-combine-horizontal", "-ms-text-combine-horizontal"].contains(k) {
+            if ["text-combine-upright", "-webkit-text-combine-upright", "-epub-text-combine-horizontal",
+                "-ms-text-combine-horizontal"].contains(k) {
                 return ["inherit", "initial", "unset"].contains(v) || TextCombineUpright.parse(v).isSupported
                     ? nil : .verticalWritingMode
             }

@@ -1048,8 +1048,8 @@ enum ComputedStylePropertyApplier {
             style.rubyPosition = RubyPosition.parse(value)
         case "ruby-merge", "-epub-ruby-merge", "-webkit-ruby-merge":
             style.rubyMerge = RubyMerge.parse(value)
-        case "text-combine-upright", "-epub-text-combine-horizontal", "-ms-text-combine-horizontal",
-             "-webkit-text-combine", "-epub-text-combine":
+        case "text-combine-upright", "-webkit-text-combine-upright", "-epub-text-combine-horizontal",
+             "-ms-text-combine-horizontal", "-webkit-text-combine", "-epub-text-combine":
             if value == "inherit" || value == "unset" { style.textCombineUpright = ctx.parent.textCombineUpright }
             else if value == "initial" { style.textCombineUpright = .none }
             else if key == "-webkit-text-combine" || key == "-epub-text-combine" {
