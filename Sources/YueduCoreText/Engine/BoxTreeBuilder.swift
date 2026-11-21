@@ -212,7 +212,7 @@ enum BoxTreeBuilder {
         // container's top and were painted over the first block. Floats are
         // out of flow and do not count: text after a drop cap stays the
         // container's own and wraps around it.
-        if kids.contains(where: { !$0.style.isFloated }) {
+        if kids.contains(where: { !$0.isOutOfFlow }) {
             flushGroup(
                 &pendingInline,
                 style: node.style,
@@ -229,7 +229,9 @@ enum BoxTreeBuilder {
             }
             let line = CTLineCreateWithAttributedString(attributed)
             boxStyle.width = .px(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-        } else if boxStyle.isFloated, boxStyle.width == .auto, config.writingMode == .horizontal {
+        } else if boxStyle.isFloated || (boxStyle.isAbsolutelyPositioned
+                                         && (boxStyle.insetLeft == nil || boxStyle.insetRight == nil)),
+                  boxStyle.width == .auto, config.writingMode == .horizontal {
             // CSS §10.3.5 shrink-to-fit: the float needs a definite used width
             // before layout, measured from its own content.
             let available = max(
@@ -364,7 +366,8 @@ enum BoxTreeBuilder {
             indent = CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) ?? 0
         }
         let own = maxInlineWidth(box.inlineRuns, indent: indent, available: available, config: config)
-        let kids = box.children.map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0
+        let kids = box.children.filter { !$0.isAbsolutelyPositioned }
+            .map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0
         return max(own, kids)
     }
 

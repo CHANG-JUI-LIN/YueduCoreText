@@ -590,6 +590,11 @@ final class ComputedStyleTreeBuilder {
         style.finalizeLineHeight(rootFontSize: rootFontSize)
         style.finalizeLetterSpacing(rootFontSize: rootFontSize)
         style.finalizeBorderLengths(rootFontSize: rootFontSize)
+        // An absolutely positioned box is a block container whatever it was
+        // (CSS 2.1 §9.7): `inline-flex` on a positioned label lays out as `flex`.
+        if style.isAbsolutelyPositioned, style.display == .inline || style.display == .inlineBlock {
+            style.display = .block
+        }
         // vertical-align shifts inline-level boxes only (CSS 2.1 §10.8.1): a
         // block container or table cell never raises its own text, and a cell
         // reads the keyword as its alignment instead.
@@ -811,6 +816,22 @@ enum ComputedStylePropertyApplier {
             style.isFlexContainer = value == "flex" || value == "inline-flex"
             if display == .none { style.isHidden = true }
             style.isListItem = value == "list-item"
+        case "position":
+            switch value {
+            case "static", "initial", "unset": style.position = .static
+            case "relative": style.position = .relative
+            case "absolute": style.position = .absolute
+            case "fixed": style.position = .fixed
+            case "sticky", "-webkit-sticky": style.position = .sticky
+            case "inherit": style.position = ctx.parent.position
+            default: break
+            }
+        case "top": style.insetTop = Self.inset(value, current: style.insetTop)
+        case "right": style.insetRight = Self.inset(value, current: style.insetRight)
+        case "bottom": style.insetBottom = Self.inset(value, current: style.insetBottom)
+        case "left": style.insetLeft = Self.inset(value, current: style.insetLeft)
+        case "z-index":
+            if value == "auto" { style.zIndex = nil } else if let index = Int(value) { style.zIndex = index }
         case "justify-content":
             if let alignment = FlexAlignment.parse(value) { style.justifyContent = alignment }
         case "align-items":
@@ -1270,6 +1291,13 @@ enum ComputedStylePropertyApplier {
     /// Degrees for a bare `rotate(<angle>)` transform — the only parsed
     /// function. Anything else (lists, scale/translate/matrix) computes to
     /// none rather than being half-applied.
+    /// `top`/`right`/`bottom`/`left`: nil for `auto`; an unparseable value is
+    /// dropped and leaves what was there.
+    fileprivate static func inset(_ value: String, current: CSSLength?) -> CSSLength? {
+        guard let length = CSSLengthResolver.parse(value) else { return current }
+        return length == .auto ? nil : length
+    }
+
     fileprivate static func parseTransformRotate(_ value: String) -> CGFloat? {
         let s = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let pattern = #"^rotate\(\s*(-?(?:\d+\.?\d*|\.\d+))(deg|rad|turn)?\s*\)$"#

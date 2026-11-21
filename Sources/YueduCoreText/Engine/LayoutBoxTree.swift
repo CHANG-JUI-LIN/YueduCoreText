@@ -223,9 +223,13 @@ final class BlockBox {
     /// containing block it is laid out in (shrink-to-fit, CSS 2.1 §10.3.9).
     var shrinkToFitContentWidth: CGFloat? = nil
 
-    var isFloated: Bool {
-        style.cssFloat == .left || style.cssFloat == .right
-    }
+    var isFloated: Bool { style.isFloated }
+
+    /// Placed by its insets against this box's parent, out of the flow.
+    var isAbsolutelyPositioned: Bool { style.isAbsolutelyPositioned }
+
+    /// Floats and absolutely positioned boxes: no part of the block flow.
+    var isOutOfFlow: Bool { isFloated || isAbsolutelyPositioned }
 
     init(
         style: ComputedStyle,
@@ -256,7 +260,7 @@ final class BlockBox {
     var lastLineBaseline: CGFloat? {
         let inset = borders.top + padding.top
         if let line = lines.last { return inset + line.baseline }
-        for child in children.reversed() where !child.isFloated {
+        for child in children.reversed() where !child.isOutOfFlow {
             if let baseline = child.lastLineBaseline { return inset + child.frame.minY + baseline }
         }
         return nil

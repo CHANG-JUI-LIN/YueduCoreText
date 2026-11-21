@@ -136,6 +136,43 @@ enum BlockLayout {
         for child in box.children {
             // A caller that will discard this tree stops here (see `LayoutAbandonment`).
             if Task.isCancelled, LayoutAbandonment.whenCancelled { break }
+            if child.isAbsolutelyPositioned, writingMode == .horizontal {
+                // Out of the flow (CSS 2.1 §9.6): it takes no room, and no
+                // margin or float of this box's content meets it. Its
+                // containing block is this box's padding box (§10.1), which
+                // admission guarantees is positioned (`PositionSupport`).
+                let paddingBoxWidth = box.contentSize.width + box.padding.left + box.padding.right
+                func used(_ length: CSSLength?) -> CGFloat? {
+                    guard let length else { return nil }
+                    return CSSLengthResolver.resolve(
+                        length, emBase: child.style.fontSize, remBase: rootFontSize, percentBase: paddingBoxWidth,
+                        viewportHeight: viewportHeight, viewportWidth: viewportWidth)
+                }
+                let left = used(child.style.insetLeft), right = used(child.style.insetRight)
+                // Both sides given and no width: the box fills what is between them (§10.3.7).
+                var available = paddingBoxWidth
+                if child.style.width == .auto, let left, let right { available = max(0, paddingBoxWidth - left - right) }
+                layOut(
+                    root: child, containerWidth: available, rootFontSize: rootFontSize,
+                    writingMode: writingMode, textWritingMode: textWritingMode,
+                    floatContext: nil, blockOffsetY: 0, sourceText: sourceText,
+                    fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
+                    fragmentHeight: fragmentHeight,
+                    viewportHeight: viewportHeight, viewportWidth: viewportWidth, viewport: viewport
+                )
+                let size = child.frame.rawValue.size
+                let x: CGFloat
+                if let left {
+                    x = -box.padding.left + left + child.margins.left
+                } else {
+                    x = box.contentSize.width + box.padding.right - (right ?? 0) - child.margins.right - size.width
+                }
+                let y = -box.padding.top + (used(child.style.insetTop) ?? 0) + child.margins.top
+                child.logicalInlineOrigin = x
+                child.logicalBlockOrigin = y
+                child.frame = ParentLocalRect(rawValue: CGRect(origin: CGPoint(x: x, y: y), size: size))
+                continue
+            }
             // Resolve the child's used box model before positioning it. Reading
             // `child.margins` before the recursive layout left every fresh box
             // at zero, so fixed-width blocks with auto margins were pinned left.
@@ -481,7 +518,7 @@ enum BlockLayout {
         // (`ListMarker.ownLine`; none when it draws no marker). An item whose
         // content starts with a table or a block image gets no extra line.
         if let marker = box.unanchoredListMarker, box.inlineRuns.isEmpty,
-           !box.children.contains(where: { !$0.isFloated }) {
+           !box.children.contains(where: { !$0.isOutOfFlow }) {
             cursorBlock = max(cursorBlock, marker.ownLine.above + marker.ownLine.below)
         }
 
@@ -842,6 +879,7 @@ extension BlockLayout {
     /// page's inset.
     static func establishesBlockFormattingContext(_ box: BlockBox) -> Bool {
         box.style.isFloated || box.isInlineBlock || box.style.display == .tableCell
+            || box.isAbsolutelyPositioned
     }
 
     /// A laid-out box of no block extent whose own block-start and block-end
@@ -853,6 +891,7 @@ extension BlockLayout {
               box.unanchoredListMarker == nil,
               box.style.height.isAutoForMarginCollapsing,
               box.style.cssClear == .none,
+              !box.isAbsolutelyPositioned,
               !establishesBlockFormattingContext(box) else { return false }
         switch box.style.minHeight {
         case nil, .auto?: break
@@ -862,7 +901,7 @@ extension BlockLayout {
         case .table, .tableRowGroup, .tableHeaderGroup, .tableFooterGroup, .tableRow, .tableCell: return false
         default: break
         }
-        return box.children.allSatisfy { $0.isFloated || isSelfCollapsing($0) }
+        return box.children.allSatisfy { $0.isOutOfFlow || isSelfCollapsing($0) }
     }
 }
 

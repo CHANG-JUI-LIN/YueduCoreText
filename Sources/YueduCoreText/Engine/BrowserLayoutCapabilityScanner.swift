@@ -194,7 +194,8 @@ public enum BrowserLayoutCapabilityScanner {
             // the scanner reports the shared text-indent capability boundary.
             return nil
         }
-        if k == "position" && (v.contains("absolute") || v.contains("fixed") || v.contains("sticky")) {
+        // `absolute` is admitted by where it sits (`PositionSupport`).
+        if k == "position" && (v.contains("fixed") || v.contains("sticky")) {
             return .positioned
         }
         if k == "display" {

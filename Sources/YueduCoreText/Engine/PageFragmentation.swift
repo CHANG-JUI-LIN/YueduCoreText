@@ -581,7 +581,7 @@ struct PageWalker {
         #endif
         while !stack.isEmpty {
             let index = stack.count - 1
-            if stack[index].box.isFloated, !stack[index].floatBoundaryEmitted {
+            if stack[index].box.isOutOfFlow, !stack[index].floatBoundaryEmitted {
                 stack[index].floatBoundaryEmitted = true
                 let frame = stack[index]
                 let borderRect = CGRect(
@@ -707,7 +707,9 @@ struct PageWalker {
                 // margin adjoining the next content. Reset by `place`, so this
                 // only ever accumulates across boxes entered back-to-back with
                 // nothing emitted between them.
-                adjoiningBlockStartMargin += LogicalGeometry.blockStart(edge: child.margins, mode: writingMode)
+                if !child.isAbsolutelyPositioned {
+                    adjoiningBlockStartMargin += LogicalGeometry.blockStart(edge: child.margins, mode: writingMode)
+                }
                 var childFrame = Self.makeFrame(child, contentOrigin: childOrigin, parentRotation: parent.rotation)
                 childFrame.sharedLineSerial = parent.sharedLineSerial
                 stack.append(childFrame)

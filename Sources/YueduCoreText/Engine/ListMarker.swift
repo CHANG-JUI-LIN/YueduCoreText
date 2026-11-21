@@ -168,7 +168,7 @@ final class ListMarker {
 
     private static func search(_ box: BlockBox) -> Search {
         for child in box.children {
-            if child.isFloated { continue }
+            if child.isOutOfFlow { continue }
             if child.imageAttachment != nil || child.style.display == .table { return .stop }
             switch search(child) {
             case .found(let host): return .found(host)

@@ -32,6 +32,10 @@ enum FlexAlignment: Equatable {
     }
 }
 
+enum CSSPosition: Equatable, Sendable {
+    case `static`, relative, absolute, fixed, sticky
+}
+
 enum CSSDisplay: Equatable {
     case block, inline, inlineBlock, none
     case table, tableRowGroup, tableHeaderGroup, tableFooterGroup, tableRow, tableCell
@@ -265,6 +269,18 @@ struct ComputedStyle: Equatable {
     /// browser renders those as ordinary blocks. Anything that dispatches on the
     /// CLASS NAME instead of this computed value floats 89% of them wrongly.
     var cssFloat: CSSFloat = .none
+    /// Used `position`. `fixed` and `sticky` are parsed so admission can tell
+    /// them from the two the engine lays out (`PositionSupport`).
+    var position: CSSPosition = .static
+    /// `top`, `right`, `bottom`, `left`; nil is `auto`. Not inherited.
+    var insetTop: CSSLength? = nil
+    var insetRight: CSSLength? = nil
+    var insetBottom: CSSLength? = nil
+    var insetLeft: CSSLength? = nil
+    /// nil is `auto`. Orders positioned siblings when they are painted.
+    var zIndex: Int? = nil
+    /// Out of the flow at a place of its own (CSS 2.1 §9.6).
+    var isAbsolutelyPositioned: Bool { position == .absolute }
     /// Used `clear`. Same strict rule.
     var cssClear: CSSClear = .none
     var verticalAlign: CSSVerticalAlign = .baseline
@@ -297,8 +313,9 @@ struct ComputedStyle: Equatable {
     var borderSpacingHorizontal: CSSLength? = nil
     var borderSpacingVertical: CSSLength? = nil
 
+    /// An absolutely positioned box does not float (CSS 2.1 §9.7).
     var isFloated: Bool {
-        cssFloat == .left || cssFloat == .right
+        (cssFloat == .left || cssFloat == .right) && position != .absolute
     }
 
     /// `display: list-item`: a block box that generates a marker. A flag on the
