@@ -31,13 +31,17 @@ enum BrowserLayoutTestSupport {
     /// The reference document WebKit was measured with (S001: 17px PingFang
     /// SC at line-height 1.5, an 8px body margin, `lang="zh-Hant"`) holding
     /// `body`: 366 wide, or a 776 tall vertical-rl page.
+    /// Runs in the caller's isolation: the document and its pages are not
+    /// Sendable, and Swift 6.1 (Xcode 16.4, which CI builds with) rejects
+    /// handing them from a nonisolated function to a `@MainActor` suite.
     /// `rootFamilies` replaces the reader's font: `[]` is the app's own default,
     /// the system font, with CJK text in its language's font. `cjk` is the
     /// app's CJK typography, which draws Han in a stand-in font.
     static func webKitReference(
         _ body: String, css: String = "", vertical: Bool = false, lang: String? = "zh-Hant",
         rootFamilies: [String] = ["PingFangSC-Regular"], cjk: CJKTypographyStyle? = nil,
-        imageLoader: (@Sendable (String) -> UIImage?)? = nil
+        imageLoader: (@Sendable (String) -> UIImage?)? = nil,
+        isolation: isolated (any Actor)? = #isolation
     ) async throws -> (pages: [PageFragments], doc: BrowserLayoutDocument) {
         let family = rootFamilies.isEmpty ? "" : "font-family:\"PingFang SC\""
         let reference = "html{font-size:17px;line-height:1.5;text-align:justify;\(family)}"
