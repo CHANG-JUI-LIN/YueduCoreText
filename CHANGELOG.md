@@ -2,6 +2,12 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.26.0] - 2026-11-22
+
+### Added
+
+- `calc()` whose terms are lengths and percentages added and subtracted, on `width`, `max-width`, `margin-left`, `margin-right`, `padding-left`, `padding-right`, `left` and `right`. `CSSLength` gains the case `calc(CSSCalc)`, stored out of line. Products, quotients, nested functions, `min()`, `max()` and `clamp()`, any other property, and vertical text are still reported as `calc-modern-functions`.
+
 ## [0.25.1] - 2026-11-22
 
 ### Fixed

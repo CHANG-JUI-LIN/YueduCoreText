@@ -31,11 +31,11 @@ struct CalcLengthTests {
 
     @Test func itResolvesAgainstTheSameBasesAsItsTerms() {
         let length = try! #require(CSSLengthResolver.parseCalc("calc(100% - 110px + 1em + 1rem)"))
-        #expect(CSSLengthResolver.resolve(length, emBase: 12, remBase: 16, percentBase: 300) == 300 - 110 + 12 + 16)
+        #expect(CSSLengthResolver.resolve(length, emBase: 12, remBase: 16, percentBase: 300) == CGFloat(218))
         // A viewport term with no viewport to measure is unresolved, like `vh` on its own.
         let viewport = try! #require(CSSLengthResolver.parseCalc("calc(50vw - 10px)"))
         #expect(CSSLengthResolver.resolve(viewport, emBase: 12, remBase: 16, percentBase: 300) == nil)
-        #expect(CSSLengthResolver.resolve(viewport, emBase: 12, remBase: 16, percentBase: 300, viewportWidth: 400) == 190)
+        #expect(CSSLengthResolver.resolve(viewport, emBase: 12, remBase: 16, percentBase: 300, viewportWidth: 400) == CGFloat(190))
     }
 
     @Test func aLengthStaysOneWordAndATag() {
