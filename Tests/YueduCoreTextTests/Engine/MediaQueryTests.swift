@@ -113,10 +113,10 @@ struct MediaQueryTests {
             return BrowserLayoutCapabilityScanner.scan(input: input, configuration: BrowserLayoutConfig(renderWidth: width, renderHeight: 600))
         }
         #expect(scan("@media (prefers-color-scheme: dark) { .a { color: white } }", width: 390).supported)
-        #expect(scan("@media amzn-kf8 { .a { position: absolute } }", width: 390).supported)
+        #expect(scan("@media amzn-kf8 { .a { position: fixed } }", width: 390).supported)
         // What a matching block declares is judged like any other rule; one
         // that does not match this page is not.
-        let positioned = "@media screen and (max-width: 512px) { .a { position: absolute } }"
+        let positioned = "@media screen and (max-width: 512px) { .a { position: fixed } }"
         #expect(scan(positioned, width: 390).unsupportedFeatures == [.positioned])
         #expect(scan(positioned, width: 800).supported)
     }

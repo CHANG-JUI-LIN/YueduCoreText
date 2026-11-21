@@ -52,9 +52,9 @@ struct SharedEvaluationEquivalenceTests {
         <html><body><div style="display:none"><p class="deep">hidden</p></div>
         <section hidden><span class="attr">x</span></section><p>visible</p></body></html>
         """
-        Self.expectSameVerdict(Self.input(html, css: [".deep { position: absolute }"]), "hidden descendant rule")
+        Self.expectSameVerdict(Self.input(html, css: [".deep { position: fixed }"]), "hidden descendant rule")
         Self.expectSameVerdict(Self.input(html, css: [".attr { grid-row: 1 }"]), "hidden-attribute descendant rule")
-        let verdict = BrowserLayoutCapabilityScanner.scan(input: Self.input(html, css: [".deep { position: absolute }", ".attr { grid-gap: 1px }"]))
+        let verdict = BrowserLayoutCapabilityScanner.scan(input: Self.input(html, css: [".deep { position: fixed }", ".attr { grid-gap: 1px }"]))
         #expect(verdict.unsupportedFeatures == [.positioned, .flexGrid])
     }
 
