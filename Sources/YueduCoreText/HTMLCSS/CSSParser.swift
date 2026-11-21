@@ -17,9 +17,19 @@ public struct CSSRule {
     /// resolved into a separate per-element style and applied only when the reader appearance is
     /// dark; they never participate in the light cascade (previously the whole block leaked and
     /// its rules applied unconditionally).
-    public let isDarkMedia: Bool
+    public internal(set) var isDarkMedia: Bool
+    /// The preludes of the `@media` blocks the rule stands in, outermost
+    /// first. The rule applies where every one of them matches.
+    var mediaConditions: [String] = []
     var sourceSelector: String = ""
     var sourceStylesheet: StylesheetIdentity? = nil
+}
+
+extension CSSRule {
+    /// True where every `@media` query around the rule matches.
+    func applies(in media: CSSMediaEnvironment) -> Bool {
+        mediaConditions.allSatisfy { CSSMediaQuery.matches($0, in: media) }
+    }
 }
 
 public struct CSSSelector {
@@ -180,7 +190,7 @@ public enum CSSParser {
     /// selector — making it unmatchable and silently dropping its declarations. In practice the
     /// first rule is `body { … }`, so the document-wide `font-family` (and the embedded-font cascade
     /// that depends on it) vanishes. Block at-rules like `@font-face` are removed upstream; `@media`
-    /// blocks are left untouched (still unsupported, but no longer able to break a neighbor).
+    /// blocks are cut out by `mediaSegments`.
     private static func sanitize(_ css: String) -> String {
         css
             // (?s): dot must match newlines — CJK publisher stylesheets routinely comment out
@@ -196,57 +206,95 @@ public enum CSSParser {
             )
     }
 
-    public static func parse(css: String, orderOffset: Int = 0) -> [CSSRule] {
-        // Flat light-palette rules only. `@media (prefers-color-scheme: dark)` blocks are
-        // extracted and dropped here — consumers that support appearance variants (the CoreText
-        // builder) use `parseWithFirstLetter` and read the flagged dark rules.
-        let stripped = sanitize(css)
-        let (baseCSS, _) = extractDarkMediaBlocks(from: stripped)
-        return parseRuleList(css: baseCSS, orderOffset: orderOffset, isDarkMedia: false).regular
+    /// The rules that apply in `media` with the light appearance. Rules inside
+    /// a `@media` block that does not match there are left out.
+    public static func parse(css: String, orderOffset: Int = 0, media: CSSMediaEnvironment = CSSMediaEnvironment()) -> [CSSRule] {
+        parseWithFirstLetter(css: css, orderOffset: orderOffset, media: media).regular.filter { !$0.isDarkMedia }
     }
 
     /// Parses CSS and returns (regular rules, first-letter rules).
-    public static func parseWithFirstLetter(css: String, orderOffset: Int = 0) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
-        parseWithFirstLetter(css: css, orderOffset: orderOffset, onUnsupported: nil)
+    ///
+    /// A rule inside `@media` is kept when its queries match `media`. One that
+    /// matches only with the dark appearance (`prefers-color-scheme: dark`) is
+    /// kept too, flagged `isDarkMedia`: consumers that support appearance
+    /// variants (the CoreText builder) resolve those into a separate style.
+    public static func parseWithFirstLetter(css: String, orderOffset: Int = 0,
+                                            media: CSSMediaEnvironment = CSSMediaEnvironment()) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
+        parseWithFirstLetter(css: css, orderOffset: orderOffset, media: media, onUnsupported: nil)
     }
 
-    static func parseWithFirstLetter(css: String, orderOffset: Int, onUnsupported: ((String, Int) -> Void)?) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
-        let stripped = sanitize(css)
-        let (baseCSS, darkCSS) = extractDarkMediaBlocks(from: stripped)
-        let light = parseRuleList(css: baseCSS, orderOffset: orderOffset, isDarkMedia: false, onUnsupported: onUnsupported)
+    static func parseWithFirstLetter(css: String, orderOffset: Int, media: CSSMediaEnvironment = CSSMediaEnvironment(),
+                                     onUnsupported: ((String, Int) -> Void)?) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
+        let parsed = parseConditional(css: css, orderOffset: orderOffset, onUnsupported: onUnsupported)
+        var light = media, dark = media
+        light.prefersDark = false
+        dark.prefersDark = true
+        var regular: [CSSRule] = []
+        for rule in parsed.regular {
+            if rule.applies(in: light) {
+                regular.append(rule)
+            } else if rule.applies(in: dark) {
+                var flagged = rule
+                flagged.isDarkMedia = true
+                regular.append(flagged)
+            }
+        }
         // Dark :first-letter rules are dropped: the simplified first-letter feature resolves
         // only the light palette (no EPUB in the wild combines the two).
-        let dark = parseRuleList(css: darkCSS, orderOffset: orderOffset, isDarkMedia: true)
-        return (light.regular + dark.regular, light.firstLetter)
+        return (regular, parsed.firstLetter.filter { $0.applies(in: light) })
     }
 
-    /// Splits `@media (prefers-color-scheme: dark) { … }` blocks out of a stylesheet. Returns the
-    /// remaining CSS plus the concatenated inner rule text of the dark blocks.
+    /// Every rule of the stylesheet in source order, each carrying the
+    /// `@media` queries it stands in (`CSSRule.mediaConditions`) and none of
+    /// them evaluated: the result does not depend on a viewport, so one parse
+    /// serves every page size.
+    static func parseConditional(css: String, orderOffset: Int,
+                                 onUnsupported: ((String, Int) -> Void)? = nil) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
+        var regular: [CSSRule] = []
+        var firstLetter: [CSSRule] = []
+        var offset = orderOffset
+        for segment in mediaSegments(of: sanitize(css), conditions: []) {
+            let parsed = parseRuleList(css: segment.css, orderOffset: offset, mediaConditions: segment.conditions,
+                                       onUnsupported: onUnsupported)
+            regular += parsed.regular
+            firstLetter += parsed.firstLetter
+            offset = (parsed.regular + parsed.firstLetter).map(\.order).max().map { $0 + 1 } ?? offset
+        }
+        return (regular, firstLetter)
+    }
+
+    /// Cuts a stylesheet into runs of plain rules, in source order, each with
+    /// the `@media` preludes around it; a `@media` block inside another adds
+    /// its prelude to the outer one's.
     ///
-    /// Every other block at-rule (`@supports`, `@media` with other queries, stray `@page`,
-    /// `@font-face` leftovers) is removed entirely. They used to stay in place, where the
+    /// Every other block at-rule (`@supports`, stray `@page`, `@font-face`
+    /// leftovers) is removed entirely. They used to stay in place, where the
     /// `([^{}]+)\{([^{}]+)\}` rule regex fused their wrapper with the first inner rule and leaked
     /// the remaining inner rules as unconditional rules — a book with a dark-mode palette rendered
     /// washed-out light text on its light background. Statement at-rules (`@import` etc.) were
     /// already removed by `sanitize`; unrecognized ones without a block are skipped to `;`.
-    private static func extractDarkMediaBlocks(from css: String) -> (remaining: String, dark: String) {
+    private static func mediaSegments(of css: String, conditions: [String]) -> [(css: String, conditions: [String])] {
         let ns = css as NSString
         let length = ns.length
         guard let atRuleRegex = try? NSRegularExpression(pattern: #"@([a-zA-Z-]+)"#) else {
-            return (css, "")
+            return [(css, conditions)]
         }
-        var remaining = ""
-        var dark = ""
+        var segments: [(css: String, conditions: [String])] = []
+        var plain = ""
+        func flush() {
+            if !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { segments.append((plain, conditions)) }
+            plain = ""
+        }
         var cursor = 0
         while cursor < length {
             guard let match = atRuleRegex.firstMatch(
                 in: css,
                 range: NSRange(location: cursor, length: length - cursor)
             ) else {
-                remaining += ns.substring(from: cursor)
+                plain += ns.substring(from: cursor)
                 break
             }
-            remaining += ns.substring(
+            plain += ns.substring(
                 with: NSRange(location: cursor, length: match.range.location - cursor)
             )
             let name = ns.substring(with: match.range(at: 1)).lowercased()
@@ -282,18 +330,16 @@ public enum CSSParser {
                 // Unbalanced block: consume the rest of the stylesheet.
                 break
             }
-            let prelude = tailNS.substring(to: open).lowercased()
-            let isDarkMedia = name == "media"
-                && prelude.contains("prefers-color-scheme")
-                && prelude.contains("dark")
-            if isDarkMedia {
-                dark += tailNS.substring(
-                    with: NSRange(location: open + 1, length: close - open - 1)
-                ) + "\n"
+            if name == "media" {
+                flush()
+                let prelude = tailNS.substring(to: open).trimmingCharacters(in: .whitespacesAndNewlines)
+                let inner = tailNS.substring(with: NSRange(location: open + 1, length: close - open - 1))
+                segments += mediaSegments(of: inner, conditions: conditions + [prelude])
             }
             cursor = afterName + close + 1
         }
-        return (remaining, dark)
+        flush()
+        return segments
     }
 
     /// Lower-cased, and without the leading colon a CSS3 selector doubles.
@@ -302,7 +348,7 @@ public enum CSSParser {
     private static func parseRuleList(
         css: String,
         orderOffset: Int,
-        isDarkMedia: Bool,
+        mediaConditions: [String],
         onUnsupported: ((String, Int) -> Void)? = nil
     ) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
         guard let regex = try? NSRegularExpression(
@@ -351,8 +397,9 @@ public enum CSSParser {
                     declarationOrder: declarations.order,
                     specificity: specificity(of: selector) + (isFirstLetter ? 1 : 0),
                     order: orderOffset + index,
-                    isDarkMedia: isDarkMedia
+                    isDarkMedia: false
                 )
+                rule.mediaConditions = mediaConditions
                 rule.sourceSelector = trimmed
                 if isFirstLetter {
                     firstLetter.append(rule)

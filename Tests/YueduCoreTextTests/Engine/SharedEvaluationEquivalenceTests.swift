@@ -77,8 +77,8 @@ struct SharedEvaluationEquivalenceTests {
         .lead::first-letter { float: left; font-size: 300% }
         """
         Self.expectSameVerdict(Self.input(html, css: [css]), "dark media + first-letter")
-        // The @media text itself is reported; the dark block's grid and the drop cap's float are not.
-        #expect(BrowserLayoutCapabilityScanner.scan(input: Self.input(html, css: [css])).unsupportedFeatures == [.mediaQueries])
+        // Neither the dark block's grid nor the drop cap's float is reported, and `@media` itself is no reason.
+        #expect(BrowserLayoutCapabilityScanner.scan(input: Self.input(html, css: [css])).unsupportedFeatures == [])
     }
 
     @Test func importantDeclarationsAndOrderAreJudged() {
@@ -100,7 +100,7 @@ struct SharedEvaluationEquivalenceTests {
         ])
         Self.expectSameVerdict(authored, "authored order inline media")
         Self.expectSameVerdict(Self.input(html), "compatibility inline media")
-        #expect(BrowserLayoutCapabilityScanner.scan(input: authored).unsupportedFeatures == [.mediaQueries])
+        #expect(BrowserLayoutCapabilityScanner.scan(input: authored).unsupportedFeatures == [])
     }
 
     @Test func domFeaturesRubyFloatsAndTextIndentAgree() {

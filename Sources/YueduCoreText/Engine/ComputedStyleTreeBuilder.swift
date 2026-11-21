@@ -83,6 +83,13 @@ public struct BrowserLayoutConfig {
     public var textColor: UIColor = .black
     public var backgroundColor: UIColor = .white
     public var contentInsets: UIEdgeInsets = .zero   // page margins from reader settings
+    /// What `@media` queries are asked about: the page, margins included, as
+    /// a CSS viewport, with the light appearance — the reader's theme, not
+    /// the book's dark palette, colours a page.
+    var mediaEnvironment: CSSMediaEnvironment {
+        CSSMediaEnvironment(viewportWidth: renderWidth + contentInsets.left + contentInsets.right,
+                            viewportHeight: renderHeight + contentInsets.top + contentInsets.bottom)
+    }
     public var lineHeight: CGFloat? = nil     // reader default multiplier (author CSS takes precedence)
     public var lineSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0

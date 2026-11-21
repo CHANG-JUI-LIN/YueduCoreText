@@ -16,11 +16,15 @@ enum PrincipalWritingMode {
     static func resolve(_ parsed: ParsedChapter) -> ReaderWritingMode? {
         let html = parsed.body?.parent().flatMap { $0.tagName().lowercased() == "html" ? $0 : nil }
             ?? parsed.document.children().first().flatMap { $0.tagName().lowercased() == "html" ? $0 : nil }
+        // Asked before any page exists, so only rules that hold whatever the
+        // page's size: those outside `@media`, or inside one that needs no
+        // viewport (`@media screen`). The dark palette's rules are not among them.
+        let rules = parsed.rules.regular.filter { $0.applies(in: CSSMediaEnvironment()) }
         var mode: ReaderWritingMode?
-        if let html, let declared = declared(on: html, rules: parsed.rules.regular) {
+        if let html, let declared = declared(on: html, rules: rules) {
             mode = declared
         }
-        if let body = parsed.body, let declared = declared(on: body, rules: parsed.rules.regular) {
+        if let body = parsed.body, let declared = declared(on: body, rules: rules) {
             mode = declared
         }
         return mode

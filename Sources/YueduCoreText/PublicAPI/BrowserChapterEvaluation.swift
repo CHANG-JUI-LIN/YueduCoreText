@@ -80,7 +80,8 @@ public final class BrowserChapterDocument {
         configuration.writingMode = mode
         var metrics = LayoutMetrics()
         let cascade = try? CurrentCSSFrontend.cascade(parsed, config: configuration, metrics: &metrics)
-        let capabilities = BrowserChapterAdmission.judge(parsed: parsed, cascade: cascade, writingMode: mode)
+        let capabilities = BrowserChapterAdmission.judge(parsed: parsed, cascade: cascade, writingMode: mode,
+                                                         media: configuration.mediaEnvironment)
         let prepared = cascade.map {
             BrowserLayoutDocument.PreparedFrontend(result: $0.result,
                                                    stages: parsed.parseStages.merging(metrics.stages) { $0 + $1 })
@@ -164,19 +165,13 @@ extension BrowserLayoutConfig {
 enum BrowserChapterAdmission {
     static func judge(parsed: ParsedChapter,
                       cascade: (result: CSSFrontendResult, builder: ComputedStyleTreeBuilder)?,
-                      writingMode: ReaderWritingMode) -> BrowserLayoutCapabilityResult {
+                      writingMode: ReaderWritingMode, media: CSSMediaEnvironment) -> BrowserLayoutCapabilityResult {
         func declaration(key: String, value: String) -> UnsupportedFeature? {
             BrowserLayoutCapabilityScanner.declaration(key: key, value: value, writingMode: writingMode)
         }
         var reasons: [UnsupportedFeature] = []
         var textIndentUsage: HorizontalTextIndentUsage = .none
         var fontRequests: Set<BrowserFontRequest> = []
-
-        // @media anywhere in the stylesheet affects layout for every chapter
-        // that links it (the media query is not re-evaluated per element).
-        for css in parsed.input.productionStylesheetTexts {
-            if BrowserLayoutCapabilityScanner.cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
-        }
 
         // DOM-level checks (script, MathML, SVG semantics).
         let doc = parsed.document
@@ -195,16 +190,15 @@ enum BrowserChapterAdmission {
         }) {
             reasons.append(.unsupportedSVG)
         }
-        for css in CurrentCSSFrontendSupport.inlineStyles(in: doc) {
-            if BrowserLayoutCapabilityScanner.cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
-        }
 
         // CSS rules: only declarations from selectors that match at least one
         // element are judged. The cascade matched every rule against every element
         // it styled; the elements it never styles (the <head> subtree, descendants of
         // a hidden element) are matched here, so the verdict covers the whole DOM
         // exactly as a scan of every element did.
-        let rules = parsed.rules.regular
+        // The rules the cascade was given: those whose `@media` queries match
+        // this page. `matchedRuleIndices` counts in that list.
+        let rules = parsed.rules.regular.filter { $0.applies(in: media) }
         var matched = cascade?.builder.matchedRuleIndices ?? []
         let styled = cascade?.builder.styledElements ?? []
         if let elements = try? doc.getAllElements().array() {

@@ -48,12 +48,6 @@ enum ReferenceCapabilityScanner {
         var textIndentUsage: HorizontalTextIndentUsage = .none
         var fontRequests: Set<BrowserFontRequest> = []
 
-        // @media anywhere in the stylesheet affects layout for every chapter
-        // that links it (the media query is not re-evaluated per element).
-        for css in cssTexts {
-            if BrowserLayoutCapabilityScanner.cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
-        }
-
         // DOM-level checks (script, MathML, SVG semantics).
         if let doc = try? SwiftSoup.parse(html) {
             let fullCSS = cssTexts + (includeInline ? LegacyCSSFrontendSupport.inlineStyles(in: doc) : [])
@@ -78,9 +72,6 @@ enum ReferenceCapabilityScanner {
             // CSS rules: match selectors against the real DOM. Only declarations
             // from selectors that match at least one element are judged.
             let elements = (try? doc.getAllElements().array()) ?? []
-            for css in LegacyCSSFrontendSupport.inlineStyles(in: doc) {
-                if BrowserLayoutCapabilityScanner.cssContainsMediaQuery(css) { reasons.append(.mediaQueries) }
-            }
             for css in fullCSS {
                 for rule in CSSParser.parse(css: css, orderOffset: 0) {
                     let matchedElements = elements.filter { element in

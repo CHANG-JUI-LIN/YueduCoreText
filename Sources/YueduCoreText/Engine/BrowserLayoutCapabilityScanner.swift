@@ -14,7 +14,9 @@ public enum UnsupportedFeature: Equatable, Sendable, CustomStringConvertible {
     case mathML
     case scriptedInteractive
     case unsupportedSVG
-    case mediaQueries           // @media (layout-affecting)
+    /// No longer reported: `@media` is evaluated (`CSSMediaQuery`). Kept for
+    /// hosts that switch over the reasons.
+    case mediaQueries
     case calcOrModernFunctions  // calc() / min() / max() / clamp()
     case textIndent             // outside the Phase 4E1 resolved subset
     case unparseableLayoutCSS   // CSS we cannot parse that could affect layout
@@ -102,13 +104,8 @@ public enum BrowserLayoutCapabilityScanner {
     public static func scan(input: CSSFrontendInput, writingMode: ReaderWritingMode = .horizontal,
                             configuration: BrowserLayoutConfig) -> BrowserLayoutCapabilityResult {
         guard let document = try? BrowserChapterDocument(input: input) else {
-            // Markup SwiftSoup cannot parse: the stylesheets are still judged for
-            // media queries, as they always were.
-            var reasons: [UnsupportedFeature] = []
-            for css in input.productionStylesheetTexts where cssContainsMediaQuery(css) {
-                reasons.append(.mediaQueries)
-            }
-            return BrowserLayoutCapabilityResult(supported: reasons.isEmpty, unsupportedFeatures: dedupe(reasons))
+            // Markup SwiftSoup cannot parse has nothing to judge.
+            return BrowserLayoutCapabilityResult(supported: true, unsupportedFeatures: [])
         }
         return document.evaluate(configuration: configuration, writingMode: writingMode).capabilities
     }
@@ -176,13 +173,6 @@ public enum BrowserLayoutCapabilityScanner {
                 reasons: &reasons
             )
         }
-    }
-
-    // MARK: - CSS text scanning (media queries only)
-
-    static func cssContainsMediaQuery(_ css: String) -> Bool {
-        let cleaned = css.replacingOccurrences(of: #"(?s)/\*.*?(?:\*/|\z)"#, with: "", options: .regularExpression)
-        return regexMatch(#"@media\b"#, in: cleaned)
     }
 
     /// Layout-affecting CSS declarations. Paint-only properties

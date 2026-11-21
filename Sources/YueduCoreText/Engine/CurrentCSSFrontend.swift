@@ -55,7 +55,11 @@ final class CurrentCSSFrontend: CSSFrontend {
         if let report = config.onDiagnostic {
             for diagnostic in parsed.diagnostics { report(diagnostic) }
         }
-        let builder = ComputedStyleTreeBuilder(rules: parsed.rules.regular, config: config, firstLetterRules: parsed.rules.firstLetter)
+        // `@media` is answered here, for this configuration's page: the parse
+        // above keeps every rule with its queries.
+        let media = config.mediaEnvironment
+        let builder = ComputedStyleTreeBuilder(rules: parsed.rules.regular.filter { $0.applies(in: media) }, config: config,
+                                               firstLetterRules: parsed.rules.firstLetter.filter { $0.applies(in: media) })
         var linkAnchors: [Int: LinkAnchorInfo] = [:]
         let rootNode = metrics.time("styleTree") {
             let tree = builder.buildTree(body: body)
@@ -143,12 +147,12 @@ enum CurrentCSSFrontendSupport {
         var offset = 0
         for (index, css) in stylesheets.enumerated() {
             let identity = identities.indices.contains(index) ? identities[index] : StylesheetIdentity(sourceOrder:index,label:"input[\(index)]")
-            let parsed = CSSParser.parseWithFirstLetter(css: css, orderOffset: offset, onUnsupported: onDiagnostic.map { report in
+            let parsed = CSSParser.parseConditional(css: css, orderOffset: offset, onUnsupported: onDiagnostic.map { report in
                 { selector, order in report(CSSFrontendDiagnostic(stage:.selector,stylesheet:identity,semanticPath:nil,property:nil,
                     message:"unsupported selector=\(selector) order=\(order)")) }
             })
             func attributedRule(_ rule: CSSRule) -> CSSRule { var copy = rule; copy.sourceStylesheet = identity; return copy }
-            result += parsed.regular.filter { !$0.isDarkMedia }.map(attributedRule)
+            result += parsed.regular.map(attributedRule)
             initials += parsed.firstLetter.map(attributedRule)
             offset = (parsed.regular + parsed.firstLetter).map(\.order).max().map { $0 + 1 } ?? offset
         }
