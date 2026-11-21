@@ -124,6 +124,10 @@ enum BoxTreeBuilder {
                                     anchors: &anchors, at: sourceText.currentOffset)
                     appendSVGImageRun(elementNode, source: svgSource, to: &pendingInline,
                                       sourceText: &sourceText, imageLoader: imageLoader)
+                } else if let element = elementNode.semanticElement, element.svgRenderability == .empty {
+                    registerAnchors(&anchorStack, ownID: elementNode.anchorID,
+                                    anchors: &anchors, at: sourceText.currentOffset)
+                    appendEmptySVGRun(elementNode, element: element, to: &pendingInline, sourceText: &sourceText)
                 } else if elementNode.tag == "img" {
                     registerAnchors(&anchorStack, ownID: elementNode.anchorID,
                                     anchors: &anchors, at: sourceText.currentOffset)
@@ -749,6 +753,10 @@ enum BoxTreeBuilder {
                                     anchors: &anchors, at: sourceText.currentOffset)
                     appendSVGImageRun(elementNode, source: svgSource, to: &runs,
                                       sourceText: &sourceText, imageLoader: imageLoader)
+                } else if let element = elementNode.semanticElement, element.svgRenderability == .empty {
+                    registerAnchors(&localStack, ownID: elementNode.anchorID,
+                                    anchors: &anchors, at: sourceText.currentOffset)
+                    appendEmptySVGRun(elementNode, element: element, to: &runs, sourceText: &sourceText)
                 } else if elementNode.tag == "img" {
                     registerAnchors(&localStack, ownID: elementNode.anchorID,
                                     anchors: &anchors, at: sourceText.currentOffset)
@@ -1184,6 +1192,43 @@ enum BoxTreeBuilder {
             nodeID: node.nodeID, linkTarget: node.linkTarget,
             atomic: AtomicInline(
                 source: source, image: image, usedSize: intrinsic,
+                nodeID: node.nodeID, linkTarget: node.linkTarget
+            )
+        ))
+    }
+
+    /// A transparent picture of `size` points, held in a handful of pixels:
+    /// what an svg with nothing in it draws. Layout reads a picture's size
+    /// from the image itself.
+    private static func blankImage(size: CGSize) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 8 / max(8, min(size.width, size.height))
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in }
+    }
+
+    /// An `<svg>` with nothing to draw (`SVGRenderability.empty`) is the
+    /// replaced element it would be with a picture in it: a blank picture of
+    /// the viewBox's size — 300×150, the default object size, without one —
+    /// that BlockLayout sizes like the cover idiom above. It takes its one
+    /// character of the source text, as every picture does.
+    private static func appendEmptySVGRun(
+        _ node: ComputedStyleNode,
+        element: HTMLDOMElementSnapshot,
+        to runs: inout [InlineRun],
+        sourceText: inout SourceTextBuilder
+    ) {
+        let range = sourceText.appendPicture()
+        let box = (element.attribute("viewBox") ?? element.attribute("viewbox") ?? "")
+            .split(whereSeparator: { $0 == " " || $0 == "," }).compactMap { Double($0) }
+        let intrinsic = box.count == 4 && box[2] > 0 && box[3] > 0
+            ? CGSize(width: box[2], height: box[3]) : CGSize(width: 300, height: 150)
+        runs.append(InlineRun(
+            text: "\u{FFFC}", style: node.style,
+            sourceRange: range,
+            nodeID: node.nodeID, linkTarget: node.linkTarget,
+            atomic: AtomicInline(
+                source: "", image: blankImage(size: intrinsic), usedSize: intrinsic,
                 nodeID: node.nodeID, linkTarget: node.linkTarget
             )
         ))

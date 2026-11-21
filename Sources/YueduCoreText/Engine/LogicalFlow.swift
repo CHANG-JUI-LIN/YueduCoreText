@@ -178,7 +178,7 @@ enum VerticalTextSupport {
         // An svg that only wraps one picture (the usual cover page) is that
         // picture: a replaced element, like an img.
         let image = node.tag == "img"
-            || node.semanticElement.map { BoxTreeBuilder.svgWrappedImageSource($0) != nil } == true
+            || node.semanticElement.map { BoxTreeBuilder.svgWrappedImageSource($0) != nil || $0.svgRenderability == .empty } == true
         if (node.tag == "svg" && !image) || ["video", "audio", "table"].contains(node.tag) || (image && inRuby) || node.style.isFloated
             || (node.style.display == .inlineBlock && !image) || node.style.maxWidth != nil { return false }
         // A width that is a length whatever the container: `1em` on an inline

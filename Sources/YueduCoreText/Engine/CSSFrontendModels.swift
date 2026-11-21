@@ -278,7 +278,7 @@ struct HTMLDOMElementSnapshot: Equatable {
 enum SVGRenderability: Equatable {
     case rasterWrapper(source: String)
     case unsupportedVector
-    /// Nothing inside it draws: no picture, no shape, no text. It is an
-    /// empty box of the element's size.
+    /// Nothing inside it draws: no picture, no shape, no text. It is laid
+    /// out as a blank picture of the viewBox's size.
     case empty
 }

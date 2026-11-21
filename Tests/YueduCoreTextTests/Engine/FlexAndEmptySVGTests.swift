@@ -99,16 +99,29 @@ struct EmptySVGTests {
         #expect(BrowserLayoutCapabilityScanner.scan(html: vector, cssTexts: []).unsupportedFeatures == [.unsupportedSVG])
     }
 
-    /// As WebKit sizes it: the line's width, and a height in the viewBox's proportion.
-    @Test func itKeepsTheBoxItsSizeAndViewBoxGiveIt() async throws {
-        let css = "body { margin: 0; line-height: 1; } p { margin: 0; } svg { background: #ddd; }"
-        let body = "<p>before</p><div><svg width=\"100%\" height=\"100%\" viewBox=\"0 0 200 100\"></svg></div><p>after</p>"
-        let pages = try await BrowserLayoutTestSupport.layout("<html><body>\(body)</body></html>", cssTexts: [css], width: 400, height: 2000).0
-        let box = try #require(fills(pages).first { $0.color != .clear })
-        #expect(abs(box.rect.rawValue.width - 400) < 0.5)
-        #expect(abs(box.rect.rawValue.height - 200) < 0.5)
+    /// The cover idiom without its picture: a blank picture of the viewBox's
+    /// size, fitted to the page's width like any picture wider than it, and
+    /// owning one character. (A viewBox narrower than the page keeps its own
+    /// size, as the wrapped-picture svg does: the `width="100%"` attribute
+    /// does not stretch either.)
+    @Test func itIsABlankPictureOfTheViewBoxsProportions() async throws {
+        let css = "body { margin: 0; line-height: 1; } p { margin: 0; }"
+        let body = "<p>before</p><div><svg width=\"100%\" height=\"100%\" viewBox=\"0 0 800 400\"></svg></div><p>after</p>"
+        let (pages, doc) = try await BrowserLayoutTestSupport.layout("<html><body>\(body)</body></html>", cssTexts: [css], width: 400, height: 2000)
+        let image = try #require(BrowserLayoutTestSupport.allImageFragments(pages).first)
+        #expect(image.source.isEmpty)
+        #expect(abs(image.rect.rawValue.width - 400) < 0.5)
+        #expect(abs(image.rect.rawValue.height - 200) < 0.5)
+        #expect(image.sourceRange.length == 1)
+        #expect((doc.lastSourceText as NSString).substring(with: image.sourceRange) == "\u{FFFC}")
         let texts = BrowserLayoutTestSupport.allTextFragments(pages)
         #expect(texts.count == 2)
-        #expect(texts[1].rect.rawValue.minY >= box.rect.rawValue.maxY - 0.5, "what follows starts under the box")
+        #expect(texts[1].rect.rawValue.minY >= image.rect.rawValue.maxY - 0.5, "what follows starts under it")
+    }
+
+    @Test func aChapterOfOneEmptySVGHasAPage() async throws {
+        let html = "<html><body><h1 title=\"cover\"></h1><div><svg width=\"100%\" height=\"100%\" viewBox=\"0 0 563 751\"></svg></div></body></html>"
+        let pages = try await BrowserLayoutTestSupport.layout(html, cssTexts: [], width: 360, height: 800).0
+        #expect(pages.count == 1)
     }
 }
