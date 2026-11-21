@@ -2,6 +2,12 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.24.1] - 2026-11-22
+
+### Fixed
+
+- A picture in continuous layout of vertical text is no wider than the screen it scrolls across. It was fitted to the column's height alone, so a portrait cover came out wider than the screen and showed in two halves.
+
 ## [0.24.0] - 2026-11-21
 
 ### Added
