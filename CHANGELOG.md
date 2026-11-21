@@ -2,6 +2,12 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.25.1] - 2026-11-22
+
+### Fixed
+
+- An unoptimized build no longer overflows a 512 KB thread's stack a few blocks deep. 0.25.0 stored `position`, the insets, `z-index` and `box-sizing` inline in the computed style, which is copied by value throughout layout's recursion; they are kept out of line. Building the box tree takes 2 KB of stack per level of nesting where it took 57 KB, and block layout 20 KB where it took 36 KB.
+
 ## [0.25.0] - 2026-11-22
 
 ### Added
