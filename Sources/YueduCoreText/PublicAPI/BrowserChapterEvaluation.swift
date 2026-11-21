@@ -167,7 +167,15 @@ enum BrowserChapterAdmission {
                       cascade: (result: CSSFrontendResult, builder: ComputedStyleTreeBuilder)?,
                       writingMode: ReaderWritingMode, media: CSSMediaEnvironment) -> BrowserLayoutCapabilityResult {
         func declaration(key: String, value: String) -> UnsupportedFeature? {
-            BrowserLayoutCapabilityScanner.declaration(key: key, value: value, writingMode: writingMode)
+            // In a vertical chapter `writing-mode` is judged once, by what the
+            // cascade leaves each element with (`hasHorizontalElement` below),
+            // not by every declaration that matched: one that is overridden
+            // changes nothing. A value the cascade cannot read still rejects.
+            if writingMode == .verticalRTL, PrincipalWritingMode.keys.contains(key.lowercased()),
+               PrincipalWritingMode.understands(value) {
+                return nil
+            }
+            return BrowserLayoutCapabilityScanner.declaration(key: key, value: value, writingMode: writingMode)
         }
         var reasons: [UnsupportedFeature] = []
         var textIndentUsage: HorizontalTextIndentUsage = .none
@@ -224,6 +232,10 @@ enum BrowserChapterAdmission {
                     reasons.append(feature)
                 }
             }
+        }
+
+        if writingMode == .verticalRTL, PrincipalWritingMode.hasHorizontalElement(in: doc, rules: rules) {
+            reasons.append(.verticalWritingMode)
         }
 
         // Element inline style attributes — always apply to this chapter.

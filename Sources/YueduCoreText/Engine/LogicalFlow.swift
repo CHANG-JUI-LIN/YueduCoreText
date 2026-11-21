@@ -178,9 +178,12 @@ enum VerticalTextSupport {
         let image = node.tag == "img"
         if ["svg", "video", "audio", "table"].contains(node.tag) || (image && inRuby) || node.style.isFloated
             || (node.style.display == .inlineBlock && !image) || node.style.maxWidth != nil { return false }
+        // A width that is a length whatever the container: `1em` on an inline
+        // mark is the same physical width as its px value. A percentage or a
+        // viewport unit resolves against an axis this scope has not covered.
         switch node.style.width {
-        case .auto, .px: break
-        default: return false
+        case .auto, .px, .pt, .em, .rem: break
+        case .percent, .vh, .vw: return false
         }
         // A combined run is one upright cell of plain text: never ruby, nor inside it.
         let ruby = inRuby || ["ruby", "rb", "rt", "rtc", "rp"].contains(node.tag)

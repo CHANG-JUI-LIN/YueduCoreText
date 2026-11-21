@@ -34,7 +34,7 @@ enum PrincipalWritingMode {
     /// builder's order: normal author rules by specificity then source order, the
     /// `style` attribute, important author rules, important `style`. `nil` when none
     /// applies, so the element inherits.
-    private static func declared(on element: Element, rules: [CSSRule]) -> ReaderWritingMode? {
+    static func declared(on element: Element, rules: [CSSRule]) -> ReaderWritingMode? {
         let matched = rules.filter { $0.selector.matches(element: element, parent: element.parent()) }
             .sorted { $0.specificity == $1.specificity ? $0.order < $1.order : $0.specificity < $1.specificity }
         let inline = CSSParser.parseDeclarationBlock((try? element.attr("style")) ?? "")
@@ -55,7 +55,31 @@ enum PrincipalWritingMode {
     }
 
     /// WebKit treats the prefixed spellings as aliases of `writing-mode`.
-    private static let keys: Set<String> = ["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"]
+    static let keys: Set<String> = ["writing-mode", "-webkit-writing-mode", "-epub-writing-mode"]
+
+    /// True for a `writing-mode` value the cascade above reads: a mode the
+    /// engine lays out, or a keyword that defers to another declaration.
+    static func understands(_ value: String) -> Bool { Value(css: value) != nil }
+
+    /// True when some element's own winning `writing-mode` is horizontal: a
+    /// horizontal block inside a vertical document, or a document the host
+    /// lays out vertically against its own declaration. A declaration that
+    /// loses the cascade does not count — the usual Japanese template writes
+    /// `html { writing-mode: horizontal-tb }` and then `.vrtl { writing-mode:
+    /// vertical-rl }` on the same `<html class="vrtl">`.
+    static func hasHorizontalElement(in document: Document, rules: [CSSRule]) -> Bool {
+        let deciding = rules.filter { rule in
+            keys.contains { rule.declarations[$0] != nil || rule.importantDeclarations[$0] != nil }
+        }
+        guard let elements = try? document.getAllElements().array() else { return false }
+        return elements.contains { element in
+            let inline = ((try? element.attr("style")) ?? "").lowercased().contains("writing-mode")
+            guard inline || deciding.contains(where: { $0.selector.matches(element: element, parent: element.parent()) }) else {
+                return false
+            }
+            return declared(on: element, rules: deciding) == .horizontal
+        }
+    }
 
     private enum Value {
         case mode(ReaderWritingMode)
