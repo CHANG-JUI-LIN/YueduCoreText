@@ -67,10 +67,10 @@ struct BrowserTableAdmissionTests {
         #expect(result.unsupportedFeatures.contains(.table))
     }
 
-    @Test func borderCollapseIsRejected() {
+    /// The collapsing border model is laid out (`BrowserTableCollapseTests`).
+    @Test func borderCollapseIsAdmitted() {
         let result = scan(simpleTable, css: ["table { border-collapse: collapse }"])
-        #expect(!result.supported)
-        #expect(result.unsupportedFeatures.contains(.table))
+        #expect(result.supported, "\(result.unsupportedFeatures)")
     }
 
     @Test func fosterParentedTextIsRejected() {
@@ -85,25 +85,31 @@ struct BrowserTableAdmissionTests {
         #expect(result.unsupportedFeatures.contains(.table))
     }
 
-    @Test func colgroupIsRejected() {
+    /// Column elements take no part in the layout: cells size the columns.
+    @Test func colgroupIsAdmitted() {
         let result = scan("<html><body><table><colgroup><col/></colgroup><tr><td>A</td></tr></table></body></html>")
-        #expect(!result.supported)
-        #expect(result.unsupportedFeatures.contains(.table))
+        #expect(result.supported, "\(result.unsupportedFeatures)")
     }
 
-    @Test func inlineTableIsRejected() {
+    /// Around plain content an inline-table is one anonymous cell, laid out
+    /// as an inline-block; with rows of its own it is still rejected.
+    @Test func inlineTableAroundPlainContentIsAdmitted() {
         let result = scan(
             "<html><body><div class=\"t\"><span>x</span></div></body></html>",
             css: [".t { display: inline-table }"]
         )
-        #expect(!result.supported)
-        #expect(result.unsupportedFeatures.contains(.table))
+        #expect(result.supported, "\(result.unsupportedFeatures)")
+        let structured = scan(
+            "<html><body><div class=\"t\"><div class=\"r\">x</div></div></body></html>",
+            css: [".t { display: inline-table } .r { display: table-row }"]
+        )
+        #expect(structured.unsupportedFeatures.contains(.table))
     }
 
-    @Test func strayCellOutsideTableIsRejected() {
+    /// A cell outside a table gets the anonymous row and table CSS gives it.
+    @Test func strayCellOutsideTableIsAdmitted() {
         let result = scan("<html><body><div style=\"display: table-cell\">x</div></body></html>")
-        #expect(!result.supported)
-        #expect(result.unsupportedFeatures.contains(.table))
+        #expect(result.supported, "\(result.unsupportedFeatures)")
     }
 
     @Test func elementInsideRowGroupIsFosteredOutByTheParser() {

@@ -260,6 +260,10 @@ struct ComputedStyle: Equatable {
 
     /// Table `border-collapse`; layout only ever runs on `.separate`.
     var borderCollapse: CSSBorderCollapse = .separate
+    /// `display: inline-table`. The box is laid out as an inline-block
+    /// (`display` says so); `TableSupport` uses this to turn away one that
+    /// holds table rows or cells of its own. Not inherited.
+    var isInlineTable = false
     /// `border-spacing` horizontal/vertical. nil = the UA default (2px), applied
     /// to tables by `UserAgentStyle`; kept as lengths because em resolves
     /// against the table's font size at layout time.

@@ -309,7 +309,66 @@ final class ComputedStyleTreeBuilder {
                 result.append(.element(childNode))
             }
         }
-        return applyingFirstLetter(to: result, element: element, style: parentStyle)
+        return applyingFirstLetter(to: Self.wrappingStrayTableCells(result, parent: parentStyle),
+                                   element: element, style: parentStyle)
+    }
+
+    /// A `display: table-cell` box whose parent is not a row gets the row and
+    /// the table CSS 2.1 §17.2.1 puts around it: cells next to each other
+    /// share one anonymous row of one anonymous table. The table is as wide as
+    /// its content, which is what books use a lone cell for (a picture in a
+    /// box that hugs it). The anonymous boxes carry only what they inherit.
+    static func wrappingStrayTableCells(_ children: [StyleTreeChild], parent: ComputedStyle) -> [StyleTreeChild] {
+        guard parent.display != .tableRow, children.contains(where: {
+            if case .element(let node) = $0 { return node.style.display == .tableCell }
+            return false
+        }) else { return children }
+        var result: [StyleTreeChild] = []
+        var cells: [StyleTreeChild] = []
+        // White space between two cells belongs to neither: it is dropped,
+        // unless no cell follows it.
+        var pendingSpace: [StyleTreeChild] = []
+        func flush() {
+            guard case .element(let first)? = cells.first else { return }
+            var rowStyle = BoxTreeBuilder.anonymousBlockStyle(inheriting: parent)
+            rowStyle.display = .tableRow
+            let row = ComputedStyleNode(tag: "", semanticElement: nil, style: rowStyle, children: cells,
+                                        nodeID: first.nodeID, linkTarget: nil, anchorID: nil)
+            // Straight inside a table or a row group, only the row is missing.
+            if parent.display == .table || parent.display.isTableInternal {
+                result.append(.element(row))
+                cells = []
+                return
+            }
+            var tableStyle = BoxTreeBuilder.anonymousBlockStyle(inheriting: parent)
+            tableStyle.display = .table
+            tableStyle.borderCollapse = .separate
+            tableStyle.borderSpacingHorizontal = .px(0)
+            tableStyle.borderSpacingVertical = .px(0)
+            // The anonymous boxes stand where the first cell stands; they are
+            // no element, so they have no anchor, link or semantics.
+            result.append(.element(ComputedStyleNode(tag: "", semanticElement: nil, style: tableStyle,
+                                                     children: [.element(row)], nodeID: first.nodeID,
+                                                     linkTarget: nil, anchorID: nil)))
+            cells = []
+        }
+        for child in children {
+            switch child {
+            case .element(let node) where node.style.display == .tableCell:
+                pendingSpace = []
+                cells.append(child)
+            case .text(let text) where !cells.isEmpty && text.allSatisfy(\.isWhitespace):
+                pendingSpace.append(child)
+            default:
+                flush()
+                result += pendingSpace
+                pendingSpace = []
+                result.append(child)
+            }
+        }
+        flush()
+        result += pendingSpace
+        return result
     }
 
     /// Materialize the pseudo-element before box construction. The source
@@ -720,6 +779,7 @@ enum ComputedStylePropertyApplier {
             case "block", "list-item": display = .block
             case "inline": display = .inline
             case "inline-block": display = .inlineBlock
+            case "inline-table": display = .inlineBlock
             case "table": display = .table
             case "table-row-group": display = .tableRowGroup
             case "table-header-group": display = .tableHeaderGroup
@@ -733,12 +793,13 @@ enum ComputedStylePropertyApplier {
                 if ctx.parent.display == .none { style.isHidden = true }
                 style.isListItem = ctx.parent.isListItem
                 return
-            // inline-table and the column/caption roles stay unparsed: the
-            // admission scanner rejects them from the raw declaration. An
-            // unparsed value is dropped and changes nothing, list item included.
+            // The column/caption roles stay unparsed: the admission scanner
+            // rejects them from the raw declaration. An unparsed value is
+            // dropped and changes nothing, list item included.
             default: return
             }
             style.display = display
+            style.isInlineTable = value == "inline-table"
             if display == .none { style.isHidden = true }
             style.isListItem = value == "list-item"
         case "list-style-type":

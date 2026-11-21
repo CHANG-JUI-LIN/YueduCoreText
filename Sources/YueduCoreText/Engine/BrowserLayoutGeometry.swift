@@ -161,6 +161,10 @@ public struct BorderEdge: Equatable, Sendable {
     public var width: CGFloat = 0
     public var color: UIColor = .black
     public var style: BorderStyle = .solid
+    /// A border of the collapsing table model (CSS 2.1 §17.6.2): it is centred
+    /// on its edge of the box, half inside and half outside, where the cell on
+    /// the other side of the grid line meets it.
+    public var isCentredOnEdge = false
 
     public static let zero = BorderEdge()
 

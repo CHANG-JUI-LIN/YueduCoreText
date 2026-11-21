@@ -472,11 +472,22 @@ enum BoxTreeBuilder {
         }
         let groups = headers + bodies + footers
 
-        let extras = horizontalExtras(of: node.style, percentBase: containerWidth, config: config)
-        let available = max(0, containerWidth - extras)
-        let columns = measureTableColumns(groups: groups, available: available, config: config)
+        // The collapsing border model decides every grid edge before anything is
+        // measured: a cell's half of each edge is part of its width.
+        var tableStyle = node.style
+        var collapsed: CollapsedTableBorders.Painted?
+        if node.style.borderCollapse == .collapse {
+            tableStyle = CollapsedTableBorders.resolve(table: node.style, groups: groups)
+            // The table paints none of them: its cells paint the grid.
+            collapsed = CollapsedTableBorders.Painted()
+        }
 
-        var boxStyle = node.style
+        let extras = horizontalExtras(of: tableStyle, percentBase: containerWidth, config: config)
+        let available = max(0, containerWidth - extras)
+        let measured = measureTableColumns(groups: groups, available: available, config: config)
+        let columns = measured.widths
+
+        var boxStyle = tableStyle
         if case .auto = boxStyle.width, !columns.isEmpty {
             let spacingH = TableLayout.borderSpacing(of: boxStyle, rootFontSize: config.rootFontSize).horizontal
             let total = spacingH * CGFloat(columns.count + 1) + columns.reduce(0, +)
@@ -484,6 +495,8 @@ enum BoxTreeBuilder {
         }
         let box = BlockBox(style: boxStyle, boxType: .block, children: groups)
         box.tableColumnMaxContent = columns
+        box.tableColumnHasWidth = measured.explicit
+        box.collapsedBorders = collapsed
         Self.attachDebugIdentity(box, node: node)
         return box
     }
@@ -508,6 +521,7 @@ enum BoxTreeBuilder {
             ))
         }
         let box = BlockBox(style: tableStructureStyle(node.style), boxType: .block, children: rows)
+        box.tableOwnBorders = CollapsedTableBorders.Sides(node.style)
         Self.attachDebugIdentity(box, node: node)
         return box
     }
@@ -545,6 +559,7 @@ enum BoxTreeBuilder {
             cells.append(cell)
         }
         let box = BlockBox(style: tableStructureStyle(node.style), boxType: .block, children: cells)
+        box.tableOwnBorders = CollapsedTableBorders.Sides(node.style)
         Self.attachDebugIdentity(box, node: node)
         return box
     }
@@ -601,7 +616,7 @@ enum BoxTreeBuilder {
         groups: [BlockBox],
         available: CGFloat,
         config: BrowserLayoutConfig
-    ) -> [CGFloat] {
+    ) -> (widths: [CGFloat], explicit: [Bool]) {
         var rows: [BlockBox] = []
         for group in groups {
             if group.style.display == .tableRow {
@@ -614,7 +629,7 @@ enum BoxTreeBuilder {
         for row in rows {
             columnCount = max(columnCount, row.children.reduce(0) { $0 + $1.tableColspan })
         }
-        guard columnCount > 0 else { return [] }
+        guard columnCount > 0 else { return ([], []) }
         var columns = [CGFloat](repeating: 0, count: columnCount)
         var explicit = [Bool](repeating: false, count: columnCount)
         var spanned: [(column: Int, span: Int, width: CGFloat)] = []
@@ -640,7 +655,7 @@ enum BoxTreeBuilder {
             let share = (entry.width - current) / CGFloat(autoColumns.count)
             for column in autoColumns { columns[column] += share }
         }
-        return columns
+        return (columns, explicit)
     }
 
     // MARK: - Inline gathering
@@ -1237,7 +1252,7 @@ enum BoxTreeBuilder {
     /// §9.2.1.1). Passing the parent style through verbatim leaks `float`,
     /// margins and sizing into the wrapper: a leaked float turns it into an
     /// occlusion that shoves following siblings' line bands below itself.
-    private static func anonymousBlockStyle(inheriting style: ComputedStyle) -> ComputedStyle {
+    static func anonymousBlockStyle(inheriting style: ComputedStyle) -> ComputedStyle {
         var style = style
         style.display = .block
         // Not inherited: a list item's anonymous boxes are not list items.

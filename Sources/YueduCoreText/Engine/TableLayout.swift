@@ -51,7 +51,8 @@ enum TableLayout {
 
         let spacing = borderSpacing(of: box.style, rootFontSize: rootFontSize)
         let columns = distribute(
-            bases: bases, spacingH: spacing.horizontal, contentWidth: box.contentSize.width
+            bases: bases, hasWidth: box.tableColumnHasWidth,
+            spacingH: spacing.horizontal, contentWidth: box.contentSize.width
         )
 
         var cursorY = spacing.vertical
@@ -68,6 +69,11 @@ enum TableLayout {
                     let width =
                         (columnCursor..<(columnCursor + span)).reduce(0) { $0 + columns[$1] }
                         + spacing.horizontal * CGFloat(span - 1)
+                    // A cell is as wide as its columns. Its own `width` has sized
+                    // the column (BoxTreeBuilder measured it); applied again
+                    // inside the column, `width: 25%` would be a quarter of
+                    // the column.
+                    cell.style.width = .auto
                     let contentHeight = BlockLayout.layOut(
                         root: cell,
                         containerWidth: width,
@@ -194,11 +200,21 @@ enum TableLayout {
     }
 
     /// Grows or shrinks the measured columns into the table's final content
-    /// width, proportionally to their max-content bases.
-    private static func distribute(bases: [CGFloat], spacingH: CGFloat, contentWidth: CGFloat) -> [CGFloat] {
+    /// width. A column a cell gave a `width` keeps it; the others share what
+    /// is left, proportionally to their max-content bases. When every column
+    /// has a width, or the sized ones alone do not fit, all of them scale.
+    private static func distribute(bases: [CGFloat], hasWidth: [Bool], spacingH: CGFloat, contentWidth: CGFloat) -> [CGFloat] {
         let baseSum = bases.reduce(0, +)
-        let slack = contentWidth - spacingH * CGFloat(bases.count + 1) - baseSum
+        let available = contentWidth - spacingH * CGFloat(bases.count + 1)
+        let slack = available - baseSum
         guard abs(slack) > 0.001, baseSum > 0 else { return bases }
+        let sized = bases.indices.filter { hasWidth.indices.contains($0) && hasWidth[$0] }
+        let sizedSum = sized.reduce(0) { $0 + bases[$1] }
+        let autoSum = baseSum - sizedSum
+        if !sized.isEmpty, autoSum > 0, sizedSum < available {
+            let scale = (available - sizedSum) / autoSum
+            return bases.indices.map { sized.contains($0) ? bases[$0] : bases[$0] * scale }
+        }
         return bases.map { max(0, $0 + slack * $0 / baseSum) }
     }
 

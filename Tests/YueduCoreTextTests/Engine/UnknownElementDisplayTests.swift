@@ -155,12 +155,13 @@ struct UnknownElementDisplayTests {
         #expect(Self.admitted("<p><font>甲</font>乙</p>", css: "p { text-indent: 2em }", mode: mode).isEmpty)
     }
 
-    /// The engine has no column or caption display; a table holding either is
-    /// still turned away, as it was while they defaulted to block.
-    @Test func aTableWithACaptionOrColumnsIsStillTurnedAway() {
+    /// The engine has no caption display; a table holding one is still turned
+    /// away, as it was while it defaulted to block. Column elements are
+    /// skipped: cells size the columns.
+    @Test func aTableWithACaptionIsStillTurnedAway() {
         let rows = "<tr><td>甲</td></tr>"
         #expect(Self.admitted("<table><caption>表</caption>\(rows)</table>", mode: .horizontal) == [.table])
-        #expect(Self.admitted("<table><colgroup><col/></colgroup>\(rows)</table>", mode: .horizontal) == [.table])
+        #expect(Self.admitted("<table><colgroup><col/></colgroup>\(rows)</table>", mode: .horizontal).isEmpty)
         #expect(Self.admitted("<table>\(rows)</table>", mode: .horizontal).isEmpty)
     }
 }

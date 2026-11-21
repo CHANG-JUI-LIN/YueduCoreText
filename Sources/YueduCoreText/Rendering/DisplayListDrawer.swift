@@ -81,6 +81,35 @@ public enum DisplayListDrawer {
         defer { context.restoreGState() }
         if let rotation = item.paintTransform { context.concatenate(rotation.matrix) }
         guard !rect.isEmpty else { return }
+        // A collapsed table's borders are centred on the cell's edges: the
+        // background fills the cell, then the borders are drawn in a box that
+        // reaches half of each of them further out.
+        let sides = [item.borderTop, item.borderBottom, item.borderLeft, item.borderRight]
+        if sides.contains(where: \.isCentredOnEdge) {
+            if item.color != .clear {
+                item.color.setFill()
+                context.fill(rect)
+            }
+            func placed(_ edge: BorderEdge) -> BorderEdge {
+                var edge = edge
+                edge.isCentredOnEdge = false
+                return edge
+            }
+            func half(_ edge: BorderEdge) -> CGFloat { edge.isVisible ? edge.width / 2 : 0 }
+            let outer = CGRect(x: rect.minX - half(item.borderLeft), y: rect.minY - half(item.borderTop),
+                               width: rect.width + half(item.borderLeft) + half(item.borderRight),
+                               height: rect.height + half(item.borderTop) + half(item.borderBottom))
+            var borders = DisplayFillItem(
+                rect: PageLocalRect(rawValue: outer), color: .clear, cornerRadius: 0,
+                borderTop: placed(item.borderTop), borderBottom: placed(item.borderBottom),
+                borderLeft: placed(item.borderLeft), borderRight: placed(item.borderRight),
+                nodeID: item.nodeID, writingMode: item.writingMode,
+                fragmentPosition: item.fragmentPosition, isBackgroundPaint: item.isBackgroundPaint,
+                followsTextColor: item.followsTextColor)
+            borders.paintTransform = nil
+            drawFill(borders, sideOrder: sideOrder, in: context)
+            return
+        }
         if item.writingMode == .verticalRTL {
             // Fragment-start/end corners and border edges are logical. Reuse
             // the same decoration painter in its canonical axes.

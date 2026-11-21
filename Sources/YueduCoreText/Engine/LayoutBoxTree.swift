@@ -190,7 +190,20 @@ final class BlockBox {
     /// per-column max-content widths (border-box basis, colspan deficits
     /// already distributed); on a cell box, its column span.
     var tableColumnMaxContent: [CGFloat]? = nil
+    /// On the table box, beside `tableColumnMaxContent`: whether a cell gave
+    /// the column a `width`. Such a column keeps it when the table is wider or
+    /// narrower than its content; the others take up the difference.
+    var tableColumnHasWidth: [Bool] = []
     var tableColspan: Int = 1
+    /// In a `border-collapse: collapse` table: what this box paints for
+    /// borders instead of its own (`CollapsedTableBorders`). A cell paints the
+    /// grid edges it owns at their full width; the table, rows and row groups
+    /// paint none. The box's `borders` hold half of each edge, which is what
+    /// the collapsing model gives the cell for layout.
+    var collapsedBorders: CollapsedTableBorders.Painted? = nil
+    /// A row's or row group's own borders, kept for the collapsing model:
+    /// the box's style loses them, as they take no room in the row.
+    var tableOwnBorders: CollapsedTableBorders.Sides? = nil
     /// Markers whose list items' first formatted line is this box's first
     /// line (`ListMarker.anchor`), outermost item first. Box tree input, like
     /// `inlineRuns`.

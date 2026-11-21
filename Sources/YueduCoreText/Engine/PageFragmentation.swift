@@ -623,16 +623,27 @@ struct PageWalker {
                 // frame sat inside a much wider white plate).
                 //
                 // Root BORDERS are not propagated, so those still paint below.
+                // In a collapsed table a cell paints the grid edges it owns and
+                // the table, rows and row groups paint none (`CollapsedTableBorders`).
+                let edges: CollapsedTableBorders.Painted
+                if let collapsed = frame.box.collapsedBorders {
+                    edges = collapsed
+                } else {
+                    let style = frame.box.style, widths = frame.box.borders
+                    edges = CollapsedTableBorders.Painted(
+                        top: Self.edge(widths.top, style.borderTopStyle, style.borderTopColor, currentColor: style.color),
+                        right: Self.edge(widths.right, style.borderRightStyle, style.borderRightColor, currentColor: style.color),
+                        bottom: Self.edge(widths.bottom, style.borderBottomStyle, style.borderBottomColor, currentColor: style.color),
+                        left: Self.edge(widths.left, style.borderLeftStyle, style.borderLeftColor, currentColor: style.color))
+                }
                 if let bg = frame.box.style.backgroundColor, !frame.isRoot {
                     stack[index].decorationStarted = true
                     return .fill(StepFill(
                         rect: boxRect,
                         color: bg,
                         cornerRadius: frame.box.style.borderRadius,
-                        borderTop: Self.edge(frame.box.borders.top, frame.box.style.borderTopStyle, frame.box.style.borderTopColor, currentColor: frame.box.style.color),
-                        borderBottom: Self.edge(frame.box.borders.bottom, frame.box.style.borderBottomStyle, frame.box.style.borderBottomColor, currentColor: frame.box.style.color),
-                        borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderLeftColor, currentColor: frame.box.style.color),
-                        borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderRightColor, currentColor: frame.box.style.color),
+                        borderTop: edges.top, borderBottom: edges.bottom,
+                        borderLeft: edges.left, borderRight: edges.right,
                         nodeID: frame.box.debugNodeID,
                         writingMode: writingMode,
                         rotation: frame.rotation,
@@ -642,18 +653,16 @@ struct PageWalker {
                 }
                 // A box with a border but no background still emits its full
                 // bordered rect.
-                let hasAnyBorder = frame.box.borders.top > 0 || frame.box.borders.bottom > 0
-                    || frame.box.borders.left > 0 || frame.box.borders.right > 0
+                let hasAnyBorder = edges.top.isVisible || edges.bottom.isVisible
+                    || edges.left.isVisible || edges.right.isVisible
                 if hasAnyBorder {
                     stack[index].decorationStarted = true
                     return .fill(StepFill(
                         rect: boxRect,
                         color: .clear,
                         cornerRadius: frame.box.style.borderRadius,
-                        borderTop: Self.edge(frame.box.borders.top, frame.box.style.borderTopStyle, frame.box.style.borderTopColor, currentColor: frame.box.style.color),
-                        borderBottom: Self.edge(frame.box.borders.bottom, frame.box.style.borderBottomStyle, frame.box.style.borderBottomColor, currentColor: frame.box.style.color),
-                        borderLeft: Self.edge(frame.box.borders.left, frame.box.style.borderLeftStyle, frame.box.style.borderLeftColor, currentColor: frame.box.style.color),
-                        borderRight: Self.edge(frame.box.borders.right, frame.box.style.borderRightStyle, frame.box.style.borderRightColor, currentColor: frame.box.style.color),
+                        borderTop: edges.top, borderBottom: edges.bottom,
+                        borderLeft: edges.left, borderRight: edges.right,
                         nodeID: frame.box.debugNodeID,
                         writingMode: writingMode,
                         rotation: frame.rotation,

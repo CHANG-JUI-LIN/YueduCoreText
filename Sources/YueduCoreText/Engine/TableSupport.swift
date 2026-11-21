@@ -13,6 +13,9 @@ enum TableSupport {
     static let supportedDisplayValues: Set<String> = [
         "table", "table-row-group", "table-header-group",
         "table-footer-group", "table-row", "table-cell",
+        // Laid out as an inline-block when it holds no table structure of its
+        // own (`ComputedStyle.isInlineTable`); `validate` rejects the rest.
+        "inline-table",
     ]
 
     static func validate(root: ComputedStyleNode, writingMode: ReaderWritingMode) -> [UnsupportedFeature] {
@@ -30,10 +33,21 @@ enum TableSupport {
         guard !rejected else { return }
         let display = node.style.display
 
+        if node.style.isInlineTable {
+            // An inline-table around plain content is one anonymous cell: a
+            // shrink-to-fit box on the line, which is what an inline-block is.
+            // One with rows or cells of its own needs an inline table layout.
+            let holdsStructure = node.children.contains {
+                if case .element(let child) = $0 { return child.style.display.isTableInternal || child.style.display == .table }
+                return false
+            }
+            guard !holdsStructure else {
+                rejected = true
+                return
+            }
+        }
         if display == .table {
-            guard !insideTable, writingMode == .horizontal,
-                node.style.borderCollapse == .separate
-            else {
+            guard !insideTable, writingMode == .horizontal else {
                 rejected = true
                 return
             }
@@ -93,6 +107,9 @@ enum TableSupport {
         case .text(let raw):
             return InlineLayout.collapseText(raw, mode: .normal).allSatisfy { $0 == " " || $0 == "\t" }
         case .element(let element):
+            // Column elements take no part in this layout: columns are sized
+            // by their cells.
+            if roles.contains(.tableRow), ["colgroup", "col"].contains(element.tag) { return true }
             return roles.contains(element.style.display)
         }
     }
