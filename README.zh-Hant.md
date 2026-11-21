@@ -170,7 +170,7 @@ public func drawFirstViewport(of document: BrowserScrollDocument, in context: CG
 | 繪製 | 文字、圖片、背景、邊框與已支援的行內裝飾 |
 | 互動與語意 | 來源範圍、anchor、連結／noteref、選取幾何、已支援的註腳內容、媒體預留畫面與作者標記的發音描述 |
 
-以上是實作子集，不代表完整 CSS 相容性。**目前不支援 table、flex/grid、定位排版、進階直排 HTML 文件、通用向量 SVG、MathML 與腳本。** Float／ruby 可接受的結構也有限制。高階文件 API 會檢查能力並回報不支援的輸入，不會暗中切換到 Reader 的其他後端。
+以上是實作子集，不代表完整 CSS 相容性。**目前不支援 grid、定位排版、進階直排 HTML 文件、通用向量 SVG 與 MathML；腳本一律不執行。** 表格是子集（分離與合併邊框、跨欄；不含跨列、巢狀表格與 caption），flex 只支援只包著文字的容器，`@media` 會依頁面求值。Float／ruby 可接受的結構也有限制。高階文件 API 會檢查能力並回報不支援的輸入，不會暗中切換到 Reader 的其他後端。
 
 EPUB ZIP／OPF／spine 管理、網路載入、閱讀控制項、手勢、筆記儲存與媒體／TTS 播放由你的 App 負責。**0.4.0** 加入基礎 `vertical-rl` 文字排版與共用 ruby。請參考[參與編譯的直排範例](Examples/StandaloneConsumer/Sources/Consumer/VerticalExample.swift)與[支援範圍及座標契約](docs/VerticalLayout.md)。此套件不宣稱完整 EPUB／CSS 相容或與 DTCoreText 功能對等。
 

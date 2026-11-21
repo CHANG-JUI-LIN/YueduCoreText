@@ -2,6 +2,18 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.23.0] - 2026-11-21
+
+### Added
+
+- A flex container whose content is text and nothing else is laid out. `display: flex` or `inline-flex` around text has one flex item (CSS Flexbox §4): a box as wide as the text, placed along the line by `justify-content`, or across a column (`flex-direction: column`) by `align-items`. The text keeps the container's own `text-align`. Books centre a heading or a label this way.
+  - A container holding an element has more than one item to place and still reports `flexGrid`, as do `flex-direction: *-reverse` and every `grid-*` property; `display: grid` still reports `unknownBlockDisplay`. The cross-axis alignment of a container with a fixed height is not applied.
+
+### Fixed
+
+- The standalone consumer example expected a collapsed table to be unsupported, which 0.22.0 made false; its test failed in CI. It uses a table with a caption.
+- The READMEs' list of what is unsupported matches 0.21.0–0.23.0.
+
 ## [0.22.0] - 2026-11-21
 
 Tables the capability scan used to turn away.

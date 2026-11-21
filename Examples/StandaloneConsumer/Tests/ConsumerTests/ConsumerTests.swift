@@ -134,7 +134,7 @@ struct ConsumerTests {
     }
 
     @Test func unsupportedIsDistinctFromEmptySuccess() throws {
-        let doc = HTMLLayoutDocument(html: "<table style='border-collapse:collapse'><tr><td>Unsupported</td></tr></table>")
+        let doc = HTMLLayoutDocument(html: "<table><caption>Outside the subset</caption><tr><td>Unsupported</td></tr></table>")
         do { _ = try doc.makePageSession(); Issue.record("Unsupported table accepted") }
         catch HTMLLayoutError.unsupported(let reasons) { #expect(reasons.contains(.table)) }
     }
