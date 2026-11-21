@@ -2,6 +2,17 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.24.0] - 2026-11-21
+
+### Added
+
+- An `<svg>` with nothing to draw is laid out: a blank picture of the viewBox's size (300×150 without one), fitted to the column like any picture, in both writing modes. It owns one character of the source text, as every picture does. Converters leave these where a cover used to be; they reported `unsupportedSVG`. An svg with vector content of its own still does.
+  - `SVGRenderability.empty` names the case.
+
+### Fixed
+
+- A block with nothing in it has one margin, not two (CSS 2.1 §8.3.1): its block-start and block-end margins adjoin and join the margins either side. They were stacked, so an empty `<h1>` above a picture pushed it down by both margins (45.6 for WebKit's 22.8), and an empty `<div>` or `<p>` with margins between two paragraphs opened twice its gap. A box with a line, a picture, a list marker, a height or minimum height, a border or padding, or a formatting context of its own keeps both.
+
 ## [0.23.0] - 2026-11-21
 
 ### Added
