@@ -550,6 +550,11 @@ enum BlockLayout {
         }
 
         box.contentSize.height = max(0, totalHeight)
+        // `box-sizing: border-box`: a declared height measures the border box.
+        let blockBoxExtras: CGFloat = box.style.boxSizingBorderBox && box.imageAttachment == nil
+            ? LogicalGeometry.blockAxisExtent(box.borders, mode: writingMode)
+                + LogicalGeometry.blockAxisExtent(box.padding, mode: writingMode)
+            : 0
         // Percentage heights stay auto: normal-flow layout has no definite
         // containing-block height to resolve them against.
         if case .percent = box.style.height {
@@ -561,13 +566,13 @@ enum BlockLayout {
             viewportHeight: viewportHeight,
             viewportWidth: viewportWidth
         ) {
-            box.contentSize.height = max(0, used)
+            box.contentSize.height = max(0, used - blockBoxExtras)
         }
         if let minimum = box.style.minHeight, case .percent = minimum {
             // An indefinite block-height percentage computes to zero here.
         } else if let minimum = box.style.minHeight,
                   let used = CSSLengthResolver.resolve(minimum, emBase: box.style.fontSize, remBase: rootFontSize, percentBase: 0) {
-            box.contentSize.height = max(box.contentSize.height, used)
+            box.contentSize.height = max(box.contentSize.height, used - blockBoxExtras)
         }
         box.frame = ParentLocalRect(rawValue: CGRect(
             x: box.frame.rawValue.minX,
@@ -682,7 +687,10 @@ enum BlockLayout {
         let mr = resolve(style.marginRight, style: style, ctx: ctx)
         let marginTotalPad = s.padding.horizontal + s.borders.horizontal
 
-        let maxWidth = style.maxWidth.flatMap { resolve($0, style: style, ctx: ctx) }
+        // `box-sizing: border-box`: a declared width, minimum or maximum measures the border
+        // box, so the content gets what the padding and borders leave of it.
+        let boxExtras = style.boxSizingBorderBox ? marginTotalPad : 0
+        let maxWidth = style.maxWidth.flatMap { resolve($0, style: style, ctx: ctx) }.map { max(0, $0 - boxExtras) }
         let fillsAvailableWidth: Bool
         if let attachment = box.imageAttachment {
             s.contentWidth = attachment.usedSize.width
@@ -703,7 +711,7 @@ enum BlockLayout {
                     fillsAvailableWidth = true
                 }
             default:
-                let width = resolve(style.width, style: style, ctx: ctx) ?? containerWidth
+                let width = resolve(style.width, style: style, ctx: ctx).map { $0 - boxExtras } ?? containerWidth
                 s.contentWidth = min(max(width, 0), containerWidth)
                 fillsAvailableWidth = false
             }
@@ -714,7 +722,7 @@ enum BlockLayout {
         }
         // `min-inline-size` (canonical `minWidth`) wins over the maximum, as CSS
         // 2 §10.4 has it. Nothing else sets it, so ordinary EPUBs are untouched.
-        let minWidth = style.minWidth.flatMap { resolve($0, style: style, ctx: ctx) }
+        let minWidth = style.minWidth.flatMap { resolve($0, style: style, ctx: ctx) }.map { max(0, $0 - boxExtras) }
         if let minWidth, box.imageAttachment == nil {
             s.contentWidth = max(s.contentWidth, minWidth)
         }

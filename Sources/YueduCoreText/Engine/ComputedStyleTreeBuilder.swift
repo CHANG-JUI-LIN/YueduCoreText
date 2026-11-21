@@ -830,6 +830,13 @@ enum ComputedStylePropertyApplier {
         case "right": style.insetRight = Self.inset(value, current: style.insetRight)
         case "bottom": style.insetBottom = Self.inset(value, current: style.insetBottom)
         case "left": style.insetLeft = Self.inset(value, current: style.insetLeft)
+        case "box-sizing", "-webkit-box-sizing":
+            switch value {
+            case "border-box": style.boxSizingBorderBox = true
+            case "content-box", "initial", "unset": style.boxSizingBorderBox = false
+            case "inherit": style.boxSizingBorderBox = ctx.parent.boxSizingBorderBox
+            default: break
+            }
         case "z-index":
             if value == "auto" { style.zIndex = nil } else if let index = Int(value) { style.zIndex = index }
         case "justify-content":

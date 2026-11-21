@@ -279,6 +279,9 @@ struct ComputedStyle: Equatable {
     var insetLeft: CSSLength? = nil
     /// nil is `auto`. Orders positioned siblings when they are painted.
     var zIndex: Int? = nil
+    /// `box-sizing: border-box`: `width`, `height` and their minimums and
+    /// maximums measure the border box, not the content box. Not inherited.
+    var boxSizingBorderBox = false
     /// Out of the flow at a place of its own (CSS 2.1 §9.6).
     var isAbsolutelyPositioned: Bool { position == .absolute }
     /// Used `clear`. Same strict rule.

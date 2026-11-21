@@ -58,6 +58,25 @@ struct PositionedLayoutTests {
         #expect(abs(flexed[2].minY - plain[2].minY) < 0.5)
     }
 
+    @Test func borderBoxWidthAndHeightIncludePaddingAndBorders() throws {
+        let css = """
+        .a, .b { width: 200px; height: 60px; padding: 10px 20px; border: 5px solid #000; margin: 0; }
+        .b { box-sizing: border-box; }
+        """
+        let config = BrowserLayoutConfig(renderWidth: 350, renderHeight: 800, rootFontSize: 17,
+                                         fontFamilies: ["PingFangSC-Regular"], textColor: .black, backgroundColor: .white)
+        let document = BrowserLayoutDocument(
+            html: "<html><body><div class=\"a\">x</div><div class=\"b\">y</div></body></html>",
+            cssTexts: ["body { margin: 0 }" + css], config: config, imageLoader: { _ in nil })
+        let root = try document.makeLayout(containerSize: CGSize(width: 350, height: 800)).rootBox
+        func all(_ box: BlockBox) -> [BlockBox] { [box] + box.children.flatMap(all) }
+        let boxes = all(root).filter { $0.borders.left == 5 }
+        #expect(boxes.count == 2)
+        #expect(boxes[0].frame.rawValue.size == CGSize(width: 250, height: 90))
+        #expect(boxes[1].frame.rawValue.size == CGSize(width: 200, height: 60))
+        #expect(boxes[1].contentSize == CGSize(width: 150, height: 30))
+    }
+
     /// A panel's title sits in its thick top border: the insets count from the
     /// padding edge, and a box with no width is as wide as its text.
     @Test func aBoxWithNoWidthShrinksToItsTextAndCountsFromThePaddingEdge() async throws {
@@ -72,7 +91,7 @@ struct PositionedLayoutTests {
         #expect(texts.count == 3)
         #expect(abs(texts[0].minX - (1 + 8)) < 0.5, "\(texts[0])")
         #expect(abs(texts[0].midY - (22 - 16 + 5.5)) < 1, "\(texts[0])")
-        #expect(abs(texts[1].maxX - (300 - 1 - 8)) < 0.5, "\(texts[1])")
+        #expect(abs(texts[1].maxX - (300 - 1 - 8)) < 0.5, "\(texts)")
         // The content starts under the border and padding, as if the two were not there.
         #expect(abs(texts[2].minX - 20) < 0.5)
         #expect(texts[2].minY >= 22 + 18 - 0.5)
