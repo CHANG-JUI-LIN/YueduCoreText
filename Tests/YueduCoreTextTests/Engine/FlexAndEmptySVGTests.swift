@@ -73,3 +73,42 @@ struct FlexSingleItemTests {
         #expect(scan("<div class=\"g\">A</div>", css: ".g { grid-template-columns: 1fr 1fr; }").unsupportedFeatures == [.flexGrid])
     }
 }
+
+/// An `<svg>` with nothing inside it — a cover whose picture was removed —
+/// used to report `unsupportedSVG`. It draws nothing and keeps its box.
+struct EmptySVGTests {
+    private func fills(_ pages: [PageFragments]) -> [FillFragment] {
+        var result: [FillFragment] = []
+        func walk(_ fragments: [Fragment]) {
+            for fragment in fragments {
+                switch fragment {
+                case .fill(let fill): result.append(fill)
+                case .group(let children): walk(children)
+                default: break
+                }
+            }
+        }
+        for page in pages { walk(page.fragments) }
+        return result
+    }
+
+    @Test func anEmptySVGIsAdmittedAndAVectorOneIsNot() {
+        let empty = "<html><head></head><body><div><svg width=\"100%\" height=\"100%\" viewBox=\"0 0 563 751\"></svg></div></body></html>"
+        #expect(BrowserLayoutCapabilityScanner.scan(html: empty, cssTexts: []).supported)
+        let vector = "<html><head></head><body><svg width=\"10\" height=\"10\"><circle r=\"4\"/></svg></body></html>"
+        #expect(BrowserLayoutCapabilityScanner.scan(html: vector, cssTexts: []).unsupportedFeatures == [.unsupportedSVG])
+    }
+
+    /// As WebKit sizes it: the line's width, and a height in the viewBox's proportion.
+    @Test func itKeepsTheBoxItsSizeAndViewBoxGiveIt() async throws {
+        let css = "body { margin: 0; line-height: 1; } p { margin: 0; } svg { background: #ddd; }"
+        let body = "<p>before</p><div><svg width=\"100%\" height=\"100%\" viewBox=\"0 0 200 100\"></svg></div><p>after</p>"
+        let pages = try await BrowserLayoutTestSupport.layout("<html><body>\(body)</body></html>", cssTexts: [css], width: 400, height: 2000).0
+        let box = try #require(fills(pages).first { $0.color != .clear })
+        #expect(abs(box.rect.rawValue.width - 400) < 0.5)
+        #expect(abs(box.rect.rawValue.height - 200) < 0.5)
+        let texts = BrowserLayoutTestSupport.allTextFragments(pages)
+        #expect(texts.count == 2)
+        #expect(texts[1].rect.rawValue.minY >= box.rect.rawValue.maxY - 0.5, "what follows starts under the box")
+    }
+}

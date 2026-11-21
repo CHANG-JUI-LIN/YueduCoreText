@@ -318,6 +318,51 @@ final class ComputedStyleTreeBuilder {
                                    element: element, style: parentStyle)
     }
 
+    /// The box of an `<svg>` that draws nothing, as an empty inline-block of
+    /// the size WebKit gives the element: its `width` (the whole line when
+    /// there is none) and, unless a definite `height` is set, a height in the
+    /// viewBox's proportion — 150px high without a viewBox. The height is set
+    /// as top padding, which a percentage resolves against the container's
+    /// width just as the width does.
+    private static func sizeEmptySVG(_ style: inout ComputedStyle, element: HTMLDOMElementSnapshot) {
+        func length(_ name: String) -> CSSLength? {
+            guard let raw = element.attribute(name), let parsed = CSSLengthResolver.parse(raw), parsed != .auto else { return nil }
+            return parsed
+        }
+        if case .auto = style.width { style.width = length("width") ?? .percent(1) }
+        var height = style.height
+        if case .auto = height { height = length("height") ?? .auto }
+        style.display = .inlineBlock
+        style.height = .px(0)
+        style.paddingBottom = .px(0)
+        // A percentage height has nothing definite to refer to in a flow of
+        // auto height: the viewBox decides, as for `auto`.
+        switch height {
+        case .px, .pt, .em, .rem:
+            style.paddingTop = height
+            return
+        case .auto, .percent, .vh, .vw:
+            break
+        }
+        let box = (element.attribute("viewBox") ?? element.attribute("viewbox") ?? "")
+            .split(whereSeparator: { $0 == " " || $0 == "," }).compactMap { Double($0) }
+        guard box.count == 4, box[2] > 0, box[3] > 0 else {
+            style.paddingTop = .px(150)
+            return
+        }
+        let ratio = CGFloat(box[3] / box[2])
+        switch style.width {
+        case .px(let value): style.paddingTop = .px(value * ratio)
+        case .pt(let value): style.paddingTop = .pt(value * ratio)
+        case .em(let value): style.paddingTop = .em(value * ratio)
+        case .rem(let value): style.paddingTop = .rem(value * ratio)
+        case .percent(let value): style.paddingTop = .percent(value * ratio)
+        case .vw(let value): style.paddingTop = .vw(value * ratio)
+        case .vh(let value): style.paddingTop = .vh(value * ratio)
+        case .auto: style.paddingTop = .percent(ratio)
+        }
+    }
+
     /// A `display: table-cell` box whose parent is not a row gets the row and
     /// the table CSS 2.1 §17.2.1 puts around it: cells next to each other
     /// share one anonymous row of one anonymous table. The table is as wide as
@@ -577,8 +622,9 @@ final class ComputedStyleTreeBuilder {
         }
         if tag == "q" { style.quoteDepth = parent.quoteDepth + 1 }
         if semanticElement.attribute("hidden") != nil { style.isHidden = true }
-        // An svg with nothing to draw takes no part in the layout.
-        if semanticElement.svgRenderability == .empty { style.isHidden = true }
+        // An svg with nothing to draw is still a replaced box: it takes the
+        // room its size and viewBox give it and paints nothing.
+        if semanticElement.svgRenderability == .empty { Self.sizeEmptySVG(&style, element: semanticElement) }
         if closedDialog, style.display == .none { style.isHidden = true }
         if case .length(let length) = style.textIndent {
             switch length {
