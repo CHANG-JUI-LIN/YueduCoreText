@@ -2,6 +2,30 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.21.0] - 2026-11-21
+
+Chapters the capability scan used to turn away: a stylesheet with `@media`, and three shapes of vertical chapter.
+
+### Added
+
+- `@media` is evaluated against the reader's page instead of rejecting the chapter. `CSSMediaQuery.matches(_:in:)` answers a media query list for a `CSSMediaEnvironment` (the viewport in CSS px and the appearance):
+  - `all` and `screen` match; `print` and vendor types such as `amzn-kf8` do not; `not` and `only` are honoured.
+  - `width`, `height`, `device-width` and `device-height` with their `min-`/`max-` forms, `orientation`, `prefers-color-scheme`, `hover`, `any-hover`, `pointer`, `any-pointer` and `color` are evaluated. A query the evaluator does not understand is false.
+  - Layout asks about the page, margins included (`renderWidth`/`renderHeight` plus `contentInsets`), with the light appearance. A rule inside a block that matches applies in its source order; one inside a block that does not match is left out. Blocks may be nested.
+  - The parse does not depend on the page: rules keep the queries around them and the cascade filters them for each configuration, so a parsed chapter still serves every page size.
+- `CSSParser.parse(css:orderOffset:media:)` and `parseWithFirstLetter(css:orderOffset:media:)` take the environment. Without one, no viewport is known and every size feature is false: they return what they did before, plus the rules of blocks that need no viewport (`@media screen`).
+
+### Fixed
+
+- A vertical chapter is admitted by the `writing-mode` that wins the cascade on each element. Any matched declaration other than `vertical-rl` used to reject it, so a book built on the template that writes `html { writing-mode: horizontal-tb }` and overrides it with a class on the same element was rejected chapter by chapter. A horizontal block inside a vertical chapter, a chapter laid out vertically against its own declaration and `vertical-lr` still fall back.
+- A vertical chapter accepts a `width` in `em`, `rem` or `pt` as it does one in `px`: an inline mark sized `width: 1em`. Percentages and viewport units still fall back.
+- A vertical chapter accepts an `svg` that only wraps one picture (a cover page) as the picture it is, as a horizontal chapter does.
+
+### Changed
+
+- `UnsupportedFeature.mediaQueries` is no longer reported. The case remains for hosts that switch over the reasons.
+- `PrincipalWritingMode` reads only rules that hold whatever the page's size: those outside `@media` or inside a block that needs no viewport.
+
 ## [0.20.0] - 2026-11-21
 
 A page's background image is sized, placed and repeated as its CSS says.
