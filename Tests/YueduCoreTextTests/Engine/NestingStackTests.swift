@@ -9,12 +9,13 @@ import UIKit
 /// a level and seven nested `<div>`s overflowed (about ten fit now, fewer on toolchains with larger frames). The test process dies if this regresses.
 struct NestingStackTests {
     @Test(arguments: [
-        ("<div>", "</div>"),
-        ("<span style=\"display:inline-block\"><div>", "</div></span>"),
+        ("<div>", "</div>", 6),
+        // Two boxes a level, and the line that holds each inline-block is laid out in between.
+        ("<span style=\"display:inline-block\"><div>", "</div></span>", 3),
     ])
-    func sixLevelsFitASecondaryThreadsStack(open: String, close: String) {
-        let html = "<html><body>" + String(repeating: open, count: 6) + "<p>x</p>"
-            + String(repeating: close, count: 6) + "</body></html>"
+    func nestedBlocksFitASecondaryThreadsStack(open: String, close: String, depth: Int) {
+        let html = "<html><body>" + String(repeating: open, count: depth) + "<p>x</p>"
+            + String(repeating: close, count: depth) + "</body></html>"
         let done = DispatchSemaphore(value: 0)
         let laidOut = LockedFlag()
         let thread = Thread {
