@@ -18,7 +18,19 @@ enum LogicalFlow {
 
     static func styleTree(_ node: ComputedStyleNode, mode: ReaderWritingMode) -> ComputedStyleNode {
         guard mode == .verticalRTL else { return node }
-        var s = node.style
+        return ComputedStyleNode(tag: node.tag, semanticElement: node.semanticElement, style: style(node.style, mode: mode),
+            children: node.children.map {
+                if case .element(let child) = $0 { return .element(styleTree(child, mode: mode)) }
+                return $0
+            }, nodeID: node.nodeID, linkTarget: node.linkTarget, anchorID: node.anchorID,
+            listItemOrdinal: node.listItemOrdinal)
+    }
+
+    /// `physical`'s box properties on the canonical axes: inline in the width
+    /// and left/right slots, block in the height and top/bottom ones.
+    static func style(_ physical: ComputedStyle, mode: ReaderWritingMode) -> ComputedStyle {
+        guard mode == .verticalRTL else { return physical }
+        var s = physical
         let p = s
         s.width = p.height; s.height = p.width
         s.maxWidth = p.maxHeight; s.maxHeight = p.maxWidth
@@ -33,12 +45,7 @@ enum LogicalFlow {
         s.borderBottomStyle = p.borderLeftStyle; s.borderLeftStyle = p.borderTopStyle
         s.borderTopColor = p.borderRightColor; s.borderRightColor = p.borderBottomColor
         s.borderBottomColor = p.borderLeftColor; s.borderLeftColor = p.borderTopColor
-        return ComputedStyleNode(tag: node.tag, semanticElement: node.semanticElement, style: s,
-            children: node.children.map {
-                if case .element(let child) = $0 { return .element(styleTree(child, mode: mode)) }
-                return $0
-            }, nodeID: node.nodeID, linkTarget: node.linkTarget, anchorID: node.anchorID,
-            listItemOrdinal: node.listItemOrdinal)
+        return s
     }
 
     static func documentExtent(_ root: BlockBox) -> CGFloat {

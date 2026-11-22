@@ -197,6 +197,9 @@ final class ComputedStyleTreeBuilder {
     /// hidden element) are not in `styledElements`; admission matches those itself.
     private(set) var matchedRuleIndices: Set<Int> = []
     private(set) var styledElements: Set<ObjectIdentifier> = []
+    /// The `<html>` element's style when it gives itself a box (`RootElementBox`),
+    /// after `buildTree`. The tree's root is `<body>`.
+    private(set) var rootElementStyle: [ComputedStyle] = []
 
     init(rules: [CSSRule], config: BrowserLayoutConfig, firstLetterRules: [CSSRule] = []) {
         self.firstLetterRules = firstLetterRules
@@ -236,6 +239,7 @@ final class ComputedStyleTreeBuilder {
         if let html = body.parent(), html.tagName().lowercased() == "html" {
             defaultParent = resolvedStyle(for: html, semanticElement: SwiftSoupHTMLSemanticAdapter.snapshot(html), parent: defaultParent, parentElement: html.parent())
             rootFontSize = defaultParent.fontSize
+            rootElementStyle = RootElementBox.hasBox(defaultParent) ? [defaultParent] : []
         }
         let bodySemantic = SwiftSoupHTMLSemanticAdapter.snapshot(body)
         let bodyStyle = resolvedStyle(

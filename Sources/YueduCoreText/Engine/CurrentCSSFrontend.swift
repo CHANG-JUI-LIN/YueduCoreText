@@ -68,12 +68,13 @@ final class CurrentCSSFrontend: CSSFrontend {
         }
         let footnotes = BrowserLayoutDocument.collectFootnotes(in: parsed.document)
 
-        let result = CSSFrontendResult(
+        var result = CSSFrontendResult(
             rootNode: rootNode,
             linkAnchors: linkAnchors,
             footnotes: footnotes,
             nodeCount: rootNode.nodeID
         )
+        result.rootElementStyle = builder.rootElementStyle
         return (result, builder)
     }
 }

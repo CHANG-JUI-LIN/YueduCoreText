@@ -223,6 +223,9 @@ final class BlockBox {
     /// containing block it is laid out in (shrink-to-fit, CSS 2.1 §10.3.9).
     var shrinkToFitContentWidth: CGFloat? = nil
 
+    /// On the root box: the `<html>` element's style, on the canonical axes,
+    /// when that element gives itself a box (`RootElementBox`).
+    var rootElementStyle: ComputedStyle? = nil
     /// On a flex item (a child of a flex container's box): what `FlexLayout`
     /// sizes it from. nil on every other box.
     var flexItem: FlexItemState? = nil

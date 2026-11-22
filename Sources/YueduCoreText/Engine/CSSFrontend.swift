@@ -8,6 +8,10 @@ struct CSSFrontendResult {
     let linkAnchors: [Int: LinkAnchorInfo]
     let footnotes: [String: String]
     let nodeCount: Int
+    /// The `<html>` element's style when it gives itself a box (`RootElementBox`); empty
+    /// when it does not. In an array because this value is copied on layout's stack, where
+    /// a style inline costs a kilobyte a copy.
+    var rootElementStyle: [ComputedStyle] = []
     /// Value-only evidence for differential/cutover gates. Production remains Current.
     let capabilityFacts: FrontendCapabilityFacts
     let diagnostics: [CSSFrontendDiagnostic]

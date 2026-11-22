@@ -96,10 +96,14 @@ public final class BrowserViewportSession {
         geometryPassCount += 1
         let trace = ReaderPerfTrace.begin(.viewportGeometry, metadata: .init(generation: geometryPassCount))
         defer { ReaderPerfTrace.end(trace) }
-        _ = BlockLayout.layOut(root: pipeline.rootBox, containerWidth: config.renderWidth,
+        _ = BlockLayout.layOut(
+            root: pipeline.rootBox,
+            containerWidth: RootElementBox.contentWidth(for: pipeline.rootBox, pageWidth: config.renderWidth,
+                                                        rootFontSize: config.rootFontSize),
             rootFontSize: config.rootFontSize, sourceText: pipeline.sourceText,
             fontResolver: config.fontResolver, cjkTypographyStyle: config.cjkTypographyStyle,
             viewport: state)
+        RootElementBox.addInsets(to: pipeline.rootBox, pageWidth: config.renderWidth, rootFontSize: config.rootFontSize)
         state.updateGeometry(root: pipeline.rootBox, origin: CGPoint(x: config.contentInsets.left, y: config.contentInsets.top))
     }
 

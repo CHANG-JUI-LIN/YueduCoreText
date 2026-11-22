@@ -176,6 +176,7 @@ final class BrowserLayoutDocument {
                 imageLoader: { semanticMedia.images[$0] ?? self.imageLoader($0) }
             )
         }
+        RootElementBox.attach(frontendResult.rootElementStyle, to: rootBox, mode: config.writingMode)
         let contentWidth = max(1, containerSize.width - config.contentInsets.left - config.contentInsets.right)
         let contentHeight = max(1, containerSize.height - config.contentInsets.top - config.contentInsets.bottom)
         // Viewport units resolve against the laid-out coordinate system, which
@@ -185,7 +186,8 @@ final class BrowserLayoutDocument {
         metrics.time("layout") {
             if performLayout { _ = BlockLayout.layOut(
                 root: rootBox,
-                containerWidth: viewportWidth,
+                containerWidth: RootElementBox.contentWidth(for: rootBox, pageWidth: viewportWidth,
+                                                            rootFontSize: config.rootFontSize),
                 rootFontSize: config.rootFontSize,
                 writingMode: .horizontal,
                 textWritingMode: config.writingMode,
@@ -195,7 +197,8 @@ final class BrowserLayoutDocument {
                 fragmentHeight: fragmentHeight,
                 viewportHeight: viewportHeight,
                 viewportWidth: viewportWidth
-            ) }
+            )
+            RootElementBox.addInsets(to: rootBox, pageWidth: viewportWidth, rootFontSize: config.rootFontSize) }
         }
         if let fragmentHeight,
            let oversized = Self.firstOversizedNonReplacedFloat(
