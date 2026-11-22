@@ -471,6 +471,8 @@ enum BoxTreeBuilder {
             if let style = config.cjkTypographyStyle {
                 CJKTypography.apply(to: segment, style: style, vertical: false)
             }
+            // Down a column the line is set without the font's pair kerning.
+            if config.writingMode == .verticalRTL { InlineLayout.disableFontKerning(in: segment) }
             let line = CTLineCreateWithAttributedString(segment)
             var width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + segmentBoxes
             if isFirstSegment { width += indent }
@@ -491,6 +493,15 @@ enum BoxTreeBuilder {
             }
             if let unit = run.inlineBlock {
                 segmentBoxes += preferredOuterWidth(of: unit, available: available, config: config)
+                continue
+            }
+            if let unit = run.ruby {
+                // The room the line gives it: its base or its annotation, whichever is longer.
+                // On the line it is a box between the text either side, which is not kerned
+                // across it.
+                segment.append(InlineLayout.placeholder(width: RubyInlineLayout.measure(
+                    unit: unit, fontResolver: config.fontResolver, writingMode: config.writingMode,
+                    cjkTypographyStyle: config.cjkTypographyStyle).advance))
                 continue
             }
             segment.append(NSAttributedString(string: run.shapedText, attributes: InlineLayout.textAttributes(for: run.style, resolver: config.fontResolver)))

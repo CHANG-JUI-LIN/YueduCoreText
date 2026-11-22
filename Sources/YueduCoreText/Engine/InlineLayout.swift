@@ -1284,6 +1284,22 @@ enum InlineLayout {
 }
 
 /// Retained by the CTRunDelegate; freed by the delegate's dealloc callback.
+extension InlineLayout {
+    /// One object-replacement character that takes `width` on its line: what a line holds
+    /// for a ruby, an inline-block or a picture. For measuring a line's text as it is
+    /// shaped, with the same break in kerning either side of the box.
+    static func placeholder(width: CGFloat) -> NSAttributedString {
+        var callbacks = AtomicInlineBox.callbacks
+        let box = AtomicInlineBox(width: width, ascent: 0, descent: 0)
+        guard let delegate = CTRunDelegateCreate(&callbacks, Unmanaged.passRetained(box).toOpaque()) else {
+            return NSAttributedString()
+        }
+        return NSAttributedString(string: "\u{FFFC}", attributes: [
+            kCTRunDelegateAttributeName as NSAttributedString.Key: delegate,
+        ])
+    }
+}
+
 private final class AtomicInlineBox {
     let width: CGFloat
     let ascent: CGFloat

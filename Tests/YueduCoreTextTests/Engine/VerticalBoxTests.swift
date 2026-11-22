@@ -153,5 +153,8 @@ struct RootBackgroundTests {
         let both = try await background("html { background-color: #fff4e7; } body { background-color: #ccc; }")
         #expect(both.page != nil && both.fills == html.fills + 1)
         #expect(both.page != (try await background("body { background-color: #ccc; }")).page)
+        // No background at all on `<html>`: `<body>`'s is the page's, as before.
+        let cleared = try await background("html { background: none; background-color: transparent; } body { background-color: #ccc; }")
+        #expect(cleared.page == (try await background("body { background-color: #ccc; }")).page && cleared.fills == body.fills)
     }
 }

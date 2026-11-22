@@ -2,6 +2,12 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.29.1] - 2026-11-22
+
+### Fixed
+
+- A box sized to its text is measured the way its line is shaped. 0.29.0 set vertical text without pair kerning and still measured an inline-block's or a float's text with it: a vertical inline-block holding どか、 was 0.9px narrower than its text and broke it over two columns. A ruby inside such a box is now measured as the room its line gives it (it was measured as one placeholder character), and the text either side of it is not kerned across it.
+
 ## [0.29.0] - 2026-11-22
 
 ### Added

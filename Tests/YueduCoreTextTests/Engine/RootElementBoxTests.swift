@@ -130,3 +130,32 @@ struct ExactFitColumnTests {
         #expect(filler + base == expected, "\(ruby): \(filler) + \(base)")
     }
 }
+
+/// A box sized to its text holds it on one line, whatever the line's own rules add:
+/// the width is measured the way the line is shaped.
+struct ShrinkToFitShapingTests {
+    private static let css = """
+        html { font-size: 14pt; font-family: "HiraMinProN-W3"; } body { margin: 0 } p { margin: 0 } rt { font-size: 50% }
+        .b { display: inline-block; } .f { float: left; }
+        """
+
+    private func baseLines(_ body: String, vertical: Bool) async throws -> Int {
+        let layout = try await BrowserLayoutTestSupport.webKitReference(body, css: Self.css, vertical: vertical, lang: "ja", rootFamilies: [])
+        let texts = BrowserLayoutTestSupport.allTextFragments(layout.pages).filter { $0.font.pointSize > 12 }
+        // One baseline per line (a ruby's base has a box of its own height on the same one).
+        return Set(texts.map { ($0.baselineY / 4).rounded() }).count
+    }
+
+    /// Down a column the font's pair kerning is off (どか、 is 56px, kerned 55.07).
+    @Test(arguments: ["<p><span class=\"b\">どか、くつろげて</span></p>", "<div class=\"f\">どか、くつろげて</div>"])
+    func kernedPairsInAVerticalBox(_ body: String) async throws {
+        #expect(try await baseLines(body, vertical: true) == 1)
+    }
+
+    /// A ruby as wide as its base is a sliver wider than the base.
+    @Test(arguments: [false, true])
+    func aRubyInABox(vertical: Bool) async throws {
+        let body = "<p><span class=\"b\"><ruby>山路<rt>やまみち</rt></ruby>を<ruby>登<rt>のぼ</rt></ruby>りながら</span></p>"
+        #expect(try await baseLines(body, vertical: vertical) == 1)
+    }
+}
