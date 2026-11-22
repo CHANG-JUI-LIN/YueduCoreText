@@ -2,6 +2,20 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.29.0] - 2026-11-22
+
+### Added
+
+- In vertical text: floats (`float: left` is the top of the column, `right` its bottom), inline-blocks, and `min-width` and `min-height`. Layout already ran on the canonical axes, so they are the ones horizontal text has, turned; they were turned away as `vertical-writing-mode` for want of a reference. Measured against WKWebView on the app's fixture S020. A `max-width`, a width that depends on the container, tables, media, vector SVG and flex containers of several items are still reported.
+- `min-width` is applied. Only `min-inline-size` was parsed.
+- The `<html>` element's background is the page's (CSS Backgrounds §2.11.2): `pageBackground` and the page's background fill come from it. `<body>`'s takes that place only when `<html>` has none; beside one, `<body>` paints its own box. `html { background-color }` used to paint nothing.
+
+### Fixed
+
+- Vertical text, and ruby text in either direction, is set without the font's pair kerning, as WebKit sets it. Hiragino Mincho kerns kana pairs (く before つ, か before 、); Core Text applied that down a column, so a column held a character more than WebKit's, and a ruby annotation of four kana was 37.05px where WebKit's is 37.33.
+- A `line-height` given as a number or a percentage is computed as WebKit computes it: the font size and the product are each held in 1/64 px. At 14pt a line-height of 1.75 is 32.640625px, not 32.6667; over 250 columns the difference was 6.5px.
+- A ruby's annotation counts as a box of whole 1/64 px. One exactly as wide as its base makes the ruby a sliver wider, and on a line the text fills exactly, two such slivers send a character to the next line, as in WebKit (the app's fixture S021).
+
 ## [0.28.0] - 2026-11-22
 
 ### Added
