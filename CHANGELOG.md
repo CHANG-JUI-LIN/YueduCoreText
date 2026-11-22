@@ -2,6 +2,13 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.28.0] - 2026-11-22
+
+### Added
+
+- The `<html>` element's own box shapes the page: its margins (`auto` ones too), borders, padding, `width`, `max-width` and `min-width`, and in vertical text their counterparts (`max-height` caps the length of every column). They were ignored, as the box tree's root is `<body>`: a book whose template writes `html { margin: auto 1em; padding: 1em 0; max-height: 28em }` had its vertical text run the page's full height where a browser sets columns of 28em centred on the page.
+  - `<html>` is still not a box in the tree. Its box is resolved once against the page; `<body>` is laid out in the content width that leaves, and what surrounds that content is added to `<body>`'s margins. Its borders take their room and are not painted; its `height` and `min-height` are not applied.
+
 ## [0.27.2] - 2026-11-22
 
 ### Changed
