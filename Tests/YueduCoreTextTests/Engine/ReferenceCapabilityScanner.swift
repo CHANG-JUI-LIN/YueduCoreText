@@ -40,7 +40,6 @@ enum ReferenceCapabilityScanner {
                 }
                 if k.contains("text-combine"), v != "none" { return .verticalWritingMode }
                 if k.contains("text-orientation"), v != "mixed" { return .verticalWritingMode }
-                if k == "min-height" || k == "min-width" { return .verticalWritingMode }
             }
             return BrowserLayoutCapabilityScanner.declaration(key: key, value: value, writingMode: .horizontal)
         }

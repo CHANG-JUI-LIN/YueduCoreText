@@ -239,7 +239,8 @@ final class ComputedStyleTreeBuilder {
         if let html = body.parent(), html.tagName().lowercased() == "html" {
             defaultParent = resolvedStyle(for: html, semanticElement: SwiftSoupHTMLSemanticAdapter.snapshot(html), parent: defaultParent, parentElement: html.parent())
             rootFontSize = defaultParent.fontSize
-            rootElementStyle = RootElementBox.hasBox(defaultParent) ? [defaultParent] : []
+            rootElementStyle = RootElementBox.hasBox(defaultParent) || RootElementBox.hasBackground(defaultParent)
+                ? [defaultParent] : []
         }
         let bodySemantic = SwiftSoupHTMLSemanticAdapter.snapshot(body)
         let bodyStyle = resolvedStyle(
@@ -1226,9 +1227,11 @@ enum ComputedStylePropertyApplier {
             let length = value == "none" ? nil : CSSLengthResolver.parse(value)
             guard value == "none" || length != nil else { break }
             if ctx.writingMode == .horizontal { style.maxWidth = length } else { style.maxHeight = length }
+        case "min-width":
+            let length = value == "auto" ? nil : CSSLengthResolver.parse(value)
+            guard value == "auto" || length != nil else { break }
+            style.minWidth = length
         case "min-inline-size":
-            // Physical `min-width` stays unparsed, as before; vertical admission
-            // still refuses physical `min-height` (the scanner's declaration check).
             let length = value == "auto" ? nil : CSSLengthResolver.parse(value)
             guard value == "auto" || length != nil else { break }
             if ctx.writingMode == .horizontal { style.minWidth = length } else { style.minHeight = length }

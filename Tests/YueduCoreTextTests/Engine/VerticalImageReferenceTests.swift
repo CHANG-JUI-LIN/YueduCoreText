@@ -169,12 +169,10 @@ struct VerticalImageReferenceTests {
         #expect(abs(huge.minY - columnStart - 17) <= 0.01, "\(huge.minY - columnStart)")
     }
 
-    /// Still outside vertical scope: an image as a ruby's base, a floated one, an inline-block
-    /// that is not an image, and other replaced elements.
+    /// Still outside vertical scope: an image as a ruby's base and other replaced elements.
+    /// (A floated image and an inline-block are laid out: `VerticalBoxTests`.)
     @Test(arguments: [
         ("<p><ruby><img src=\"mark.png\"/><rt>よみ</rt></ruby></p>", ""),
-        ("<p>甲<img class=\"f\" src=\"mark.png\"/>乙</p>", "img.f { float: right; }"),
-        ("<p>甲<span class=\"i\">丙</span>乙</p>", "span.i { display: inline-block; }"),
         ("<p>甲<svg width=\"10\" height=\"10\"><circle r=\"4\"/></svg>乙</p>", ""),
     ])
     func whatStillFallsBack(html: String, css: String) {

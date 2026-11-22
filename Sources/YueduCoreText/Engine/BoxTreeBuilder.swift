@@ -1031,7 +1031,6 @@ enum BoxTreeBuilder {
         imageLoader: (String) -> UIImage?,
         boxCount: inout Int
     ) {
-        assert(config.writingMode == .horizontal, "admission keeps vertical inline-blocks on the legacy engine")
         // Ids waiting for content, and the box's own (it may hold no text), bind where the box starts.
         registerAnchors(&anchorStack, ownID: node.anchorID, anchors: &anchors, at: sourceText.currentOffset)
         let start = sourceText.currentOffset

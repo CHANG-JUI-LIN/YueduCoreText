@@ -173,11 +173,19 @@ enum LogicalFlow {
     }
 }
 
-/// Vertical scope: normal-flow text, ruby, authored 縦中横, and images inline or as
-/// blocks: upright, an inline one centred on the column's central baseline (WKWebView,
-/// the app's fixture S005a). An image as a ruby's base, other replaced elements, floats,
-/// inline-blocks and constrained block-axis dimensions need their own vertical acceptance
-/// coverage before admission. Consumers receive a fact, never an empty page.
+/// Vertical scope: text, ruby, authored 縦中横, images inline or as blocks (upright, an
+/// inline one centred on the column's central baseline: WKWebView, the app's fixture
+/// S005a), floats, inline-blocks, and sizes down the column, percentages included.
+///
+/// Layout runs on the canonical axes (`LogicalFlow.style`), so a float, an inline-block
+/// and a size limit are the ones horizontal text has, turned: `float: left` is the top of
+/// the column, `max-height` the longest a column may be, `min-width` the least room a
+/// block takes across the page. Measured against WKWebView on the app's fixture S020.
+///
+/// An image as a ruby's base, tables, media, vector SVG, flex containers of several items
+/// (`FlexSupport`), and a `max-width` or a width that depends on the container (the block
+/// axis's, here) are still turned away.
+/// Consumers receive a fact, never an empty page.
 enum VerticalTextSupport {
     static func accepts(_ node: ComputedStyleNode, inRuby: Bool = false) -> Bool {
         // An img is `inline-block` by the UA sheet, and laid out as a replaced element
@@ -186,11 +194,12 @@ enum VerticalTextSupport {
         // picture: a replaced element, like an img.
         let image = node.tag == "img"
             || node.semanticElement.map { BoxTreeBuilder.svgWrappedImageSource($0) != nil || $0.svgRenderability == .empty } == true
-        if (node.tag == "svg" && !image) || ["video", "audio", "table"].contains(node.tag) || (image && inRuby) || node.style.isFloated
-            || (node.style.display == .inlineBlock && !image) || node.style.maxWidth != nil { return false }
+        if (node.tag == "svg" && !image) || ["video", "audio", "table"].contains(node.tag) || (image && inRuby)
+            || node.style.maxWidth != nil { return false }
         // A width that is a length whatever the container: `1em` on an inline
-        // mark is the same physical width as its px value. A percentage or a
-        // viewport unit resolves against an axis this scope has not covered.
+        // mark is the same physical width as its px value. Across the page is
+        // the block axis here: a percentage or a viewport unit of it, like a
+        // `max-width`, resolves against a size this scope has not covered.
         switch node.style.width {
         case .auto, .px, .pt, .em, .rem: break
         case .percent, .vh, .vw, .calc: return false

@@ -708,7 +708,8 @@ struct PageWalker {
                         bottom: Self.edge(widths.bottom, style.borderBottomStyle, style.borderBottomColor, currentColor: style.color),
                         left: Self.edge(widths.left, style.borderLeftStyle, style.borderLeftColor, currentColor: style.color))
                 }
-                if let bg = frame.box.style.backgroundColor, !frame.isRoot {
+                if let bg = frame.box.style.backgroundColor,
+                   !frame.isRoot || RootElementBox.bodyPaintsBackground(frame.box) {
                     stack[index].decorationStarted = true
                     return .fill(StepFill(
                         rect: boxRect,

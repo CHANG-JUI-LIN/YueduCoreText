@@ -129,7 +129,7 @@ struct SharedEvaluationEquivalenceTests {
 
     @Test func verticalModeDeclarationsAgree() {
         let html = "<html><body><p class=\"v\">縦</p></body></html>"
-        Self.expectSameVerdict(Self.input(html, css: [".v { -epub-writing-mode: vertical-rl; text-combine-upright: all; min-height: 2em }"]), "vertical declarations")
+        Self.expectSameVerdict(Self.input(html, css: [".v { -epub-writing-mode: vertical-rl; text-orientation: upright; min-height: 2em }"]), "vertical declarations")
         Self.expectSameVerdict(Self.input(html, css: [".v { writing-mode: horizontal-tb }"]), "vertical override")
     }
 

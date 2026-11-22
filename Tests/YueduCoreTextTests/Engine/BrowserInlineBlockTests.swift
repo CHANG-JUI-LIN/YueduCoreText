@@ -287,16 +287,14 @@ struct BrowserInlineBlockTests {
         #expect(colors.contains(.red))
     }
 
-    /// Vertical writing has no inline-block layout yet: the chapter is refused,
-    /// not drawn wrong.
-    @Test func verticalChapterIsRefused() async throws {
+    /// In vertical writing an inline-block sits in its column (`VerticalBoxTests`).
+    @Test func aVerticalChapterIsLaidOut() async throws {
         let doc = BrowserLayoutDocument(
             html: Self.html("<p>a<span style=\"display:inline-block\">b</span></p>"), cssTexts: [],
             config: Self.config(width: 300, height: 400, writingMode: .verticalRTL)
         )
-        await #expect(throws: HTMLLayoutError.self) {
-            _ = try await doc.renderPages(containerSize: CGSize(width: 300, height: 400))
-        }
+        let pages = try await doc.renderPages(containerSize: CGSize(width: 300, height: 400))
+        #expect(BrowserLayoutTestSupport.allTextFragments(pages).count == 2)
     }
 
     // MARK: - Viewport (scroll mode)

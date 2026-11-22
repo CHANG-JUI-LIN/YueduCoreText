@@ -4,7 +4,7 @@ import UIKit
 /// The `<html>` element's own box.
 ///
 /// The box tree's root is `<body>`: `<html>` contributes what it lets its
-/// children inherit, and its background goes to the canvas. A book can also
+/// children inherit, and its background is the canvas's (`canvasStyle`). A book can also
 /// shape the page on it. The EPUB 3 sample every Japanese template descends
 /// from writes `html { margin: auto 1em; padding: 1em 0; max-height: 28em }`:
 /// in vertical text every column is at most 28em long and centred on the
@@ -36,6 +36,25 @@ enum RootElementBox {
                  style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].allSatisfy(isZero)
     }
 
+    /// Whether `style`, the `<html>` element's, paints a background. It is the
+    /// canvas's (CSS Backgrounds §2.11.2): the page's, edge to edge. Only when
+    /// `<html>` has none does `<body>`'s take that place; beside one, `<body>`'s
+    /// is an ordinary box's and paints its own box.
+    static func hasBackground(_ style: ComputedStyle) -> Bool {
+        style.backgroundColor != nil || style.backgroundImage != nil
+    }
+
+    /// The style whose background the page shows.
+    static func canvasStyle(for root: BlockBox) -> ComputedStyle {
+        if let html = root.rootElementStyle, hasBackground(html) { return html }
+        return root.style
+    }
+
+    /// Whether `root`, the `<body>` box, paints its own background as a box.
+    static func bodyPaintsBackground(_ root: BlockBox) -> Bool {
+        root.rootElementStyle.map(hasBackground) ?? false
+    }
+
     /// Gives `root` the `<html>` element's style, on the canonical axes. In a
     /// function of its own, and the callers below too: whole styles on the
     /// frame that calls layout are stack every level of nesting stands on.
@@ -65,7 +84,7 @@ enum RootElementBox {
     }
 
     private static func sides(for root: BlockBox, pageWidth: CGFloat, rootFontSize: CGFloat) -> BlockLayout.Sides? {
-        guard let style = root.rootElementStyle else { return nil }
+        guard let style = root.rootElementStyle, hasBox(style) else { return nil }
         return BlockLayout.resolveSides(BlockBox(style: style), containerWidth: pageWidth,
                                         rootFontSize: rootFontSize, writingMode: .horizontal)
     }

@@ -353,11 +353,8 @@ final class BrowserLayoutDocument {
         // The root box IS html/body: its own background-color and
         // background-image. The reader theme color (config) is NOT authored
         // and must not be treated as the page background source.
-        RootBackground(
-            color: rootBox.style.backgroundColor,
-            image: rootBox.style.backgroundImage,
-            fontSize: rootBox.style.fontSize
-        )
+        let style = RootElementBox.canvasStyle(for: rootBox)
+        return RootBackground(color: style.backgroundColor, image: style.backgroundImage, fontSize: style.fontSize)
     }
 
     /// The fragment that paints a page background image over `canvas`.
