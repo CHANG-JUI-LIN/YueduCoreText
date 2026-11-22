@@ -654,6 +654,24 @@ struct PageWalker {
                     nodeID: frame.box.debugNodeID
                 ))
             }
+            if !isContinuous, !stack[index].flexLineEmitted, stack[index].box.isRowOfSeveralCells {
+                // A table row's cells sit side by side too: the row goes to
+                // the next page whole when it fits one, and a taller one is
+                // placed from its top down (`nextStep`). Walked cell after
+                // cell, the second cell of a row that crossed a page break was
+                // put above the top edge of the page the first had reached.
+                stack[index].flexLineEmitted = true
+                let frame = stack[index]
+                if frame.box.frame.height > pageHeight, sideBySide == nil {
+                    sideBySide = (index, frame.box.children.count)
+                }
+                return .monolith(StepMonolith(
+                    marginRect: DocumentRect(rawValue: CGRect(
+                        x: frame.borderX, y: frame.borderY,
+                        width: frame.box.frame.width, height: frame.box.frame.height)),
+                    nodeID: frame.box.debugNodeID
+                ))
+            }
             if let lineBox = stack[index].pendingLineBox {
                 stack[index].pendingLineBox = nil
                 return .monolith(StepMonolith(marginRect: lineBox, nodeID: stack[index].box.debugNodeID,

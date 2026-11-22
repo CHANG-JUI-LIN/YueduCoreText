@@ -2,6 +2,12 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.27.1] - 2026-11-22
+
+### Fixed
+
+- A table row that crossed a page break lost the text of its later cells. The cells sit side by side and the page walker fills pages forwards only: once the first cell had reached the next page, the second cell's lines were put above that page's top edge. A row of several cells now moves to the next page whole when it fits one, and a taller row is placed from its top down, as a flex line of several items is since 0.27.0. Paged layout only; continuous layout was never affected.
+
 ## [0.27.0] - 2026-11-22
 
 ### Added
@@ -13,6 +19,10 @@ All notable changes to YueduCoreText are documented in this file.
   - In a column with a height of its own, `justify-content`, `auto` margins and `flex-grow` share out what the items leave.
   - A line of several items is moved to the next page whole when it does not fit what is left of the current one, and one taller than a page breaks across pages with its items still side by side; a column breaks between and inside its items like any block.
 - The container around text only, laid out since 0.23.0 as an inline-block on an aligned line, is one item of this layout. Its item is now placed across a container that declares a height (`align-items: center` centres a label in a fixed-height bar).
+
+### Fixed
+
+- Max-content widths are measured in the fonts the text is shaped in. With a CJK typography style set, Han text is set in its language's font, whose advances differ from the font the run asked for; a shrink-to-fit box measured in the latter came out a fraction of a pixel narrower than its text and broke two characters over two lines. This is the width of inline-blocks, floats, absolutely positioned boxes and table columns as well as flex items.
 
 ### Changed
 

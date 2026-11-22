@@ -74,7 +74,7 @@ struct NestingStackCostTests {
         let perLevel = (Self.stackUsed(open: open, close: close, depth: 8)
             - Self.stackUsed(open: open, close: close, depth: 4)) / 4
         // In the log, so a toolchain's figures can be read off a run.
-        print("stack use, \(open): \(Self.stackUsed(open: open, close: close, depth: 1) / 1024) KB at depth 1, \(perLevel / 1024) KB a level")
+        print("stack use, \(open): \(Self.stackUsed(open: open, close: close, depth: 1) / 1024) KB at depth 1, \(Self.stackUsed(open: open, close: close, depth: 4) / 1024) KB at depth 4, \(perLevel / 1024) KB a level")
         #expect(perLevel > 0)
         #expect(perLevel < 40 * 1024, "\(open): \(perLevel / 1024) KB a level")
     }

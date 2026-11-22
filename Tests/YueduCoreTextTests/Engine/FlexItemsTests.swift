@@ -232,6 +232,30 @@ struct FlexItemsTests {
                 "\(inked)")
     }
 
+    /// The cells of a table row sit side by side as flex items do.
+    @Test func aTableRowTallerThanAPageKeepsAllItsText() async throws {
+        let left = (0..<12).map { "左\($0 % 10)" }.joined(separator: "<br/>")
+        let right = (0..<12).map { "右\($0 % 10)" }.joined(separator: "<br/>")
+        let pages = try await layout("<table><tr><td>\(left)</td><td>\(right)</td></tr></table><p>後</p>",
+                                     css: "table { border-spacing: 0; } td { padding: 0; vertical-align: top; font-size: 20px; }", height: 100)
+        let inked = pages.map { page in
+            BrowserLayoutTestSupport.allTextFragments([page]).map(\.rect.rawValue).filter { $0.width > 0 }
+        }
+        #expect(inked.reduce(0) { $0 + $1.count } == 25)
+        for (index, rects) in inked.enumerated() {
+            #expect(rects.allSatisfy { $0.minY >= -0.5 && $0.maxY <= 100.5 }, "page \(index): \(rects)")
+        }
+    }
+
+    /// A row that fits a page and meets its end goes to the next one whole.
+    @Test func aTableRowMovesToTheNextPageWhole() async throws {
+        let pages = try await layout("<p style=\"height: 60px\">前</p><table><tr><td>甲<br/>甲<br/>甲</td><td>乙</td></tr></table>",
+                                     css: "table { border-spacing: 0; } td { padding: 0; vertical-align: top; font-size: 20px; }", height: 100)
+        #expect(pages.count == 2)
+        let second = BrowserLayoutTestSupport.allTextFragments([pages[1]]).map(\.rect.rawValue).filter { $0.width > 0 }
+        #expect(second.count == 4 && second.allSatisfy { $0.minY >= -0.5 }, "\(second)")
+    }
+
     private static func picture(_ width: CGFloat, _ height: CGFloat) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1

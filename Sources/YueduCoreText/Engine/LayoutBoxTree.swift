@@ -329,6 +329,8 @@ struct LayoutContext {
 extension BlockBox {
     var styleIsTable: Bool { style.display == .table }
     var styleIsFlexContainer: Bool { style.isFlexContainer }
+    /// A table row holding more than one cell.
+    var isRowOfSeveralCells: Bool { children.count > 1 && style.display == .tableRow }
     var styleIsListItem: Bool { style.isListItem }
     var styleClear: CSSClear { style.cssClear }
     var styleFloat: CSSFloat { style.cssFloat }
