@@ -2,6 +2,12 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.27.2] - 2026-11-22
+
+### Changed
+
+- An `audio` element without `controls` displays nothing, as html.css has it (`audio:not([controls]) { display: none !important }`), and no longer reports `scripted-interactive`: a book's soundtrack, or the hook a reading app hangs its own player on. Its fallback content is not shown. An `audio` that shows its controls is still reported.
+
 ## [0.27.1] - 2026-11-22
 
 ### Fixed
