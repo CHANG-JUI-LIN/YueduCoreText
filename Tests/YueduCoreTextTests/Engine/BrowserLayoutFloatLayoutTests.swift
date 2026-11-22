@@ -538,6 +538,7 @@ struct BrowserLayoutFloatLayoutTests {
         #expect(inked.prefix(2).allSatisfy { rects in
             rects.contains { $0.minX < 1 } && rects.contains { $0.minX >= 99.5 }
         }, "\(inked)")
+        BrowserLayoutTestSupport.expectEachPageStartFindsItsPage(pages, sourceText: doc.lastSourceText)
     }
 
     /// The figure that made every short page fail (an iPhone held sideways): a
@@ -585,6 +586,15 @@ struct BrowserLayoutFloatLayoutTests {
         #expect(captionPage == picture.page + 1)
         #expect(inked[picture.page].contains { $0.rect.rawValue.maxX <= picture.rect.minX + 0.5 },
                 "no text beside the picture on its page")
+        // The picture does not fit under 前, so the figure starts the next page and the
+        // text beside it starts there with it: no line of it is left behind on 前's page.
+        let besidePages = inked.enumerated().flatMap { index, fragments in
+            fragments.filter {
+                NSMaxRange($0.sourceRange) <= source.length && source.substring(with: $0.sourceRange).contains("字")
+            }.map { _ in index }
+        }
+        #expect(besidePages.min() == picture.page, "beside text on pages \(Set(besidePages).sorted())")
+        BrowserLayoutTestSupport.expectEachPageStartFindsItsPage(pages, sourceText: doc.lastSourceText)
     }
 
     // MARK: - 13. Percentage width float

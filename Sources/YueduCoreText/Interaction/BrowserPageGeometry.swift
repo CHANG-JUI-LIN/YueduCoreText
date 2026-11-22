@@ -97,6 +97,15 @@ public enum BrowserPageGeometry {
         guard !ranges.isEmpty else { return 0 }
         let nsLength = (sourceText as NSString).length
         let target = min(max(charOffset, 0), nsLength)
+        // A page's own start is that page. Side by side — beside a float, or in a flex
+        // line, taller than a page — a page holds the text beside as well as the earlier
+        // text it is beside, so its range reaches past where the next page starts, and
+        // the search below found it for the next page's start: a turn by position went
+        // back a page instead of forwards.
+        if let page = lastPage(startingAtOrBefore: target, ranges: ranges),
+           ranges[page].location == target, ranges[page].length > 0 {
+            return page
+        }
         var low = 0
         var high = ranges.count - 1
         var best = 0
@@ -115,6 +124,23 @@ public enum BrowserPageGeometry {
             }
         }
         return best
+    }
+
+    /// The last page that starts at or before `target`; pages start in source order.
+    private static func lastPage(startingAtOrBefore target: Int, ranges: [NSRange]) -> Int? {
+        var low = 0
+        var high = ranges.count - 1
+        var found: Int?
+        while low <= high {
+            let mid = (low + high) / 2
+            if ranges[mid].location <= target {
+                found = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return found
     }
 
 }

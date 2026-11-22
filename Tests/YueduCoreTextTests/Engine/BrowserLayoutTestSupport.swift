@@ -6,6 +6,25 @@ import YueduCoreTextTypography
 /// Shared helpers for the browser-layout test suites.
 enum BrowserLayoutTestSupport {
 
+    /// A page's reading position is where it starts in the source, and a turn or a
+    /// restore finds the page from it. Side by side — beside a float, in a flex line
+    /// or a table row taller than a page — a page holds an earlier box's text and the
+    /// later text beside it; the next page must still start later, and its start must
+    /// still find it.
+    static func expectEachPageStartFindsItsPage(_ pages: [PageFragments], sourceText: String,
+                                                sourceLocation: SourceLocation = #_sourceLocation) {
+        let ranges = BrowserPageGeometry.buildPageRanges(pages, sourceText: sourceText)
+        let starts = ranges.map(\.location)
+        #expect(zip(starts, starts.dropFirst()).allSatisfy { $0 < $1 }, "page starts \(starts)",
+                sourceLocation: sourceLocation)
+        for index in ranges.indices {
+            let found = BrowserPageGeometry.pageIndex(forCharOffset: ranges[index].location,
+                                                      ranges: ranges, sourceText: sourceText)
+            #expect(found == index, "page \(index) starts at \(ranges[index].location), which finds page \(found)",
+                    sourceLocation: sourceLocation)
+        }
+    }
+
     /// Runs the full pipeline and returns pages + the document (for sourceText/anchors/metrics).
     static func layout(
         _ html: String,

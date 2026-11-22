@@ -609,14 +609,15 @@ struct PageWalker {
         let step = walkToNextStep()
         guard sideBySide != nil || besideFloat != nil else { return step }
         var gathered = step.map { [$0] } ?? []
+        var sortTops: [Int: CGFloat] = [:]
         if besideFloat != nil {
-            gatherBesideFloat(into: &gathered)
+            sortTops = gatherBesideFloat(into: &gathered)
         } else {
             while sideBySide != nil, let next = walkToNextStep() { gathered.append(next) }
         }
         var lineTops: [Int: CGFloat] = [:]
         let keyed = gathered.enumerated().map { index, step -> (top: CGFloat, index: Int, step: Step) in
-            var top = step.blockStart
+            var top = sortTops[index] ?? step.blockStart
             if let serial = step.lineSerial {
                 if let known = lineTops[serial] { top = known } else { lineTops[serial] = top }
             }
@@ -630,7 +631,14 @@ struct PageWalker {
     /// records on each such float where its first piece ends (`placeMonolith`).
     /// The step that ends the gathering is gathered too: it starts below every
     /// float met, so it is placed after them.
-    private mutating func gatherBesideFloat(into gathered: inout [Step]) {
+    ///
+    /// Returns, by gathered index, the tops to sort some steps by: a float's steps
+    /// up to its first piece sort at the float's top. The text beside a float
+    /// starts at that top, and the float's first piece a margin or a padding
+    /// lower; sorted by their own tops, a line of that text was placed before a
+    /// picture that then moved to the next page, and stayed behind on its own.
+    private mutating func gatherBesideFloat(into gathered: inout [Step]) -> [Int: CGFloat] {
+        var sortTops: [Int: CGFloat] = [:]
         var floatAwaitingPiece = gathered.indices.last
         while let next = walkToNextStep() {
             if let index = floatAwaitingPiece, besideFloat?.inside != nil, let end = next.pieceEnd,
@@ -638,6 +646,8 @@ struct PageWalker {
                 float.leadingPieceEnd = end
                 gathered[index] = .monolith(float)
                 floatAwaitingPiece = nil
+                // `next` is appended at `gathered.count`.
+                for start in (index + 1)...gathered.count { sortTops[start] = float.marginRect.minY }
             }
             if case .monolith(let marker) = next, marker.isFloatTallerThanPage {
                 floatAwaitingPiece = gathered.count
@@ -646,6 +656,7 @@ struct PageWalker {
             if let float = besideFloat, float.inside == nil, next.blockStart >= float.bottom - 0.001 { break }
         }
         besideFloat = nil
+        return sortTops
     }
 
     private mutating func walkToNextStep() -> Step? {
@@ -1199,7 +1210,10 @@ struct PageWalker {
     /// it (`nextStep`); only its first piece decides where it starts: when the
     /// picture of a figure does not fit under the text above it, the figure
     /// starts the next page, as a browser pushes a float whose first line does
-    /// not fit, and the text beside it moves with it.
+    /// not fit, and the text beside it moves with it. A first piece taller than
+    /// a page — a picture fitted to the page, with the rest of its line under
+    /// it — fits no page whole and does not move the float: the picture moves
+    /// itself (`placeImage`), and the text beside it, placed after it, follows.
     ///
     /// The line box of an inline-block is placed the same way, so a box that
     /// fits a page is never cut in two. One taller than a page cannot move

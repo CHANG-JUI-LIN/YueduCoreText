@@ -218,8 +218,10 @@ struct FlexItemsTests {
     @Test func aLineTallerThanAPageKeepsAllItsText() async throws {
         let left = (0..<12).map { "左\($0 % 10)" }.joined(separator: "<br/>")
         let right = (0..<12).map { "右\($0 % 10)" }.joined(separator: "<br/>")
-        let pages = try await layout("<div class=\"f\"><div>\(left)</div><div>\(right)</div></div><p>後</p>",
-                                     css: ".f { display: flex; }", height: 100)
+        let (pages, doc) = try await BrowserLayoutTestSupport.layout(
+            "<html><body><div class=\"f\"><div>\(left)</div><div>\(right)</div></div><p>後</p></body></html>",
+            cssTexts: [reset + ".f { display: flex; }"], width: 400, height: 100)
+        BrowserLayoutTestSupport.expectEachPageStartFindsItsPage(pages, sourceText: doc.lastSourceText)
         let inked = pages.map { page in
             BrowserLayoutTestSupport.allTextFragments([page]).map(\.rect.rawValue).filter { $0.width > 0 }
         }
@@ -236,8 +238,11 @@ struct FlexItemsTests {
     @Test func aTableRowTallerThanAPageKeepsAllItsText() async throws {
         let left = (0..<12).map { "左\($0 % 10)" }.joined(separator: "<br/>")
         let right = (0..<12).map { "右\($0 % 10)" }.joined(separator: "<br/>")
-        let pages = try await layout("<table><tr><td>\(left)</td><td>\(right)</td></tr></table><p>後</p>",
-                                     css: "table { border-spacing: 0; } td { padding: 0; vertical-align: top; font-size: 20px; }", height: 100)
+        let (pages, doc) = try await BrowserLayoutTestSupport.layout(
+            "<html><body><table><tr><td>\(left)</td><td>\(right)</td></tr></table><p>後</p></body></html>",
+            cssTexts: [reset + "table { border-spacing: 0; } td { padding: 0; vertical-align: top; font-size: 20px; }"],
+            width: 400, height: 100)
+        BrowserLayoutTestSupport.expectEachPageStartFindsItsPage(pages, sourceText: doc.lastSourceText)
         let inked = pages.map { page in
             BrowserLayoutTestSupport.allTextFragments([page]).map(\.rect.rawValue).filter { $0.width > 0 }
         }
