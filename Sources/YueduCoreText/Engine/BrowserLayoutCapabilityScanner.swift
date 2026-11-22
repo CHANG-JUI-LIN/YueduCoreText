@@ -211,11 +211,10 @@ public enum BrowserLayoutCapabilityScanner {
             // caption and inline-table roles are not in the subset.
             if v.contains("table"), !TableSupport.supportedDisplayValues.contains(v) { return .table }
         }
-        // Flex properties change nothing a single flex item shows beyond what
-        // `FlexSupport` reads; a container with more than one item is turned
-        // away there, whatever it declares. A reversed direction would flip
-        // even one item's alignment.
-        if k == "flex-direction", v.hasSuffix("reverse") { return .flexGrid }
+        // Flex containers are laid out (`FlexLayout`) and admitted by what
+        // they hold (`FlexSupport`). A reversed direction or wrap places items
+        // against their source order, which the layout does not do.
+        if k == "flex-direction" || k == "flex-wrap" || k == "flex-flow", v.contains("reverse") { return .flexGrid }
         if k.hasPrefix("grid-") { return .flexGrid }
         if v.contains("calc(") || v.contains("min(") || v.contains("max(") || v.contains("clamp(") {
             // A sum of lengths and percentages on a property measured across the page is laid

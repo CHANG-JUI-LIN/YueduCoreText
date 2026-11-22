@@ -13,14 +13,15 @@ struct EdgeSizes: Equatable {
     var vertical: CGFloat { top + bottom }
 }
 
-/// Where a flex container puts its items along one of its axes, as far as a
-/// single item can tell the values apart.
+/// Where a flex container packs its items along one of its axes. How
+/// `justify-content` shares out free space is `FlexDistribution`.
 enum FlexAlignment: Equatable {
     case start, center, end, stretch
 
-    /// `justify-content` and `align-items` values. With one item,
-    /// `space-between` is `start` and `space-around`/`space-evenly` are
-    /// `center` (CSS Flexbox §8.2). nil = not a value.
+    /// `justify-content`, `align-items` and `align-self` values. The
+    /// `space-*` values name what they fall back to when a line has no free
+    /// space or one item: `space-between` is `start`, the other two `center`
+    /// (CSS Flexbox §8.2). Baseline alignment is `start`. nil = not a value.
     static func parse(_ value: String) -> FlexAlignment? {
         switch value {
         case "flex-start", "start", "left", "normal", "space-between", "baseline", "first baseline": return .start
@@ -30,6 +31,37 @@ enum FlexAlignment: Equatable {
         default: return nil
         }
     }
+}
+
+/// How `justify-content` shares out the free space of a flex line between
+/// its items (CSS Flexbox §8.2). `none` packs them as `FlexAlignment` says.
+enum FlexDistribution: Equatable {
+    case none, spaceBetween, spaceAround, spaceEvenly
+
+    static func parse(_ value: String) -> FlexDistribution {
+        switch value {
+        case "space-between": return .spaceBetween
+        case "space-around": return .spaceAround
+        case "space-evenly": return .spaceEvenly
+        default: return .none
+        }
+    }
+}
+
+/// See `ComputedStyle.flexStorage`. None of it is inherited.
+struct FlexProperties: Equatable {
+    // On a container.
+    var wraps = false
+    var distribution = FlexDistribution.none
+    var rowGap: CSSLength? = nil
+    var columnGap: CSSLength? = nil
+    // On an item.
+    var grow: CGFloat = 0
+    var shrink: CGFloat = 1
+    /// nil is `auto`: the item's `width`, or its content.
+    var basis: CSSLength? = nil
+    var alignSelf: FlexAlignment? = nil
+    var order = 0
 }
 
 enum CSSPosition: Equatable, Sendable {
@@ -291,6 +323,15 @@ struct ComputedStyle: Equatable {
             if newValue == Positioning() { positioningStorage = [] } else { positioningStorage = [newValue] }
         }
     }
+    /// What a flex container or a flex item declares beyond the four fields
+    /// below. Out of line for the reason `positioningStorage` is.
+    private var flexStorage: [FlexProperties] = []
+    var flex: FlexProperties {
+        get { flexStorage.first ?? FlexProperties() }
+        set {
+            if newValue == FlexProperties() { flexStorage = [] } else { flexStorage = [newValue] }
+        }
+    }
     /// Used `position`. `fixed` and `sticky` are parsed so admission can tell
     /// them from the two the engine lays out (`PositionSupport`).
     var position: CSSPosition {
@@ -346,8 +387,8 @@ struct ComputedStyle: Equatable {
     /// holds table rows or cells of its own. Not inherited.
     var isInlineTable = false
     /// `display: flex` or `inline-flex`. The box itself is a block or an
-    /// inline-block (`display` says so); its content is laid out by
-    /// `FlexSupport`. None of the four is inherited.
+    /// inline-block (`display` says so); its children are flex items, placed
+    /// by `FlexLayout`. None of the four is inherited.
     var isFlexContainer = false
     /// `flex-direction: column`.
     var flexIsColumn = false

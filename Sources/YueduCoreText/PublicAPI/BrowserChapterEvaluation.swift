@@ -274,7 +274,7 @@ enum BrowserChapterAdmission {
             // roles, not tag names, decide what counts as a table (author CSS
             // can assign table roles to divs, and stray cells must fall back).
             reasons.append(contentsOf: TableSupport.validate(root: styleTree, writingMode: writingMode))
-            if !FlexSupport.accepts(styleTree) { reasons.append(.flexGrid) }
+            if !FlexSupport.accepts(styleTree, writingMode: writingMode) { reasons.append(.flexGrid) }
             if !PositionSupport.accepts(styleTree, writingMode: writingMode) { reasons.append(.positioned) }
             if !CalcSupport.accepts(styleTree, writingMode: writingMode) { reasons.append(.calcOrModernFunctions) }
             textIndentUsage = HorizontalTextIndentSupport.usage(in: styleTree)

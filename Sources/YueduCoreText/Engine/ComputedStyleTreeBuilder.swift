@@ -276,12 +276,12 @@ final class ComputedStyleTreeBuilder {
                 let semanticElement = SwiftSoupHTMLSemanticAdapter.snapshot(child, parentPath: path,
                                                                             siblingIndex: elementIndex)
                 elementIndex += 1
-                let style = resolvedStyle(
+                let style = FlexSupport.itemStyle(resolvedStyle(
                     for: child,
                     semanticElement: semanticElement,
                     parent: parentStyle,
                     parentElement: element
-                )
+                ), in: parentStyle)
                 if style.isHidden { continue }
                 let childLink: String?
                 if child.tagName().lowercased() == "a",
@@ -294,7 +294,7 @@ final class ComputedStyleTreeBuilder {
                 let childNode = ComputedStyleNode(
                     tag: child.tagName().lowercased(),
                     semanticElement: semanticElement,
-                    style: FlexSupport.containerStyle(style),
+                    style: style,
                     children: children(of: child, path: semanticElement.semanticPath, parentStyle: style,
                                        parentElement: child, inheritedLink: childLink),
                     nodeID: nextNodeID,
@@ -309,10 +309,9 @@ final class ComputedStyleTreeBuilder {
                 result.append(.element(childNode))
             }
         }
-        if let item = FlexSupport.singleItem(of: result, container: parentStyle, nodeID: nextNodeID,
-                                                 linkTarget: inheritedLink) {
-            nextNodeID += 1
-            return [.element(item)]
+        if parentStyle.isFlexContainer {
+            return FlexSupport.items(of: result, container: parentStyle, nextNodeID: &nextNodeID,
+                                     linkTarget: inheritedLink)
         }
         return applyingFirstLetter(to: Self.wrappingStrayTableCells(result, parent: parentStyle),
                                    element: element, style: parentStyle)
@@ -840,11 +839,55 @@ enum ComputedStylePropertyApplier {
         case "z-index":
             if value == "auto" { style.zIndex = nil } else if let index = Int(value) { style.zIndex = index }
         case "justify-content":
-            if let alignment = FlexAlignment.parse(value) { style.justifyContent = alignment }
+            if let alignment = FlexAlignment.parse(value) {
+                style.justifyContent = alignment
+                style.flex.distribution = FlexDistribution.parse(value)
+            }
         case "align-items":
             if let alignment = FlexAlignment.parse(value) { style.alignItems = alignment }
+        case "align-self":
+            if value == "auto" { style.flex.alignSelf = nil } else if let alignment = FlexAlignment.parse(value) {
+                style.flex.alignSelf = alignment
+            }
+        case "place-items":
+            if let first = value.split(separator: " ").first, let alignment = FlexAlignment.parse(String(first)) {
+                style.alignItems = alignment
+            }
+        case "place-content":
+            // `<align-content> <justify-content>`; one value is both.
+            if let last = value.split(separator: " ").last, let alignment = FlexAlignment.parse(String(last)) {
+                style.justifyContent = alignment
+                style.flex.distribution = FlexDistribution.parse(String(last))
+            }
         case "flex-direction":
             style.flexIsColumn = value.hasPrefix("column")
+        case "flex-wrap":
+            style.flex.wraps = value.hasPrefix("wrap")
+        case "flex-flow":
+            for part in value.split(separator: " ") {
+                if part.hasPrefix("row") || part.hasPrefix("column") { style.flexIsColumn = part.hasPrefix("column") }
+                if part == "nowrap" || part.hasPrefix("wrap") { style.flex.wraps = part.hasPrefix("wrap") }
+            }
+        case "gap":
+            let parts = value.split(separator: " ").map(String.init)
+            if let row = parts.first.flatMap(Self.gapLength) {
+                style.flex.rowGap = row
+                style.flex.columnGap = parts.count > 1 ? Self.gapLength(parts[1]) ?? row : row
+            }
+        case "row-gap":
+            if let gap = Self.gapLength(value) { style.flex.rowGap = gap }
+        case "column-gap":
+            if let gap = Self.gapLength(value) { style.flex.columnGap = gap }
+        case "flex-grow":
+            if let number = Double(value), number >= 0 { style.flex.grow = CGFloat(number) }
+        case "flex-shrink":
+            if let number = Double(value), number >= 0 { style.flex.shrink = CGFloat(number) }
+        case "flex-basis":
+            if let basis = Self.flexBasis(value) { style.flex.basis = basis.length }
+        case "flex":
+            Self.applyFlexShorthand(value, to: &style)
+        case "order":
+            if let number = Int(value) { style.flex.order = number }
         case "list-style-type":
             switch value {
             case "inherit", "unset": style.listStyleType = ctx.parent.listStyleType
@@ -1305,6 +1348,52 @@ enum ComputedStylePropertyApplier {
     /// (`BrowserLayoutCapabilityScanner.takesCalc`).
     fileprivate static func inlineAxisLength(_ value: String) -> CSSLength? {
         CSSLengthResolver.parse(value) ?? CSSLengthResolver.parseCalc(value)
+    }
+
+    /// A `gap` value; `normal` is no gap in a flex container.
+    fileprivate static func gapLength(_ value: String) -> CSSLength? {
+        if value == "normal" { return .px(0) }
+        guard let length = CSSLengthResolver.parse(value) else { return nil }
+        if case .auto = length { return nil }
+        return length
+    }
+
+    /// A `flex-basis` value, nil when it is not one. `auto` and `content` have
+    /// no length: the item's own size.
+    fileprivate static func flexBasis(_ value: String) -> (length: CSSLength?, isAuto: Bool)? {
+        if value == "auto" || value == "content" { return (nil, true) }
+        guard let length = CSSLengthResolver.parse(value) else { return nil }
+        if case .auto = length { return (nil, true) }
+        return (length, false)
+    }
+
+    /// `flex: none | auto | initial | <grow> <shrink>? <basis>?` (CSS Flexbox §7.1.1).
+    fileprivate static func applyFlexShorthand(_ value: String, to style: inout ComputedStyle) {
+        var flex = style.flex
+        switch value {
+        case "none": flex.grow = 0; flex.shrink = 0; flex.basis = nil
+        case "auto": flex.grow = 1; flex.shrink = 1; flex.basis = nil
+        case "initial", "unset": flex.grow = 0; flex.shrink = 1; flex.basis = nil
+        default:
+            var numbers: [CGFloat] = []
+            var basis: (length: CSSLength?, isAuto: Bool)?
+            for part in value.split(separator: " ").map(String.init) {
+                // A unitless number is a factor until two are read; then `0` is the basis.
+                if let number = Double(part), number >= 0, numbers.count < 2 {
+                    numbers.append(CGFloat(number))
+                } else if let parsed = flexBasis(part) {
+                    basis = parsed
+                } else {
+                    return
+                }
+            }
+            guard !numbers.isEmpty || basis != nil else { return }
+            // With a factor and no basis the basis is 0: `flex: 1` shares the line evenly.
+            flex.grow = numbers.first ?? 1
+            flex.shrink = numbers.count > 1 ? numbers[1] : 1
+            if let basis { flex.basis = basis.length } else { flex.basis = .px(0) }
+        }
+        style.flex = flex
     }
 
     fileprivate static func inset(_ value: String, current: CSSLength?, takesCalc: Bool = false) -> CSSLength? {

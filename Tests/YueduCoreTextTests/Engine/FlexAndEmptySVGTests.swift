@@ -65,12 +65,24 @@ struct FlexSingleItemTests {
     }
 
     @Test func whatFlexStillFallsBack() {
-        // More than one item to place.
-        #expect(scan("<div class=\"f\"><span>A</span><span>B</span></div>", css: ".f { display: flex; }").unsupportedFeatures == [.flexGrid])
-        #expect(scan("<div class=\"f\"><div>block</div></div>", css: ".f { display: flex; justify-content: center; }").unsupportedFeatures == [.flexGrid])
+        // Items against their source order.
         #expect(scan("<div class=\"f\">A</div>", css: ".f { display: flex; flex-direction: row-reverse; }").unsupportedFeatures == [.flexGrid])
+        #expect(scan("<div class=\"f\">A</div>", css: ".f { display: flex; flex-flow: column-reverse; }").unsupportedFeatures == [.flexGrid])
+        #expect(scan("<div class=\"f\">A</div>", css: ".f { display: flex; flex-wrap: wrap-reverse; }").unsupportedFeatures == [.flexGrid])
+        #expect(scan("<div class=\"f\"><span>A</span><span class=\"o\">B</span></div>",
+                     css: ".f { display: flex; } .o { order: -1; }").unsupportedFeatures == [.flexGrid])
+        // A line break between items, and an item positioned against the container.
+        #expect(scan("<div class=\"f\"><span>A</span><br/><span>B</span></div>", css: ".f { display: flex; }").unsupportedFeatures == [.flexGrid])
+        #expect(scan("<div class=\"f\"><span>A</span><span class=\"a\">B</span></div>",
+                     css: ".f { display: flex; position: relative; } .a { position: absolute; top: 0; left: 0; }").unsupportedFeatures.contains(.flexGrid))
         #expect(scan("<div class=\"g\">A</div>", css: ".g { display: grid; }").unsupportedFeatures.contains(.unknownBlockDisplay))
         #expect(scan("<div class=\"g\">A</div>", css: ".g { grid-template-columns: 1fr 1fr; }").unsupportedFeatures == [.flexGrid])
+    }
+
+    @Test func containersOfSeveralItemsAreAdmitted() {
+        let css = ".f { display: flex; flex-wrap: wrap; gap: 4px 8px; justify-content: space-between; align-items: center; } .i { flex: 1 1 0; align-self: flex-end; }"
+        #expect(scan("<div class=\"f\"><span class=\"i\">A</span>text<div class=\"i\"><p>B</p></div><img src=\"a.png\"/></div>", css: css).supported)
+        #expect(scan("<div class=\"f\"><p>A</p><p>B</p></div>", css: ".f { display: flex; flex-direction: column; }").supported)
     }
 }
 

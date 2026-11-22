@@ -396,6 +396,7 @@ struct PageWalker {
         var decorationEndEmitted = false
         var imageEmitted = false
         var floatBoundaryEmitted = false
+        var flexLineEmitted = false
         /// The root (html/body) frame. Its background belongs to the CANVAS,
         /// not to the box — see the paint guard in `nextStep`.
         var isRoot = false
@@ -597,6 +598,19 @@ struct PageWalker {
                         width: borderRect.width + frame.box.margins.horizontal,
                         height: borderRect.height + frame.box.margins.vertical
                     )),
+                    nodeID: frame.box.debugNodeID
+                ))
+            }
+            if let line = stack[index].box.flexItem?.lineRect, !stack[index].flexLineEmitted {
+                // The first item of a flex line of several: they sit side by
+                // side, so the line goes to the next page whole when it fits one.
+                stack[index].flexLineEmitted = true
+                let frame = stack[index]
+                return .monolith(StepMonolith(
+                    marginRect: DocumentRect(rawValue: CGRect(
+                        x: frame.borderX - frame.box.frame.minX + line.minX,
+                        y: frame.borderY - frame.box.frame.minY + line.minY,
+                        width: line.width, height: line.height)),
                     nodeID: frame.box.debugNodeID
                 ))
             }

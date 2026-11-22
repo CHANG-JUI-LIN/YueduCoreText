@@ -223,6 +223,10 @@ final class BlockBox {
     /// containing block it is laid out in (shrink-to-fit, CSS 2.1 §10.3.9).
     var shrinkToFitContentWidth: CGFloat? = nil
 
+    /// On a flex item (a child of a flex container's box): what `FlexLayout`
+    /// sizes it from. nil on every other box.
+    var flexItem: FlexItemState? = nil
+
     var isFloated: Bool { style.isFloated }
 
     /// Placed by its insets against this box's parent, out of the flow.
@@ -279,6 +283,27 @@ final class BlockBox {
     }
 }
 
+/// A flex item's layout inputs and where its line is.
+///
+/// `FlexLayout` writes the used width, margins and paddings into the box's
+/// style before laying the box out as a block, so the style the cascade
+/// computed is kept here and every layout starts from it again.
+final class FlexItemState {
+    let authored: ComputedStyle
+    /// The content box's max-content width, measured by BoxTreeBuilder, which
+    /// has the fonts. A picture's is its used width, resolved at layout.
+    let maxContentWidth: CGFloat
+    /// On the first item of a flex line that holds several: the line's box in
+    /// the container's content box. The page walker moves such a line to the
+    /// next page whole, as its items sit side by side.
+    var lineRect: CGRect? = nil
+
+    init(authored: ComputedStyle, maxContentWidth: CGFloat) {
+        self.authored = authored
+        self.maxContentWidth = maxContentWidth
+    }
+}
+
 struct LayoutContext {
     let rootFontSize: CGFloat
     let percentBase: CGFloat
@@ -301,6 +326,7 @@ struct LayoutContext {
 /// lives in the accessor's frame and is gone when it returns.
 extension BlockBox {
     var styleIsTable: Bool { style.display == .table }
+    var styleIsFlexContainer: Bool { style.isFlexContainer }
     var styleIsListItem: Bool { style.isListItem }
     var styleClear: CSSClear { style.cssClear }
     var styleFloat: CSSFloat { style.cssFloat }

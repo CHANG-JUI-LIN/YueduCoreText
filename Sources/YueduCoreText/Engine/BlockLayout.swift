@@ -133,9 +133,21 @@ enum BlockLayout {
         var previousBlockEndMargin: CGFloat? = nil
         var hasInFlowChild = false
 
+        // A flex container's children are its items: `FlexLayout` sizes and
+        // places them, and only the ones out of the flow are left to the loop.
+        let laysOutFlexItems = box.styleIsFlexContainer && writingMode == .horizontal && box.imageAttachment == nil
+        if laysOutFlexItems {
+            cursorBlock = FlexLayout.layOutItems(of: box, env: FlexLayout.Environment(
+                rootFontSize: rootFontSize, textWritingMode: textWritingMode, sourceText: sourceText,
+                fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
+                fragmentHeight: fragmentHeight, viewportHeight: viewportHeight, viewportWidth: viewportWidth,
+                viewport: viewport))
+        }
+
         for child in box.children {
             // A caller that will discard this tree stops here (see `LayoutAbandonment`).
             if Task.isCancelled, LayoutAbandonment.whenCancelled { break }
+            if laysOutFlexItems, child.flexItem != nil { continue }
             if child.isAbsolutelyPositioned, writingMode == .horizontal {
                 layOutAbsolutelyPositioned(
                     child, in: box, rootFontSize: rootFontSize, textWritingMode: textWritingMode,
@@ -904,7 +916,16 @@ extension BlockLayout {
     /// page's inset.
     static func establishesBlockFormattingContext(_ box: BlockBox) -> Bool {
         box.style.isFloated || box.isInlineBlock || box.style.display == .tableCell
-            || box.isAbsolutelyPositioned
+            || box.isAbsolutelyPositioned || box.flexItem != nil || box.style.isFlexContainer
+    }
+
+    /// A picture's used size in a container `containingInlineSize` wide, for
+    /// `FlexLayout`, which sizes a picture item before it lays it out.
+    static func resolvePictureSize(in box: BlockBox, containingInlineSize: CGFloat, env: FlexLayout.Environment) {
+        resolveBlockReplacedSize(
+            in: box, containingInlineSize: containingInlineSize, rootFontSize: env.rootFontSize,
+            textWritingMode: env.textWritingMode ?? .horizontal,
+            viewportHeight: env.viewportHeight, viewportWidth: env.viewportWidth)
     }
 
     /// A laid-out box of no block extent whose own block-start and block-end

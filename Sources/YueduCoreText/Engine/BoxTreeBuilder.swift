@@ -243,11 +243,19 @@ enum BoxTreeBuilder {
             )
             boxStyle.width = .px(shrinkToFitWidth(
                 kids: kids, trailingInline: visibleRuns(pendingInline),
-                available: available, config: config
+                available: available, config: config, flexRow: flexRowGap(of: boxStyle, config: config)
             ))
         }
         let box = BlockBox(style: boxStyle, boxType: .block, children: kids)
         Self.attachDebugIdentity(box, node: node)
+        if boxStyle.isFlexContainer {
+            // Its in-flow children are its items, measured here, where the fonts are.
+            for kid in kids where !kid.isAbsolutelyPositioned {
+                kid.flexItem = FlexItemState(
+                    authored: kid.style,
+                    maxContentWidth: maxContentWidth(of: kid, available: containerWidth, config: config))
+            }
+        }
         let trailingVisibleRuns = visibleRuns(pendingInline)
         if !trailingVisibleRuns.isEmpty {
             box.inlineRuns = trailingVisibleRuns
@@ -388,11 +396,32 @@ enum BoxTreeBuilder {
         kids: [BlockBox],
         trailingInline: [InlineRun],
         available: CGFloat,
-        config: BrowserLayoutConfig
+        config: BrowserLayoutConfig,
+        flexRow: CGFloat? = nil
     ) -> CGFloat {
         let own = maxInlineWidth(trailingInline, available: available, config: config)
-        let inner = max(own, kids.map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0)
+        let inner = max(own, childrenMaxContentWidth(kids, available: available, config: config, flexRow: flexRow))
         return min(max(inner, 0), available)
+    }
+
+    /// The gap between the items of a flex container that sets them in a row;
+    /// nil for any other box. Such a row is as wide as its items together.
+    private static func flexRowGap(of style: ComputedStyle, config: BrowserLayoutConfig) -> CGFloat? {
+        guard style.isFlexContainer, !style.flexIsColumn else { return nil }
+        return style.flex.columnGap.flatMap {
+            CSSLengthResolver.resolve($0, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: 0)
+        } ?? 0
+    }
+
+    /// What a box's children make of its max-content width: the widest of
+    /// them, or all of them and the gaps between when they are a flex row.
+    private static func childrenMaxContentWidth(
+        _ kids: [BlockBox], available: CGFloat, config: BrowserLayoutConfig, flexRow: CGFloat?
+    ) -> CGFloat {
+        let widths = kids.filter { !$0.isAbsolutelyPositioned }
+            .map { preferredOuterWidth(of: $0, available: available, config: config) }
+        guard let gap = flexRow else { return widths.max() ?? 0 }
+        return widths.reduce(0, +) + gap * CGFloat(max(0, widths.count - 1))
     }
 
     /// A child box's margin-box contribution to its parent's preferred width.
@@ -417,8 +446,8 @@ enum BoxTreeBuilder {
             indent = CSSLengthResolver.resolve(length, emBase: style.fontSize, remBase: config.rootFontSize, percentBase: available) ?? 0
         }
         let own = maxInlineWidth(box.inlineRuns, indent: indent, available: available, config: config)
-        let kids = box.children.filter { !$0.isAbsolutelyPositioned }
-            .map { preferredOuterWidth(of: $0, available: available, config: config) }.max() ?? 0
+        let kids = childrenMaxContentWidth(box.children, available: available, config: config,
+                                           flexRow: flexRowGap(of: style, config: config))
         return max(own, kids)
     }
 
@@ -434,6 +463,14 @@ enum BoxTreeBuilder {
         var isFirstSegment = true
         func flushSegment() {
             guard segment.length > 0 || segmentBoxes > 0 else { return }
+            // Measured as it will be shaped: CJK text in its language's font, whose
+            // advances differ from the font the run asked for (`InlineLayout`).
+            // Two Han characters measured in the system font came out 0.3px
+            // narrower than they were set, and a box made that wide broke them
+            // over two lines.
+            if let style = config.cjkTypographyStyle {
+                CJKTypography.apply(to: segment, style: style, vertical: false)
+            }
             let line = CTLineCreateWithAttributedString(segment)
             var width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + segmentBoxes
             if isFirstSegment { width += indent }
