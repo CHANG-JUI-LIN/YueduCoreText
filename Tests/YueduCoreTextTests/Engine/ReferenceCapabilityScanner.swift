@@ -54,7 +54,7 @@ enum ReferenceCapabilityScanner {
             func hasAny(_ selector: String) -> Bool {
                 ((try? doc.select(selector).isEmpty()) ?? true) == false
             }
-            if hasAny("iframe, object, embed, canvas, audio") {
+            if hasAny("iframe, object, embed, canvas, audio[controls]") {
                 reasons.append(.scriptedInteractive)
             }
             if hasAny("math") {

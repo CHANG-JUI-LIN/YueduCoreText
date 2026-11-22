@@ -189,8 +189,9 @@ enum BrowserChapterAdmission {
         // A script is never run, here or by a host's fallback, and its element
         // displays nothing: it is no reason to turn a chapter away. What a
         // script would have drawn into (`canvas`) or loaded (`iframe`, `object`,
-        // `embed`) still is.
-        if hasAny("iframe, object, embed, canvas, audio") {
+        // `embed`) still is, and so is an `audio` that shows its controls: one
+        // without them displays nothing (html.css).
+        if hasAny("iframe, object, embed, canvas, audio[controls]") {
             reasons.append(.scriptedInteractive)
         }
         if hasAny("math") {

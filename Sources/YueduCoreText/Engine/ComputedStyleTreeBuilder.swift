@@ -576,6 +576,12 @@ final class ComputedStyleTreeBuilder {
         }
         if tag == "q" { style.quoteDepth = parent.quoteDepth + 1 }
         if semanticElement.attribute("hidden") != nil { style.isHidden = true }
+        // html.css: `audio:not([controls]) { display: none !important }`. A book's
+        // soundtrack, or a reading app's own audio hook, shows nothing.
+        if tag == "audio", semanticElement.attribute("controls") == nil {
+            style.display = .none
+            style.isHidden = true
+        }
         if closedDialog, style.display == .none { style.isHidden = true }
         if case .length(let length) = style.textIndent {
             switch length {

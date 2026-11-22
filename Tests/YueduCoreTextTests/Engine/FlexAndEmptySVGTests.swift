@@ -188,3 +188,24 @@ struct SelfCollapsingBlockTests {
         #expect(abs(tops[1] - tops[0] - 71) < 0.01)
     }
 }
+
+/// `audio` without `controls` displays nothing (html.css): a book's soundtrack,
+/// or the hook a reading app hangs its own player on, is no reason to turn a
+/// chapter away. One that shows its controls still is.
+struct SilentAudioTests {
+    @Test func anAudioWithoutControlsIsAdmittedAndTakesNoRoom() async throws {
+        let body = "<p>前</p><audio class=\"duokan-audio\" title=\"歌\"><source src=\"a.mp3\" type=\"audio/mpeg\"/>不支援</audio><p>後</p>"
+        let html = "<html><head></head><body>\(body)</body></html>"
+        #expect(BrowserLayoutCapabilityScanner.scan(html: html, cssTexts: []).supported)
+        let pages = try await BrowserLayoutTestSupport.layout(html, cssTexts: ["body { margin: 0; line-height: 1; } p { margin: 0; font-size: 20px; }"],
+                                                              width: 400, height: 800).0
+        let texts = BrowserLayoutTestSupport.allTextFragments(pages).map(\.rect.rawValue)
+        #expect(texts.count == 2, "its fallback text is not shown: \(texts)")
+        #expect(abs(texts[1].minY - texts[0].maxY) < 0.5)
+    }
+
+    @Test func anAudioWithControlsStillFallsBack() {
+        let html = "<html><head></head><body><audio controls=\"controls\" src=\"a.mp3\"></audio></body></html>"
+        #expect(BrowserLayoutCapabilityScanner.scan(html: html, cssTexts: []).unsupportedFeatures == [.scriptedInteractive])
+    }
+}
