@@ -2,6 +2,13 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.30.0] - 2026-11-23
+
+### Changed
+
+- A float taller than a page is paginated instead of refused. Its lines and pictures break across pages as a block's do, and the text beside it runs down the same pages beside it; when its first piece (a figure's picture) does not fit under the text above it, the float starts the next page and that text goes with it. Before, any such float threw `unsupportedFloatFragmentation`, and on a short page that was most figures: a picture fitted to the page with a caption under it, floated beside the text, is taller than the page whenever it has a caption. Held sideways (a 760 × 300 page), 269 of the 739 chapters with a float in the app's 35-book corpus were refused; none now.
+- **Breaking:** `BrowserLayoutFailure.unsupportedFloatFragmentation(nodeID:)` is removed; nothing throws it.
+
 ## [0.29.1] - 2026-11-22
 
 ### Fixed

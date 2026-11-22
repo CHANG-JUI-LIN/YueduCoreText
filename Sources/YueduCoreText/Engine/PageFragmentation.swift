@@ -300,6 +300,12 @@ struct PageWalker {
         /// it leaves ends because its column is full, as when a text line moves.
         /// Nil for a float.
         var overflowLineHeight: CGFloat? = nil
+        /// A float taller than a page; see `nextStep`.
+        var isFloatTallerThanPage = false
+        /// Such a float's first piece — its first line box or picture — ends here
+        /// down the document. The float starts the next page when that piece does
+        /// not fit on this one (`placeMonolith`).
+        var leadingPieceEnd: CGFloat? = nil
     }
 
     struct StepText {
@@ -504,6 +510,15 @@ struct PageWalker {
     /// child after the line. See `nextStep`.
     private var sideBySide: (depth: Int, endChild: Int)? = nil
     private var sideBySideSteps: [Step] = []
+    /// While the walk is beside a float taller than a page. See `nextStep`.
+    private var besideFloat: BesideFloat? = nil
+    private struct BesideFloat {
+        /// The float being walked, until the walk leaves it. Floats do not nest
+        /// (`BrowserLayoutCapabilityScanner`), so there is one at a time.
+        var inside: ObjectIdentifier?
+        /// The lowest bottom edge of the margin boxes of the floats met so far.
+        var bottom: CGFloat
+    }
     static let maxWalkerSteps = 2_000_000
 
     init(
@@ -575,18 +590,30 @@ struct PageWalker {
     /// Emits the next fragment step in document order, or nil when the walk
     /// is exhausted.
     /// The next step in the order it is placed. That is the order the boxes
-    /// are walked in, except inside a flex line of several items taller than a
-    /// page: its items sit side by side and each runs over the same pages, and
-    /// pages are only ever filled forwards. Walked one item after another, the
-    /// second item's lines met a walker already on the first item's last page
-    /// and were put above its top edge. Their steps are gathered and placed
-    /// from the top of the line down, each line box's steps together.
+    /// are walked in, except where boxes taller than a page sit side by side,
+    /// each running over the same pages, while pages are only ever filled
+    /// forwards:
+    /// - the items of a flex line, or the cells of a table row. Walked one item
+    ///   after another, the second item's lines met a walker already on the
+    ///   first item's last page and were put above its top edge.
+    /// - a float and what flows beside it. The float is walked first, so the
+    ///   text beside it met a walker already on the float's last page in the
+    ///   same way: a figure floated beside the text, its picture fitted to a
+    ///   page and a caption under it, on any short page — an iPhone held
+    ///   sideways. Beside a float the walk is gathered until it has left the
+    ///   float and reached a step that starts below the float's margin box.
+    /// The gathered steps are placed from the top down, each line box's steps
+    /// together.
     mutating func nextStep() -> Step? {
         if !sideBySideSteps.isEmpty { return sideBySideSteps.removeFirst() }
         let step = walkToNextStep()
-        guard sideBySide != nil else { return step }
+        guard sideBySide != nil || besideFloat != nil else { return step }
         var gathered = step.map { [$0] } ?? []
-        while sideBySide != nil, let next = walkToNextStep() { gathered.append(next) }
+        if besideFloat != nil {
+            gatherBesideFloat(into: &gathered)
+        } else {
+            while sideBySide != nil, let next = walkToNextStep() { gathered.append(next) }
+        }
         var lineTops: [Int: CGFloat] = [:]
         let keyed = gathered.enumerated().map { index, step -> (top: CGFloat, index: Int, step: Step) in
             var top = step.blockStart
@@ -597,6 +624,28 @@ struct PageWalker {
         }
         sideBySideSteps = keyed.sorted { $0.top != $1.top ? $0.top < $1.top : $0.index < $1.index }.map(\.step)
         return nextStep()
+    }
+
+    /// Gathers the walk beside a float taller than a page (see `nextStep`), and
+    /// records on each such float where its first piece ends (`placeMonolith`).
+    /// The step that ends the gathering is gathered too: it starts below every
+    /// float met, so it is placed after them.
+    private mutating func gatherBesideFloat(into gathered: inout [Step]) {
+        var floatAwaitingPiece = gathered.indices.last
+        while let next = walkToNextStep() {
+            if let index = floatAwaitingPiece, besideFloat?.inside != nil, let end = next.pieceEnd,
+               case .monolith(var float) = gathered[index] {
+                float.leadingPieceEnd = end
+                gathered[index] = .monolith(float)
+                floatAwaitingPiece = nil
+            }
+            if case .monolith(let marker) = next, marker.isFloatTallerThanPage {
+                floatAwaitingPiece = gathered.count
+            }
+            gathered.append(next)
+            if let float = besideFloat, float.inside == nil, next.blockStart >= float.bottom - 0.001 { break }
+        }
+        besideFloat = nil
     }
 
     private mutating func walkToNextStep() -> Step? {
@@ -627,7 +676,7 @@ struct PageWalker {
                     width: frame.box.frame.width,
                     height: frame.box.frame.height
                 )
-                return .monolith(StepMonolith(
+                var marker = StepMonolith(
                     marginRect: DocumentRect(rawValue: CGRect(
                         x: borderRect.minX - frame.box.margins.left,
                         y: borderRect.minY - frame.box.margins.top,
@@ -635,14 +684,23 @@ struct PageWalker {
                         height: borderRect.height + frame.box.margins.vertical
                     )),
                     nodeID: frame.box.debugNodeID
-                ))
+                )
+                if !isContinuous, frame.box.isFloated, sideBySide == nil,
+                   marker.marginRect.height > pageHeight + 0.001 {
+                    marker.isFloatTallerThanPage = true
+                    besideFloat = BesideFloat(
+                        inside: ObjectIdentifier(frame.box),
+                        bottom: max(besideFloat?.bottom ?? -.infinity, marker.marginRect.maxY)
+                    )
+                }
+                return .monolith(marker)
             }
             if let line = stack[index].box.flexItem?.lineRect, !stack[index].flexLineEmitted {
                 // The first item of a flex line of several: they sit side by
                 // side, so the line goes to the next page whole when it fits one.
                 stack[index].flexLineEmitted = true
                 let frame = stack[index]
-                if !isContinuous, line.height > pageHeight, sideBySide == nil, index > 0 {
+                if !isContinuous, line.height > pageHeight, sideBySide == nil, besideFloat == nil, index > 0 {
                     // The parent's `childIndex` is already past this item.
                     sideBySide = (index - 1, stack[index - 1].childIndex - 1 + (frame.box.flexItem?.lineItemCount ?? 1))
                 }
@@ -662,7 +720,7 @@ struct PageWalker {
                 // put above the top edge of the page the first had reached.
                 stack[index].flexLineEmitted = true
                 let frame = stack[index]
-                if frame.box.frame.height > pageHeight, sideBySide == nil {
+                if frame.box.frame.height > pageHeight, sideBySide == nil, besideFloat == nil {
                     sideBySide = (index, frame.box.children.count)
                 }
                 return .monolith(StepMonolith(
@@ -1037,6 +1095,9 @@ struct PageWalker {
                     originalEndY: frame.borderY + frame.box.frame.height
                 ))
             }
+            if let float = besideFloat?.inside, float == ObjectIdentifier(stack[index].box) {
+                besideFloat?.inside = nil
+            }
             stack.removeLast()
         }
         return nil
@@ -1133,8 +1194,12 @@ struct PageWalker {
     /// A float that fits a full fragmentainer is atomic. The structural marker
     /// is emitted before any of the float's paint/content, so one flowShift
     /// relocates the complete float and every following sibling together.
-    /// Oversized replaced floats stay on the generic image scale-to-fit path;
-    /// non-replaced oversized/complex floats are rejected by the scanner.
+    /// A float taller than a page cannot move whole. Its lines and pictures
+    /// break across pages like any block's, beside the text that flows around
+    /// it (`nextStep`); only its first piece decides where it starts: when the
+    /// picture of a figure does not fit under the text above it, the figure
+    /// starts the next page, as a browser pushes a float whose first line does
+    /// not fit, and the text beside it moves with it.
     ///
     /// The line box of an inline-block is placed the same way, so a box that
     /// fits a page is never cut in two. One taller than a page cannot move
@@ -1146,8 +1211,11 @@ struct PageWalker {
         let shiftedY = step.marginRect.minY + flowShift
         var target = max(0, Int(floor(shiftedY / pageHeight)))
         let pageLocalY = shiftedY - CGFloat(target) * pageHeight
-        if step.marginRect.height <= pageHeight,
-           pageLocalY + step.marginRect.height > pageHeight + 0.001 {
+        let mustFit = step.marginRect.height <= pageHeight
+            ? step.marginRect.height
+            : step.leadingPieceEnd.map { $0 - step.marginRect.minY }
+        if let mustFit, mustFit <= pageHeight,
+           pageLocalY + mustFit > pageHeight + 0.001 {
             target += 1
             let movedY = CGFloat(target) * pageHeight
             flowShift += movedY - shiftedY
@@ -2024,6 +2092,20 @@ extension PageWalker.Step {
         case .text(let text): return text.rect.minY
         case .ruby(let ruby): return ruby.placementRect.minY
         case .image(let image): return image.rect.minY
+        }
+    }
+
+    /// Where the step ends down the document when pagination places it as one
+    /// piece — a line box, a picture with the rest of its line, an inline-block's
+    /// line — and nil for what is placed with the piece it belongs to, or (a
+    /// float taller than a page) is not placed whole.
+    var pieceEnd: CGFloat? {
+        switch self {
+        case .inlineLineStart(let line): return line.placementRect.maxY
+        case .image(let image): return image.rect.maxY + image.trailingLineExtent
+        case .ruby(let ruby): return ruby.placementRect.maxY
+        case .monolith(let box): return box.marginRect.height > 0 && !box.isFloatTallerThanPage ? box.marginRect.maxY : nil
+        case .fill, .fillEnd, .text: return nil
         }
     }
 

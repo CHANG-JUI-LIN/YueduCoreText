@@ -200,17 +200,6 @@ final class BrowserLayoutDocument {
             )
             RootElementBox.addInsets(to: rootBox, pageWidth: viewportWidth, rootFontSize: config.rootFontSize) }
         }
-        if let fragmentHeight,
-           let oversized = Self.firstOversizedNonReplacedFloat(
-                in: rootBox,
-                fragmentHeight: fragmentHeight
-           ) {
-            // Phase 4B support boundary: a non-replaced float may not split
-            // across fragmentainers. This precise post-layout trigger makes
-            // browserAuto fall back for the whole chapter; replaced images were
-            // already fitted atomically by BlockLayout above.
-            throw BrowserLayoutError.unsupportedFloatFragmentation(nodeID: oversized.debugNodeID)
-        }
         if let report = config.onDiagnostic {
             func trace(_ box: BlockBox) {
                 for (index, line) in box.lines.enumerated() {
@@ -264,26 +253,6 @@ final class BrowserLayoutDocument {
     }
 
     typealias BrowserLayoutError = BrowserLayoutFailure
-
-    private static func firstOversizedNonReplacedFloat(
-        in box: BlockBox,
-        fragmentHeight: CGFloat
-    ) -> BlockBox? {
-        if box.isFloated,
-           box.imageAttachment == nil,
-           box.frame.height + box.margins.vertical > fragmentHeight + 0.001 {
-            return box
-        }
-        for child in box.children + box.inlineBlockBoxes {
-            if let match = firstOversizedNonReplacedFloat(
-                in: child,
-                fragmentHeight: fragmentHeight
-            ) {
-                return match
-            }
-        }
-        return nil
-    }
 
     /// 多看 popup-footnote payload: `<ol class="duokan-footnote-content">
     /// <li class="duokan-footnote-item" id="m1">…</li></ol>` at the chapter tail.

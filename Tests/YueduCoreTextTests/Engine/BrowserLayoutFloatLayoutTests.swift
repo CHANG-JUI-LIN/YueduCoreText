@@ -512,22 +512,79 @@ struct BrowserLayoutFloatLayoutTests {
         #expect(following.rect.minX >= fittedImage.rect.width)
     }
 
-    @Test func oversizedNonReplacedFloatTriggersWholeChapterFallback() async {
+    /// A float taller than a page breaks between its lines like a block, and the
+    /// text beside it runs down the same pages. Walked float first, the text
+    /// beside it was put above the top edge of the float's last page; the engine
+    /// used to refuse such a chapter instead.
+    @Test func floatTallerThanAPageBreaksBesideItsText() async throws {
+        let floated = (0..<14).map { "左\($0 % 10)" }.joined(separator: "<br/>")
+        let beside = (0..<14).map { "右\($0 % 10)" }.joined(separator: "<br/>")
         let html = """
-        <html><body style="margin: 0">
-        <div style="float: left; width: 100px; height: 240px">Too tall</div>
-        <p style="margin: 0">Following text</p>
+        <html><body style="margin: 0; font-size: 20px; line-height: 1">
+        <div style="float: left; width: 100px">\(floated)</div>
+        <p style="margin: 0">\(beside)</p>
+        <p style="margin: 0">後</p>
+        </body></html>
+        """
+        let doc = BrowserLayoutDocument(html: html, cssTexts: [], config: makeConfig(renderHeight: 100))
+        let pages = try await doc.renderPages(containerSize: CGSize(width: 390, height: 100))
+        // (A `<br>` is a fragment of no width.)
+        let inked = pages.map { textFragments(in: $0).map(\.rect.rawValue).filter { $0.width > 0 } }
+        #expect(inked.reduce(0) { $0 + $1.count } == 29)
+        for (index, rects) in inked.enumerated() {
+            #expect(rects.allSatisfy { $0.minY >= -0.5 && $0.maxY <= 100.5 }, "page \(index): \(rects)")
+        }
+        // Both sides run down the same pages.
+        #expect(inked.prefix(2).allSatisfy { rects in
+            rects.contains { $0.minX < 1 } && rects.contains { $0.minX >= 99.5 }
+        }, "\(inked)")
+    }
+
+    /// The figure that made every short page fail (an iPhone held sideways): a
+    /// picture fitted to the page and a caption under it, floated beside the
+    /// text. The picture is never cut, the caption follows it, and the text
+    /// beside the picture stays on its page.
+    @Test func figureTallerThanAPageKeepsItsPictureWholeBesideTheText() async throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 887)).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 600, height: 887))
+        }
+        let beside = (0..<30).map { "字\($0 % 10)" }.joined(separator: "<br/>")
+        let html = """
+        <html><body style="margin: 0; font-size: 20px; line-height: 1">
+        <p style="margin: 0">前</p>
+        <div style="float: right; width: 50%; margin: 4px; text-align: center">
+        <img src="figure.png" width="85%"><p style="margin: 0">圖說</p>
+        </div>
+        <p style="margin: 0">\(beside)</p>
         </body></html>
         """
         let doc = BrowserLayoutDocument(
-            html: html,
-            cssTexts: [],
-            config: makeConfig(renderHeight: 200)
+            html: html, cssTexts: [], config: makeConfig(renderHeight: 200),
+            imageLoader: { $0 == "figure.png" ? image : nil }
         )
-
-        await #expect(throws: BrowserLayoutDocument.BrowserLayoutError.self) {
-            _ = try await doc.renderPages(containerSize: CGSize(width: 390, height: 200))
+        let pages = try await doc.renderPages(containerSize: CGSize(width: 390, height: 200))
+        let pictures = pages.enumerated().flatMap { index, page in
+            imageFragments(in: page).map { (page: index, rect: $0.rect.rawValue) }
         }
+        #expect(pictures.count == 1)
+        let picture = try #require(pictures.first)
+        #expect(picture.rect.minY >= -0.5 && picture.rect.maxY <= 200.5, "the picture is cut: \(picture)")
+        let inked = pages.map { textFragments(in: $0).filter { $0.rect.rawValue.width > 0 } }
+        #expect(inked.reduce(0) { $0 + $1.count } == 32)
+        for (index, fragments) in inked.enumerated() {
+            let rects = fragments.map(\.rect.rawValue)
+            #expect(rects.allSatisfy { $0.minY >= -0.5 && $0.maxY <= 200.5 }, "page \(index): \(rects)")
+        }
+        let source = doc.lastSourceText as NSString
+        let captionPage = inked.firstIndex { fragments in
+            fragments.contains {
+                NSMaxRange($0.sourceRange) <= source.length && source.substring(with: $0.sourceRange).contains("圖")
+            }
+        }
+        #expect(captionPage == picture.page + 1)
+        #expect(inked[picture.page].contains { $0.rect.rawValue.maxX <= picture.rect.minX + 0.5 },
+                "no text beside the picture on its page")
     }
 
     // MARK: - 13. Percentage width float
