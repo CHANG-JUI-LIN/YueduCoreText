@@ -135,19 +135,19 @@ enum BlockLayout {
 
         // A flex container's children are its items: `FlexLayout` sizes and
         // places them, and only the ones out of the flow are left to the loop.
-        let laysOutFlexItems = box.styleIsFlexContainer && writingMode == .horizontal && box.imageAttachment == nil
-        if laysOutFlexItems {
-            cursorBlock = FlexLayout.layOutItems(of: box, env: FlexLayout.Environment(
-                rootFontSize: rootFontSize, textWritingMode: textWritingMode, sourceText: sourceText,
-                fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
-                fragmentHeight: fragmentHeight, viewportHeight: viewportHeight, viewportWidth: viewportWidth,
-                viewport: viewport))
-        }
+        // (All of it is in functions of their own: every local and argument
+        // here is paid for by each level of nesting, flex or not.)
+        layOutFlexItems(
+            of: box, writingMode: writingMode, into: &cursorBlock,
+            rootFontSize: rootFontSize, textWritingMode: textWritingMode, sourceText: sourceText,
+            fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
+            fragmentHeight: fragmentHeight, viewportHeight: viewportHeight, viewportWidth: viewportWidth,
+            viewport: viewport)
 
         for child in box.children {
             // A caller that will discard this tree stops here (see `LayoutAbandonment`).
             if Task.isCancelled, LayoutAbandonment.whenCancelled { break }
-            if laysOutFlexItems, child.flexItem != nil { continue }
+            if isLaidOutFlexItem(child, of: box, writingMode: writingMode) { continue }
             if child.isAbsolutelyPositioned, writingMode == .horizontal {
                 layOutAbsolutelyPositioned(
                     child, in: box, rootFontSize: rootFontSize, textWritingMode: textWritingMode,
@@ -917,6 +917,32 @@ extension BlockLayout {
     static func establishesBlockFormattingContext(_ box: BlockBox) -> Bool {
         box.style.isFloated || box.isInlineBlock || box.style.display == .tableCell
             || box.isAbsolutelyPositioned || box.flexItem != nil || box.style.isFlexContainer
+    }
+
+    private static func laysOutFlexItems(_ box: BlockBox, writingMode: ReaderWritingMode) -> Bool {
+        box.styleIsFlexContainer && writingMode == .horizontal && box.imageAttachment == nil
+    }
+
+    /// A child `layOutFlexItems` has already placed.
+    @inline(never)
+    private static func isLaidOutFlexItem(_ child: BlockBox, of parent: BlockBox, writingMode: ReaderWritingMode) -> Bool {
+        child.flexItem != nil && laysOutFlexItems(parent, writingMode: writingMode)
+    }
+
+    @inline(never)
+    private static func layOutFlexItems(
+        of box: BlockBox, writingMode: ReaderWritingMode, into cursorBlock: inout CGFloat,
+        rootFontSize: CGFloat, textWritingMode: ReaderWritingMode?, sourceText: String,
+        fontResolver: (([String], Int, Bool, CGFloat) -> UIFont?)?, cjkTypographyStyle: CJKTypographyStyle?,
+        fragmentHeight: CGFloat?, viewportHeight: CGFloat?, viewportWidth: CGFloat?,
+        viewport: BrowserViewportLayoutState?
+    ) {
+        guard laysOutFlexItems(box, writingMode: writingMode) else { return }
+        cursorBlock = FlexLayout.layOutItems(of: box, env: FlexLayout.Environment(
+            rootFontSize: rootFontSize, textWritingMode: textWritingMode, sourceText: sourceText,
+            fontResolver: fontResolver, cjkTypographyStyle: cjkTypographyStyle,
+            fragmentHeight: fragmentHeight, viewportHeight: viewportHeight, viewportWidth: viewportWidth,
+            viewport: viewport))
     }
 
     /// A picture's used size in a container `containingInlineSize` wide, for

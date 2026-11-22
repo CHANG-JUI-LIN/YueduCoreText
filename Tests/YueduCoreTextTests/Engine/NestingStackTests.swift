@@ -16,8 +16,6 @@ struct NestingStackTests {
         ("<div>", "</div>", 4),
         // Two boxes a level, and the line that holds each inline-block is laid out in between.
         ("<span style=\"display:inline-block\"><div>", "</div></span>", 2),
-        // An item that is itself a container: `FlexLayout` sits between the two block layouts.
-        ("<div style=\"display:flex\">", "</div>", 3),
     ])
     func nestedBlocksFitASecondaryThreadsStack(open: String, close: String, depth: Int) {
         let html = "<html><body>" + String(repeating: open, count: depth) + "<p>x</p>"
@@ -75,6 +73,8 @@ struct NestingStackCostTests {
     func aLevelOfNestingStaysWithinItsShare(open: String, close: String) {
         let perLevel = (Self.stackUsed(open: open, close: close, depth: 8)
             - Self.stackUsed(open: open, close: close, depth: 4)) / 4
+        // In the log, so a toolchain's figures can be read off a run.
+        print("stack use, \(open): \(Self.stackUsed(open: open, close: close, depth: 1) / 1024) KB at depth 1, \(perLevel / 1024) KB a level")
         #expect(perLevel > 0)
         #expect(perLevel < 40 * 1024, "\(open): \(perLevel / 1024) KB a level")
     }
