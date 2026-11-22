@@ -67,7 +67,8 @@ extension VerticalLayoutTests {
         let item = try #require(list.items.compactMap { if case .text(let t) = $0 { return t }; return nil }.first)
         // The native frame gets the same orientation the engine gives every vertical
         // line: CSS Writing Modes 3 `text-orientation: mixed`, so ABC123 lies on its side.
-        let native = NSMutableAttributedString(string: source, attributes: [.font:font])
+        // And no pair kerning, as the engine sets vertical text (`InlineLayout.disableFontKerning`).
+        let native = NSMutableAttributedString(string: source, attributes: [.font:font, .kern: 0])
         CJKTypography.applyOrientation(to: native)
         let frame = CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(native),
             CFRange(location:0,length:0), CGPath(rect:CGRect(origin:.zero,size:size),transform:nil),

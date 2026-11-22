@@ -75,4 +75,58 @@ struct RootElementBoxTests {
         style.maxHeight = .em(28)
         #expect(RootElementBox.hasBox(style))
     }
+
+    /// A box sized to its text still holds it: the width measured from content
+    /// is rounded up to the unit.
+    @Test func aBoxSizedToItsTextDoesNotBreakIt() async throws {
+        let layout = try await BrowserLayoutTestSupport.webKitReference(
+            "<p><span class=\"b\">\(String(repeating: "字", count: 7))</span></p>",
+            css: "html { font-size: 14pt; } .b { display: inline-block; }")
+        #expect(BrowserLayoutTestSupport.allTextFragments(layout.pages).count == 1)
+    }
+}
+
+/// Columns their text fills exactly, against WKWebView iOS 27.2 (the app's fixture S021:
+/// `html { max-height: 28em; font-size: 14pt }`, Hiragino Mincho). What decides the last
+/// character: the font's pair kerning, which WebKit does not apply down a column, and the
+/// sliver a ruby's annotation adds when it is as wide as its base.
+struct ExactFitColumnTests {
+    private static let css = """
+        html { max-height: 28em; font-size: 14pt; font-family: "HiraMinProN-W3"; }
+        body { margin: 0 } p { margin: 0 } rt { font-size: 50% }
+        """
+    private static let filler = String(repeating: "字", count: 40)
+
+    /// The characters of the base text in the paragraph's first column.
+    private func firstColumn(_ body: String) async throws -> Int {
+        let layout = try await BrowserLayoutTestSupport.webKitReference(body, css: Self.css, vertical: true, lang: "ja", rootFamilies: [])
+        let texts = BrowserLayoutTestSupport.allTextFragments(layout.pages).filter { $0.font.pointSize > 12 }
+        let right = try #require(texts.map(\.rect.rawValue.maxX).max())
+        return texts.filter { abs($0.rect.rawValue.maxX - right) < 1 }.reduce(0) { $0 + $1.sourceRange.length }
+    }
+
+    @Test func plainTextFillsTheColumn() async throws {
+        #expect(try await firstColumn("<p>\(Self.filler)</p>") == 28)
+        // か before 、 and く before つ are kerned pairs in this font; a column holds 28 all the same.
+        #expect(try await firstColumn("<p>どか、くつろげて、束の間の命を、束の間でも住みよくせねばならぬ。ここに詩人</p>") == 28)
+    }
+
+    @Test(arguments: [
+        ("<ruby>角<rt>かど</rt></ruby>", 1, 28),       // as wide as its base: one sliver still fits
+        ("<ruby>智<rt>ち</rt></ruby>", 1, 28),         // narrower than its base
+        ("<ruby>山路<rt>やまみち</rt></ruby>", 2, 27),  // as wide as two characters: two slivers
+        ("<ruby>山<rt>やま</rt></ruby><ruby>路<rt>みち</rt></ruby>", 2, 27),
+        ("<ruby>情<rt>じょう</rt></ruby>", 1, 27),      // wider than its base
+    ])
+    func aRubyAsWideAsItsBaseTakesASliverMore(_ ruby: String, _ base: Int, _ expected: Int) async throws {
+        // The column's base characters: the ruby's and the 字 that follow it.
+        let layout = try await BrowserLayoutTestSupport.webKitReference(
+            "<p>\(ruby)\(Self.filler)</p>", css: Self.css, vertical: true, lang: "ja", rootFamilies: [])
+        let source = layout.doc.lastSourceText as NSString
+        let texts = BrowserLayoutTestSupport.allTextFragments(layout.pages).filter { $0.font.pointSize > 12 }
+        let right = try #require(texts.map(\.rect.rawValue.maxX).max())
+        let filler = texts.filter { abs($0.rect.rawValue.maxX - right) < 1 }
+            .reduce(0) { $0 + (source.substring(with: $1.sourceRange).filter { $0 == "字" }.count) }
+        #expect(filler + base == expected, "\(ruby): \(filler) + \(base)")
+    }
 }

@@ -132,7 +132,16 @@ enum RubyInlineLayout {
         }
         for index in next..<base.pieces.count { shifts[index] = extra }
         let baseWidth = base.width + extra
-        let advance = max(baseWidth, annotation.width)
+        // The annotation is a box of its own, as wide as its text rounded up to WebKit's
+        // layout unit, and the ruby is as wide as the wider of the two. An annotation
+        // exactly as wide as its base (two kana to a kanji, the usual reading) therefore
+        // makes the ruby a sliver wider than the base: 18.671875 for 18.6667 at 14pt,
+        // 37.34375 for two kanji. On a line the text fills exactly, one such sliver still
+        // fits (the line breaker's hundredth of a point) and two do not: a character goes
+        // to the next line. Measured, WKWebView iOS 27.2, the app's fixture S021: a column
+        // of 28em holds 28 characters with 角(かど) in it, and 27 with 山路(やまみち) or
+        // with 山(やま)路(みち).
+        let advance = max(baseWidth, LayoutUnit.ceil(annotation.width))
         let baseOffsetX = (advance - baseWidth) / 2
 
         // Each side's annotations stack outward from the base's content box, the inner ones first:
@@ -275,6 +284,9 @@ enum RubyInlineLayout {
             attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
                                     value: true, range: NSRange(location: 0, length: attributed.length))
         }
+        // Ruby text is set without the font's pair kerning in either direction: WebKit's
+        // 14 kana of いかにもむずかしいハイザイね are 119px at 8.5px, Core Text's kerned 118.15.
+        InlineLayout.disableFontKerning(in: attributed)
         let line = CTLineCreateWithAttributedString(attributed)
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         // WebKit's content box: each font's ascent and descent rounded up, as a line's text

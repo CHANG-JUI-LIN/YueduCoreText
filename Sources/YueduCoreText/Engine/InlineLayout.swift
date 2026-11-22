@@ -807,7 +807,25 @@ enum InlineLayout {
     static func applyVerticalOrientation(to attributed: NSMutableAttributedString) {
         attributed.addAttribute(kCTVerticalFormsAttributeName as NSAttributedString.Key,
                                 value: true, range: NSRange(location: 0, length: attributed.length))
+        disableFontKerning(in: attributed)
         CJKTypography.applyOrientation(to: attributed)
+    }
+
+    /// Turns the fonts' own pair kerning off, wherever the text sets no spacing of its own
+    /// (letter-spacing and the punctuation pass write `.kern` too, and keep theirs).
+    ///
+    /// For vertical text. Hiragino Mincho kerns kana pairs: く before つ, か before 、. Core
+    /// Text applies that down a column as along a line, and WKWebView does not: at 14pt its
+    /// どか、 is 56px long where Core Text's is 55.07, and four kana of ruby are 37.33 where
+    /// Core Text's are 37.05. A column of 28em so held a character more than WebKit's.
+    /// Measured, WKWebView iOS 27.2, 草枕 and the app's fixture S021.
+    static func disableFontKerning(in attributed: NSMutableAttributedString) {
+        let whole = NSRange(location: 0, length: attributed.length)
+        var unset: [NSRange] = []
+        attributed.enumerateAttribute(.kern, in: whole) { value, range, _ in
+            if value == nil { unset.append(range) }
+        }
+        for range in unset { attributed.addAttribute(.kern, value: 0, range: range) }
     }
 
     /// The fonts Core Text's cascade draws `text` in when `asked` lacks some of its characters.

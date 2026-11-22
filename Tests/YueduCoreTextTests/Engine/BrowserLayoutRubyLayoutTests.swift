@@ -169,9 +169,10 @@ struct BrowserLayoutRubyMeasurementTests {
         ] {
             let result = try pipeline(body)
             let box = try #require(BrowserLayoutRubyTestProbe.rubyBoxes(in: result.rootBox).only)
-            #expect(abs(box.advance - max(box.base.width, box.annotation.width)) < 0.01)
-            #expect(abs(box.baseOffsetX - (box.advance - box.base.width) / 2) < 0.01)
-            #expect(abs(box.annotationOffsetX - (box.advance - box.annotation.width) / 2) < 0.01)
+            // (The annotation counts as a box of whole layout units: up to 1/64 more.)
+            #expect(abs(box.advance - max(box.base.width, box.annotation.width)) < 0.02)
+            #expect(abs(box.baseOffsetX - (box.advance - box.base.width) / 2) < 0.02)
+            #expect(abs(box.annotationOffsetX - (box.advance - box.annotation.width) / 2) < 0.02)
         }
     }
 

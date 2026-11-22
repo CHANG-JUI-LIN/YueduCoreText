@@ -39,11 +39,10 @@ struct PartialNestedRubyReferenceTests {
     ]
 
     /// Each ruby's room along its line, from the end of the 甲 before it to the start of the 乙
-    /// after it: WebKit's ruby box. `lo`'s is its outer annotation, 14 kana: 119 in WebKit, here
-    /// 118.15 (118.065 down a column), because the package sets kana annotations in Hiragino Sans,
-    /// whose kerning narrows ハイ and ザイ, for any ruby (a finding of its own, not this shape's).
+    /// after it: WebKit's ruby box. `lo`'s is its outer annotation, 14 kana: 119 in WebKit. (Core
+    /// Text's pair kerning narrows ハイ and ザイ, to 118.15; ruby text is set without it.)
     private static let advances: [(row: String, horizontal: CGFloat, vertical: CGFloat)] = [
-        ("pre", 51, 51), ("post", 34, 34), ("mid", 76.5, 76.5), ("lo", 118.15, 118.065), ("ol", 51, 51),
+        ("pre", 51, 51), ("post", 34, 34), ("mid", 76.5, 76.5), ("lo", 119, 119), ("ol", 51, 51),
         ("span", 34, 34), ("wi", 68, 68), ("two", 85, 85),
     ]
 
@@ -132,7 +131,7 @@ struct PartialNestedRubyReferenceTests {
             let after = source.range(of: "乙", range: NSRange(location: range.location + 1, length: range.length - 1))
             let next = try #require(Self.base(at: after.location, in: texts), "\(row) 乙")
             let nextStart = Self.span(next.rect.rawValue, vertical: vertical).start
-            #expect(abs(nextStart - start - advance) <= 0.01,
+            #expect(abs(nextStart - start - advance) <= 0.02,
                     "\(vertical ? "vertical" : "horizontal") \(row): \(nextStart - start), WebKit \(advance)")
         }
     }

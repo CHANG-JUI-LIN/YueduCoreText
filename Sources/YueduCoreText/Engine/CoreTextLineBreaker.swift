@@ -57,7 +57,9 @@ final class CoreTextLineBreaker {
         if recordMemory {
             MemoryTracker.record(.ctLineRun, bytes: 192)  // ~192B per retained CTLine (estimate)
         }
-        var count = CTTypesetterSuggestLineBreak(typesetter, charIndex, maxWidth)
+        // Half a layout unit of room (`LayoutUnit`): a line whose text is its box's width
+        // plus the sliver one ruby adds still fits, as it does in WebKit; two do not.
+        var count = CTTypesetterSuggestLineBreak(typesetter, charIndex, maxWidth + LayoutUnit.fitTolerance)
 
         if let held = noWrapBreak(attributed: attributed, nsString: nsString, typesetter: typesetter,
                                   start: charIndex, suggested: count) {
@@ -121,7 +123,7 @@ final class CoreTextLineBreaker {
         // Trim until the line truly fits: the breaker's contract is that
         // returned lines never exceed maxWidth.
         let originalCount = count
-        while width > maxWidth && count > 1 {
+        while width > maxWidth + LayoutUnit.fitTolerance && count > 1 {
             count -= 1
             line = CTTypesetterCreateLine(typesetter, CFRange(location: charIndex, length: count))
             (width, ascent, descent) = metrics(for: line)
