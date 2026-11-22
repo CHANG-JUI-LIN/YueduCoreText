@@ -21,14 +21,15 @@ import YueduCoreTextTypography
 ///
 /// What is not: reversed directions and `order` (admission turns them away),
 /// baseline alignment (items are aligned to the line's start), `align-content`
-/// (the lines of a wrapping container are packed at the start), shrinking in a
-/// column, and stretching a picture across a row's height.
+/// (the lines of a wrapping container are packed at the start), and shrinking
+/// in a column.
 ///
 /// Pagination: the items of a row sit side by side, so a line of several
 /// items is moved to the next page whole when it does not fit what is left of
-/// this one (`FlexItemState.lineRect`). A line taller than a page is walked
-/// item by item like a table row. A column, and a line of one item, break
-/// between and inside their items like any block.
+/// this one (`FlexItemState.lineRect`). A line taller than a page breaks
+/// across pages with its items still side by side (`PageWalker.nextStep`). A
+/// column, and a line of one item, break between and inside their items like
+/// any block.
 enum FlexLayout {
 
     /// What `BlockLayout.layOut` passes down unchanged.
@@ -122,6 +123,7 @@ enum FlexLayout {
             }
             items[start].box.flexItem?.lineRect = end - start > 1
                 ? CGRect(x: 0, y: lineTop, width: width, height: cross) : nil
+            items[start].box.flexItem?.lineItemCount = end - start
             lineTop += cross + container.rowGap
             start = end
         }
@@ -260,7 +262,7 @@ enum FlexLayout {
         } else {
             switch item.align {
             case .stretch:
-                if item.hasAutoHeight, !item.isPicture, free > 0 { stretch(&item, by: free, env: env) }
+                if item.hasAutoHeight, free > 0 { stretch(&item, by: free, env: env) }
             case .center: shift = free / 2
             case .end: shift = free
             case .start: break
@@ -278,8 +280,9 @@ enum FlexLayout {
             var item = items[index]
             let available = width - item.margins.horizontal - item.chromeWidth
             let stretches = item.align == .stretch && !item.autoLeft && !item.autoRight
-            // Stretched, an item is as wide as the container; otherwise as wide
-            // as its content, at most what the container leaves it (§9.4 step 7).
+            // Stretched, an item is as wide as the container, a picture too, which
+            // keeps its proportions; otherwise as wide as its content, at most
+            // what the container leaves it (§9.4 step 7).
             let size = item.specifiedWidth ?? (stretches ? available : min(item.base, available))
             item.main = max(item.minimum ?? 0, min(size, item.maximum), 0)
             item.height = layOut(item, forcedContentHeight: nil, env: env)
@@ -395,7 +398,9 @@ enum FlexLayout {
     private static func stretch(_ item: inout Item, by extra: CGFloat, env: Environment) {
         let box = item.box
         let contentHeight = box.contentSize.height + extra
-        if item.isFlexContainer {
+        // So is a picture, whose box is the picture: stretched, it is drawn to
+        // the new height at the width it had (measured, WebKit iOS 27.2).
+        if item.isFlexContainer || item.isPicture {
             item.height = layOut(item, forcedContentHeight: contentHeight, env: env)
             return
         }
@@ -481,7 +486,6 @@ enum FlexLayout {
             child.style = style
             BlockLayout.resolvePictureSize(in: child, containingInlineSize: width, env: env)
             item.base = child.imageAttachment?.usedSize.width ?? 0
-            item.specifiedWidth = parent.style.flexIsColumn ? item.base : item.specifiedWidth
         } else {
             item.base = item.specifiedWidth ?? state.maxContentWidth
         }

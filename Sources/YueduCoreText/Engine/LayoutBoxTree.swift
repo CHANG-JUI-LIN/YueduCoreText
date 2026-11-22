@@ -297,6 +297,8 @@ final class FlexItemState {
     /// the container's content box. The page walker moves such a line to the
     /// next page whole, as its items sit side by side.
     var lineRect: CGRect? = nil
+    /// Beside `lineRect`: how many items the line holds, this one included.
+    var lineItemCount = 1
 
     init(authored: ComputedStyle, maxContentWidth: CGFloat) {
         self.authored = authored

@@ -4,6 +4,7 @@ import Testing
 import UIKit
 
 @testable import YueduCoreText
+import YueduCoreTextTypography
 
 /// A flex container with several items: each child element, and each run of
 /// text between them, is an item sized and placed by `FlexLayout`. Such a
@@ -210,5 +211,82 @@ struct FlexItemsTests {
         }
         #expect(inked(pages[0]) == 5)
         #expect(inked(pages[1]) == 1)
+    }
+
+    /// Two items side by side, each longer than a page: every line is on a
+    /// page, inside it, and the pages hold both items' text.
+    @Test func aLineTallerThanAPageKeepsAllItsText() async throws {
+        let left = (0..<12).map { "左\($0 % 10)" }.joined(separator: "<br/>")
+        let right = (0..<12).map { "右\($0 % 10)" }.joined(separator: "<br/>")
+        let pages = try await layout("<div class=\"f\"><div>\(left)</div><div>\(right)</div></div><p>後</p>",
+                                     css: ".f { display: flex; }", height: 100)
+        let inked = pages.map { page in
+            BrowserLayoutTestSupport.allTextFragments([page]).map(\.rect.rawValue).filter { $0.width > 0 }
+        }
+        #expect(inked.reduce(0) { $0 + $1.count } == 25)
+        for (index, rects) in inked.enumerated() {
+            #expect(rects.allSatisfy { $0.minY >= -0.5 && $0.maxY <= 100.5 }, "page \(index): \(rects)")
+        }
+        // Both columns run down the same pages.
+        #expect(inked.prefix(2).allSatisfy { rects in rects.contains { $0.minX < 1 } && rects.contains { $0.minX > 30 } },
+                "\(inked)")
+    }
+
+    private static func picture(_ width: CGFloat, _ height: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { context in
+            UIColor.gray.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+    }
+
+    private func pictureLayout(_ body: String, css: String, height: CGFloat = 800) async throws -> [PageFragments] {
+        try await BrowserLayoutTestSupport.layout("<html><body>\(body)</body></html>", cssTexts: [reset + css],
+                                                  width: 400, height: height,
+                                                  imageLoader: { _ in Self.picture(100, 50) }).0
+    }
+
+    @Test func aPictureIsAnItemBesideText() async throws {
+        let pages = try await pictureLayout("<div class=\"f\"><img src=\"a.png\"/><div class=\"t\">說明</div></div>",
+                                            css: ".f { display: flex; align-items: center; gap: 10px; }")
+        let image = try #require(BrowserLayoutTestSupport.allImageFragments(pages).first).rect.rawValue
+        let text = try #require(BrowserLayoutTestSupport.allTextFragments(pages).first).rect.rawValue
+        #expect(close(image.minX, 0) && close(image.width, 100) && close(image.height, 50), "\(image)")
+        #expect(close(text.minX, 110) && close(text.midY, image.midY), "\(text)")
+    }
+
+    @Test func aPictureIsCentredInAColumnWithAHeight() async throws {
+        let css = ".f { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; }"
+        let pages = try await pictureLayout("<div class=\"f\"><img src=\"a.png\"/><p>圖說</p></div>", css: css)
+        let image = try #require(BrowserLayoutTestSupport.allImageFragments(pages).first).rect.rawValue
+        let text = try #require(BrowserLayoutTestSupport.allTextFragments(pages).first).rect.rawValue
+        #expect(close(image.midX, 200) && close(image.minY, 115) && close(image.width, 100), "\(image)")
+        #expect(close(text.midX, 200) && close(text.minY, 165), "\(text)")
+    }
+
+    /// Stretched, the default, a picture fills a column's width and keeps its
+    /// proportions, and across a row takes the line's height at its own width
+    /// (measured, WebKit iOS 27.2: 120×80 becomes 366×244 and 120×127.5).
+    @Test func aStretchedPictureFillsTheCrossAxis() async throws {
+        let column = try await pictureLayout("<div class=\"f\"><img src=\"a.png\"/><p>圖說</p></div>",
+                                             css: ".f { display: flex; flex-direction: column; }")
+        let wide = try #require(BrowserLayoutTestSupport.allImageFragments(column).first).rect.rawValue
+        #expect(close(wide.width, 400) && close(wide.height, 200), "\(wide)")
+        let row = try await pictureLayout("<div class=\"f\"><img src=\"a.png\"/><div>一<br/>二<br/>三<br/>四</div></div>",
+                                          css: ".f { display: flex; }")
+        let tall = try #require(BrowserLayoutTestSupport.allImageFragments(row).first).rect.rawValue
+        #expect(close(tall.width, 100) && close(tall.height, 80), "\(tall)")
+    }
+
+    /// Max-content widths are measured in the fonts the text is shaped in: with
+    /// the app's CJK typography, Han text is set in its language's font, and an
+    /// item measured in another came out a hair too narrow for its own text.
+    @Test func anItemIsAsWideAsItsTextIsShaped() async throws {
+        let layout = try await BrowserLayoutTestSupport.webKitReference(
+            "<div style=\"display:flex;justify-content:space-between\"><span>左邊</span><span>中間</span><span>右邊</span></div>",
+            rootFamilies: [], cjk: .traditional)
+        let found = BrowserLayoutTestSupport.allTextFragments(layout.pages)
+        #expect(found.count == 3, "each item is one line: \(found.map(\.rect.rawValue))")
     }
 }

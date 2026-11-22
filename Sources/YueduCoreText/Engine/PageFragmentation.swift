@@ -499,6 +499,11 @@ struct PageWalker {
     /// Defensive step budget: a corrupted box tree must never hang pagination
     /// forever. Each `nextStep` consumes one; exceeding the budget throws.
     private var stepBudget = 0
+    /// While the walk is inside a flex line of several items taller than a
+    /// page: the container's depth in `stack`, and the index of its first
+    /// child after the line. See `nextStep`.
+    private var sideBySide: (depth: Int, endChild: Int)? = nil
+    private var sideBySideSteps: [Step] = []
     static let maxWalkerSteps = 2_000_000
 
     init(
@@ -569,7 +574,32 @@ struct PageWalker {
 
     /// Emits the next fragment step in document order, or nil when the walk
     /// is exhausted.
+    /// The next step in the order it is placed. That is the order the boxes
+    /// are walked in, except inside a flex line of several items taller than a
+    /// page: its items sit side by side and each runs over the same pages, and
+    /// pages are only ever filled forwards. Walked one item after another, the
+    /// second item's lines met a walker already on the first item's last page
+    /// and were put above its top edge. Their steps are gathered and placed
+    /// from the top of the line down, each line box's steps together.
     mutating func nextStep() -> Step? {
+        if !sideBySideSteps.isEmpty { return sideBySideSteps.removeFirst() }
+        let step = walkToNextStep()
+        guard sideBySide != nil else { return step }
+        var gathered = step.map { [$0] } ?? []
+        while sideBySide != nil, let next = walkToNextStep() { gathered.append(next) }
+        var lineTops: [Int: CGFloat] = [:]
+        let keyed = gathered.enumerated().map { index, step -> (top: CGFloat, index: Int, step: Step) in
+            var top = step.blockStart
+            if let serial = step.lineSerial {
+                if let known = lineTops[serial] { top = known } else { lineTops[serial] = top }
+            }
+            return (top, index, step)
+        }
+        sideBySideSteps = keyed.sorted { $0.top != $1.top ? $0.top < $1.top : $0.index < $1.index }.map(\.step)
+        return nextStep()
+    }
+
+    private mutating func walkToNextStep() -> Step? {
         stepBudget += 1
         if stepBudget > Self.maxWalkerSteps {
             assertionFailure("PageWalker exceeded step budget \(Self.maxWalkerSteps) — corrupted box tree?")
@@ -582,6 +612,12 @@ struct PageWalker {
         #endif
         while !stack.isEmpty {
             let index = stack.count - 1
+            if let line = sideBySide, index == line.depth, stack[index].childIndex >= line.endChild {
+                // The line's last item is walked: what was gathered is placed
+                // before the walk goes on.
+                sideBySide = nil
+                return nil
+            }
             if stack[index].box.isOutOfFlow, !stack[index].floatBoundaryEmitted {
                 stack[index].floatBoundaryEmitted = true
                 let frame = stack[index]
@@ -606,6 +642,10 @@ struct PageWalker {
                 // side, so the line goes to the next page whole when it fits one.
                 stack[index].flexLineEmitted = true
                 let frame = stack[index]
+                if !isContinuous, line.height > pageHeight, sideBySide == nil, index > 0 {
+                    // The parent's `childIndex` is already past this item.
+                    sideBySide = (index - 1, stack[index - 1].childIndex - 1 + (frame.box.flexItem?.lineItemCount ?? 1))
+                }
                 return .monolith(StepMonolith(
                     marginRect: DocumentRect(rawValue: CGRect(
                         x: frame.borderX - frame.box.frame.minX + line.minX,
@@ -1951,5 +1991,32 @@ extension FillFragment {
         )
         moved.paintTransform = paintTransform?.offsetBy(dx: 0, dy: rect.rawValue.minY - self.rect.rawValue.minY)
         return moved
+    }
+}
+
+extension PageWalker.Step {
+    /// Where the step starts down the document; a box's end is where it ends.
+    var blockStart: CGFloat {
+        switch self {
+        case .inlineLineStart(let line): return line.placementRect.minY
+        case .monolith(let box): return box.marginRect.minY
+        case .fill(let fill): return fill.rect.minY
+        case .fillEnd(let end): return end.originalEndY
+        case .text(let text): return text.rect.minY
+        case .ruby(let ruby): return ruby.placementRect.minY
+        case .image(let image): return image.rect.minY
+        }
+    }
+
+    /// The line box the step belongs to, when it is part of one.
+    var lineSerial: Int? {
+        switch self {
+        case .inlineLineStart(let line): return line.lineSerial
+        case .fill(let fill): return fill.lineSerial
+        case .text(let text): return text.lineSerial
+        case .ruby(let ruby): return ruby.lineSerial
+        case .image(let image): return image.lineSerial
+        case .monolith, .fillEnd: return nil
+        }
     }
 }

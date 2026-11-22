@@ -11,12 +11,12 @@ All notable changes to YueduCoreText are documented in this file.
   - `flex`, `flex-grow`, `flex-shrink` and `flex-basis` along a row (§9.7), within `min-width` and `max-width`; an item that shrinks beside another stops at its longest unbreakable piece (the content-based minimum of §4.5).
   - `justify-content` (`flex-start`, `center`, `flex-end`, `space-between`, `space-around`, `space-evenly`), `align-items`, `align-self` and `auto` margins. A single line is as tall as a container that declares a height.
   - In a column with a height of its own, `justify-content`, `auto` margins and `flex-grow` share out what the items leave.
-  - A line of several items is moved to the next page whole when it does not fit what is left of the current one; a column breaks between and inside its items like any block.
+  - A line of several items is moved to the next page whole when it does not fit what is left of the current one, and one taller than a page breaks across pages with its items still side by side; a column breaks between and inside its items like any block.
 - The container around text only, laid out since 0.23.0 as an inline-block on an aligned line, is one item of this layout. Its item is now placed across a container that declares a height (`align-items: center` centres a label in a fixed-height bar).
 
 ### Changed
 
-- `flexGrid` is reported for what the layout does not place: `flex-direction: *-reverse`, `flex-wrap: wrap-reverse`, an item with `order`, a `<br>` or an absolutely positioned child straight inside a flex container, table rows or cells as items, any flex container in vertical text other than a stretched column around text, and every `grid-*` property. Baseline alignment aligns to the line's start, `align-content` is not applied (the lines of a wrapping container are packed at the start), items of a column do not shrink, and a picture is not stretched across a row's height.
+- `flexGrid` is reported for what the layout does not place: `flex-direction: *-reverse`, `flex-wrap: wrap-reverse`, an item with `order`, a `<br>` or an absolutely positioned child straight inside a flex container, table rows or cells as items, any flex container in vertical text other than a stretched column around text, and every `grid-*` property. Baseline alignment aligns to the line's start, `align-content` is not applied (the lines of a wrapping container are packed at the start), and items of a column do not shrink.
 
 ## [0.26.0] - 2026-11-22
 
