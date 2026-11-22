@@ -579,7 +579,8 @@ struct ListMarkerLayoutTests {
             ("<li><p>項目。</p></li>", "li p { line-height: 1 }", 25, 17),
             ("<li>項目。</li>", "li { font-size: 25.5px; line-height: 1 }", 37, 25.5),
             ("<li>項目。</li>", "li { font-size: 15.3px; line-height: 1 }", 23, 15.3),
-            ("<li>項目。</li>", "li { font-size: 15.3px; line-height: 1.2 }", 23, 18.36),
+            // 15.3 held as 15.296875, times 1.2, held as 18.34375 (`LayoutUnit.lineHeight`).
+            ("<li>項目。</li>", "li { font-size: 15.3px; line-height: 1.2 }", 23, 18.34375),
             ("<li><p>項目。</p></li>", "li { font-size: 25.5px } li p { font-size: 17px }", 25.5, 25.5),
             ("<li><p>項目。</p></li>", "li { font-size: 25.5px } li p { font-size: 17px; line-height: 2.5 }", 42.5, 42.5),
         ]

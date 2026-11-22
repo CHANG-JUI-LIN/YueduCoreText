@@ -579,11 +579,16 @@ struct ComputedStyle: Equatable {
 extension ComputedStyle {
     mutating func finalizeLineHeight(rootFontSize: CGFloat) {
         if let multiplier = lineHeightMultiplier {
-            lineHeight = max(0, fontSize * multiplier)
+            lineHeight = max(0, LayoutUnit.lineHeight(fontSize: fontSize, factor: multiplier))
             pendingLineHeightLength = nil
             return
         }
         guard let length = pendingLineHeightLength else { return }
+        if case .percent(let fraction) = length {
+            lineHeight = max(0, LayoutUnit.lineHeight(fontSize: fontSize, factor: fraction))
+            pendingLineHeightLength = nil
+            return
+        }
         lineHeight = CSSLengthResolver.resolve(
             length,
             emBase: fontSize,
