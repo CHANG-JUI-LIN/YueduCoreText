@@ -190,7 +190,8 @@ extension ConsumerTests {
             bytes[$0] < 100 && bytes[$0 + 1] < 100 && bytes[$0 + 2] < 100
         }.count > 100)
         let vertical = BrowserLayoutConfig(writingMode: .verticalRTL)
-        for html in ["<p style='float:right;width:30px'>浮動</p>",
+        // (A float is laid out in vertical text since 0.29.0; a `max-width` is not.)
+        for html in ["<p style='max-width:30px'>限寬</p>",
                      "<p style='writing-mode:vertical-lr'>未支援</p>",
                      "<p style='text-combine-upright:unknown'>12</p>"] {
             do { _ = try HTMLLayoutDocument(html: html, configuration: vertical).makePageSession(); Issue.record("Unsupported vertical subset accepted") }
