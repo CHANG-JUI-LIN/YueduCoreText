@@ -464,6 +464,9 @@ struct PageWalker {
     ///
     /// - `flowStart`: the first page. Not a break, so its leading margin is
     ///   retained (a body `margin-top` still shows above the first line).
+    /// - `flowStartWithoutLeadingMargin`: the first page, walked again because
+    ///   the margins before its first content left it with nothing on it
+    ///   (`layoutNextPage`). They are discarded, as after an unforced break.
     /// - `unforcedBreak`: pagination ran out of room. The block-start margin
     ///   adjoining the break is discarded.
     /// - `forcedBreak`: an author break (`break-before`/`page-break-before`).
@@ -474,10 +477,11 @@ struct PageWalker {
     /// that adding forced breaks cannot silently start eating their margins.
     private enum FragmentainerEntry {
         case flowStart
+        case flowStartWithoutLeadingMargin
         case unforcedBreak
         case forcedBreak
     }
-    private var pageEntry: FragmentainerEntry = .flowStart
+    private var pageEntry: FragmentainerEntry
 
     /// 底部對齊 (legado `textBottomJustify`): when a page ends because the next
     /// text line no longer fits, the leftover space below its last line is spread
@@ -521,17 +525,28 @@ struct PageWalker {
     }
     static let maxWalkerSteps = 2_000_000
 
+    /// The root box, kept so the first page can be walked again without its leading
+    /// margin (`layoutNextPage`).
+    private let rootBox: BlockBox
+    private let keepsLeadingMargin: Bool
+
+    /// - Parameter keepsLeadingMargin: false for the walk `layoutNextPage` starts when the
+    ///   margins before the first content left the first page with nothing on it.
     init(
         box: BlockBox,
         pageSize: CGSize,
         writingMode: ReaderWritingMode = .horizontal,
         contentInsets: UIEdgeInsets = .zero,
         isContinuous: Bool = false,
-        bottomJustify: Bool = false
+        bottomJustify: Bool = false,
+        keepsLeadingMargin: Bool = true
     ) {
         // Phase 2C: the canvas is the actual page viewport, not the content
         // bounds. pageHeight (the paging stride in document space) is the
         // content flow height inside the canvas.
+        self.rootBox = box
+        self.keepsLeadingMargin = keepsLeadingMargin
+        self.pageEntry = keepsLeadingMargin ? .flowStart : .flowStartWithoutLeadingMargin
         self.isContinuous = isContinuous
         // A scroll column has no page bottom. The paged callers walk in logical
         // coordinates, so they decide the writing mode (`BrowserLayoutConfig`).
@@ -1239,9 +1254,32 @@ struct PageWalker {
 
     /// Walks until the next page completes. Returns the page, or nil when the
     /// walk is exhausted (flushing the final partial page).
+    ///
+    /// The first page keeps the margins before its first content only while that content
+    /// still starts on it. A title page lowers its title with a percentage margin,
+    /// `margin-top: 40%`, which resolves against the page's width: on an iPhone held
+    /// sideways that is more than a page, and the first page held nothing but the
+    /// background — 157 chapters of six books in the 2026-11-23 census, the page before
+    /// every 卷 or 章 title. A first page that ends with nothing on it is walked again
+    /// without those margins, as a page after a break is, and the walk goes on from there
+    /// when content then starts on it; the rest of the chapter moves up a page with it.
+    /// Where the margins were not what left the page empty — a box of fixed height painted
+    /// with a background — the page stays as it was.
     mutating func layoutNextPage() -> PageFragments? {
         while let step = nextStep() {
-            if let page = place(step) { return page }
+            guard let page = place(step) else { continue }
+            if page.index == 0, keepsLeadingMargin, !Self.hasInk(page.fragments) {
+                var withoutMargin = PageWalker(
+                    box: rootBox, pageSize: pageRect.rawValue.size, writingMode: writingMode,
+                    contentInsets: contentInsets, isContinuous: isContinuous,
+                    bottomJustify: bottomJustify, keepsLeadingMargin: false
+                )
+                if let first = withoutMargin.layoutNextPage(), Self.hasInk(first.fragments) {
+                    self = withoutMargin
+                    return first
+                }
+            }
+            return page
         }
         if !currentPage.isEmpty {
             // The end of the flow, not a full column: the last page keeps its lines where they are.
@@ -1267,18 +1305,17 @@ struct PageWalker {
     /// an image). Box backgrounds/borders alone do not count: a body-background
     /// fill spans the whole page and would otherwise make every page look
     /// occupied.
-    private var currentPageHasInk: Bool {
-        func hasInk(_ fragments: [Fragment]) -> Bool {
-            for fragment in fragments {
-                switch fragment {
-                case .text, .image: return true
-                case .fill: continue
-                case .group(let children): if hasInk(children) { return true }
-                }
+    private var currentPageHasInk: Bool { Self.hasInk(currentPage) }
+
+    private static func hasInk(_ fragments: [Fragment]) -> Bool {
+        for fragment in fragments {
+            switch fragment {
+            case .text, .image: return true
+            case .fill: continue
+            case .group(let children): if hasInk(children) { return true }
             }
-            return false
         }
-        return hasInk(currentPage)
+        return false
     }
 
     /// - Parameter overflowLineHeight: the line box height of the text line (or ruby,
@@ -1325,8 +1362,7 @@ struct PageWalker {
     private mutating func discardMarginAdjoiningBreak(_ blockStart: CGFloat, target: Int) -> CGFloat {
         let margin = adjoiningBlockStartMargin
         adjoiningBlockStartMargin = 0
-        guard case .unforcedBreak = pageEntry else { return blockStart }
-        guard target == currentIndex, !currentPageHasInk else { return blockStart }
+        guard target == currentIndex, discardsAdjoiningMargin else { return blockStart }
         let pageTop = CGFloat(target) * pageHeight
         let discard = min(margin, blockStart - pageTop)
         guard discard > 0 else { return blockStart }
@@ -1336,9 +1372,30 @@ struct PageWalker {
         return blockStart - discard
     }
 
+    /// Whether the page in progress discards the margin adjoining its next content: it was
+    /// entered by an unforced break, or it is the first page walked without its leading
+    /// margin, and nothing is on it yet.
+    private var discardsAdjoiningMargin: Bool {
+        guard !currentPageHasInk else { return false }
+        switch pageEntry {
+        case .unforcedBreak, .flowStartWithoutLeadingMargin: return true
+        case .flowStart, .forcedBreak: return false
+        }
+    }
+
+    /// On a page that discards the margin adjoining its next content, the margin goes
+    /// before the content picks its page. Discarded only once the page was picked, a margin
+    /// taller than the room left carried the content onto the next page first, and this
+    /// one was emitted with nothing on it.
+    private mutating func discardMarginBeforeChoosingPage(_ blockStart: CGFloat) {
+        guard discardsAdjoiningMargin else { return }
+        _ = discardMarginAdjoiningBreak(blockStart, target: currentIndex)
+    }
+
     private mutating func placeInlineLineStart(_ step: StepInlineLineStart) -> PageFragments? {
         var flushed: PageFragments?
         if !isContinuous {
+            discardMarginBeforeChoosingPage(step.placementRect.minY + flowShift)
             let shiftedY = step.placementRect.minY + flowShift
             var target = max(0, Int(floor(shiftedY / pageHeight)))
             if step.placementRect.height <= pageHeight,
@@ -1407,6 +1464,7 @@ struct PageWalker {
             appendToCurrentPage(.text(fragment), lineSerial: step.lineSerial)
             return nil
         }
+        discardMarginBeforeChoosingPage(step.rect.minY + flowShift)
         let shiftedY = step.rect.minY + flowShift
         var target = max(0, Int(floor(shiftedY / pageHeight)))
         let pageLocalY = shiftedY - CGFloat(target) * pageHeight
@@ -1459,6 +1517,7 @@ struct PageWalker {
             return nil
         }
 
+        discardMarginBeforeChoosingPage(step.placementRect.minY + flowShift)
         let shiftedY = step.placementRect.minY + flowShift
         var target = max(0, Int(floor(shiftedY / pageHeight)))
         let pageLocalY = shiftedY - CGFloat(target) * pageHeight
@@ -1563,6 +1622,7 @@ struct PageWalker {
             appendToCurrentPage(.fill(fragment), lineSerial: step.lineSerial)
             return nil
         }
+        discardMarginBeforeChoosingPage(step.rect.minY + flowShift)
         let shiftedStartY = step.rect.minY + flowShift
         let target = max(0, Int(floor(shiftedStartY / pageHeight)))
         let flushed = advanceToPage(target)
@@ -1735,6 +1795,7 @@ struct PageWalker {
             appendToCurrentPage(.image(fragment), lineSerial: step.lineSerial)
             return nil
         }
+        discardMarginBeforeChoosingPage(step.rect.minY + flowShift)
         let shiftedY = step.rect.minY + flowShift
         var target = max(0, Int(floor(shiftedY / pageHeight)))
         let pageLocalY = shiftedY - CGFloat(target) * pageHeight

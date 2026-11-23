@@ -2,6 +2,13 @@
 
 All notable changes to YueduCoreText are documented in this file.
 
+## [0.30.1] - 2026-11-23
+
+### Fixed
+
+- A chapter whose content is lowered by more than a page no longer opens on a blank page. A title page lowers its title with a percentage margin (`margin-top: 40%`), which resolves against the page's width: held sideways (a 760 × 300 page) that is more than a page, and the first page held nothing but the background. In the app's 35-book corpus that was 157 chapters of six books, each the page before a title; in vertical text an upright page does the same. Such a page also reported the chapter's end as its position, so the next page's start found it. The first page now keeps the margins before its content only while that content starts on it; otherwise they are discarded as after a page break, and the content starts the first page. A first page left empty by something other than a margin, such as a box of fixed height painted with a background, is unchanged.
+- A margin that a page discards — on the first page as above, or on a page after a break — is discarded before the content after it picks its page. It was discarded only once the page was picked, so a margin taller than the room left could carry that content on to the following page first. In the corpus this changes no page after a break.
+
 ## [0.30.0] - 2026-11-23
 
 ### Changed
